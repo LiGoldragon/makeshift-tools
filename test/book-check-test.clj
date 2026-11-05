@@ -24,7 +24,18 @@
 (deftest heading-carries-the-location
   (is (= [] (check good)))
   (is (= [] (check "### Proposal 2: The Library · signal-chronos › ethos/library.ethos, a new file\n+ Added.\n")))
-  (is (= [] (check "## Proposal 3: chronos › ethos/memory.ethos, a new file\n+ Added.\n"))))
+  (is (= [] (check "## Proposal 3: chronos › ethos/memory.ethos, a new file\n+ Added.\n")))
+  (is (= [] (check "### Proposal 4: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md\n+ Moved.\n")))
+  (is (= [] (check "### Proposal 5: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, a new file\n+ Moved.\n")))
+  (is (= [] (check "### Proposal 6: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, a deleted file\n+ Moved.\n"))))
+
+(deftest proposal-heading-location-pair-is-exact
+  (doseq [heading ["### Proposal 1: Move · psyche-belief › vision/old.md, psyche-belief › vision/new.md"
+                   "### Proposal 1: Move · psyche-belief › vision/old.md, and bad path"
+                   "### Proposal 1: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, and psyche-belief › vision/third.md"
+                   "### Proposal 1: Move · psyche-belief › vision/old.md, a new file, and psyche-belief › vision/new.md"]]
+    (is (some #{"proposal-heading-without-location"}
+              (reasons (str heading "\n+ Changed.\n"))) heading)))
 
 (deftest heading-without-a-location-refuses
   (is (= ["proposal-heading-without-location" "missing-proposal" "text-outside-proposal-without-module"]

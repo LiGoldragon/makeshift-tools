@@ -8,9 +8,9 @@
             [clojure.string :as str]
             [babashka.fs :as fs]))
 
-;; A proposal names its location in its heading: "Proposal N: <repo> › <path>",
-;; optionally after a title and " · ", optionally ending ", a new file" or ", a deleted file".
-(def located #"^Proposal \d+: (?:.+ · )?[^\s›·]+ › [^\s,]+(?:, a (?:new|deleted) file)?\z")
+;; A proposal names one location, or two locations joined by ", and", in its heading.
+;; A new/deleted-file suffix belongs to the final location.
+(def located #"^Proposal \d+: (?:.+ · )?[^\s›·]+ › [^\s,]+(?:, and [^\s›·]+ › [^\s,]+)?(?:, a (?:new|deleted) file)?\z")
 ;; A removal is a change: removed lines, or the whole file deleted.
 (defn change? [line]
   (boolean (or (re-find #"^[+-] .*\S" line)
