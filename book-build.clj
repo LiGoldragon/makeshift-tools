@@ -1709,7 +1709,13 @@
     (close-record)
     (when @in-module (append! "</article>"))
     (when @in-article (append! "</article>"))
-    (str (str/join "\n" @out) "\n" code)))
+    (let [body (str/join "\n" @out)
+          key-line (str "<p class=\"key\"><b class=\"k-add\">green</b> added, <b class=\"k-del\">red</b> removed, "
+                        "<b class=\"k-moved\">blue</b> moved; <b class=\"k-light\">light</b> proposed, "
+                        "<b class=\"k-dark\">dark</b> landed</p>")
+          body (str/replace-first body #"(?s)(<h1 class=\"book-title\">.*?</h1>(?:\n<p class=\"book-subtitle\">.*?</p>)?)"
+                                 (fn [[m]] (str m "\n" key-line)))]
+      (str body "\n" code))))
 
 (defn read-text
   "Read a UTF-8 file with newlines normalised to \\n."

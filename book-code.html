@@ -140,7 +140,10 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .del>*,.add>*{overflow-wrap:anywhere}
 .diff .add,.diff .del{padding:6px 10px 6px 12px;border-left:4px solid;border-radius:6px;min-width:0}
 .diff .add{border-left-color:var(--add-edge)}
-.diff .moved{color:var(--moved-fg);background:var(--moved-bg);padding:6px 10px 6px 12px;border-left:4px solid var(--moved-edge);border-radius:6px;min-width:0}
+.diff .moved{color:var(--moved-fg);background:var(--moved-bg);padding:6px 10px 6px 12px;border-radius:6px;min-width:0}
+.key{font-family:var(--f-label);font-size:.85rem;margin-block:-14px 0}
+.key b{font-weight:600}
+.key .k-add{color:var(--add-edge)}.key .k-del{color:var(--del-edge)}.key .k-moved{color:var(--moved-edge)}.key .k-light{color:var(--move-proposed-edge)}.key .k-dark{color:var(--move-landed-edge)}
 .diff .moved>*{overflow-wrap:anywhere}
 .diff .moved :is(h3,h4,h5,h6){margin:0;color:inherit}
 .diff .del{border-left-color:var(--del-edge)}
