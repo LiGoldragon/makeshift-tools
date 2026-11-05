@@ -1,0 +1,14 @@
+{:tasks
+ {test
+  {:doc "Run every test; fail if any fails"
+   :requires ([babashka.fs :as fs]
+              [babashka.process :refer [shell]])
+   :task (let [tests (sort (map str (fs/glob "test" "*-test.clj")))
+               failed (remove (fn [t]
+                                (println "==" t)
+                                (zero? (:exit (shell {:continue true} "bb" t))))
+                              tests)]
+           (when (seq failed)
+             (println "FAILED:" (clojure.string/join " " failed))
+             (System/exit 1))
+           (println "all" (count tests) "test files passed"))}}}

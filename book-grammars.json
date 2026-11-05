@@ -1,0 +1,17 @@
+{
+  "languages": {
+    "rust": "rust",
+    "rs": "rust",
+    "sh": "bash",
+    "bash": "bash",
+    "shell": "bash",
+    "ethos": "ethos",
+    "datom": "datom"
+  },
+  "grammars": {
+    "rust": {"source": "nixpkgs#tree-sitter-grammars.tree-sitter-rust.src", "scope": "source.rust"},
+    "bash": {"source": "nixpkgs#tree-sitter-grammars.tree-sitter-bash.src", "scope": "source.bash"},
+    "ethos": {"source": "/git/github.com/LiGoldragon/tree-sitter-ethos", "scope": "source.ethos"},
+    "datom": {"source": "/git/github.com/LiGoldragon/tree-sitter-dotos", "scope": "source.datom"}
+  }
+}

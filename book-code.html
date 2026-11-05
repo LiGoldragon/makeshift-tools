@@ -1,0 +1,235 @@
+<!-- Book page code. Paste this whole file, unchanged, at the end of a book page's body. The page writes no CSS of its own.
+     Markup, all optional except what the source has:
+       <h1 class="book-title">                       the book's title
+       <article class="proposal">                    one proposal (one ## section)
+         <header><span class="pnum">1</span><h2>…</h2></header>
+         <p class="target"><code>repo/skills/name.md</code></p>   the target file, as a chip
+         <p>…</p>                                    the section's prose, as text
+         <div class="diff">                          one change
+           <div class="ctx">…</div>                  unchanged context (muted)
+           <del>…</del> / <ins>…</ins>               removed words (red highlight, never struck through) / added words (green), inline in one text
+         </div>
+       </article>
+       A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
+       A record removed rather than landed (separate from del/ins; violet for Destroy, amber for Archive):
+         <div class="record destroy">  or  <div class="record archive">   the mark ("Destroy" / "Archive") is drawn by the class
+           <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the record removed
+           <div class="ctx">…</div>                  the record's text, shown whole
+         </div>
+       The machine's comment on the proposal it sits in, before its lines (indigo, labelled "Why" by the class):
+         <aside class="comment"><p>…</p></aside>
+       Alternatives of one proposal, one group:
+         <div class="alternatives"><div class="alt-label">Shared by the 2 alternatives</div>
+           <div class="diff">…</div>                 the shared text once; <span class="alt-gap">1</span> (or …) where they differ
+           <div class="alternative"><div class="alt-label">Alternative 1</div>
+             <p class="alt-words add">shared words <mark>its words</mark> shared words</p>   one per gap; class add, del or ctx by the line's sign
+           </div>
+         </div>
+       <section class="rulings"><h2>Rulings</h2><ol>   (a single ruling may sit inside its proposal; <li value="N"> keeps its number)
+         <li><p>Proposal 1:</p><ol class="choices"><li>land</li><li>amend</li></ol></li>
+       </ol></section>
+     Prose inside ctx is formatted HTML (p, ul, ol, h3, strong, inline code), never pre.
+     Literal fenced file text: <div class="textblock">HTML-escaped text</div>; keep Markdown markers and whitespace, no heading parsing.
+     Code: a full-width row outside choices and indented columns, <pre><code class="language-ethos|language-datom|language-rust|language-clojure|language-bash">.
+     Colour is the sign of a change and lives in the margin: <div class="add">/<div class="del"> and <tr class="row-add|row-del"> carry a green or red edge, their text in the page's colour.
+     Code is highlighted at build time (tree-sitter, classes ts-*): <pre class="code-add|code-del"> is a fence wholly added or removed, one margin;
+     <pre class="code-diff"> holds <span class="ln ln-add|ln-del"> lines, each signed in its gutter. Code never wraps midline; a line wider than the block
+     scrolls inside it (56 characters at 360 px, 61 at 390 px, 85 at desktop width). -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; each proposal is a sheet with its file chip on top, its change shown as stacked diff panels. */
+:root{
+  --bg:#f6f7f4;--sheet:#ffffff;--fg:#1d2420;--muted:#66726b;--line:#dde2dc;--chip:#e9ede7;
+  --add-bg:#e3f5e6;--add-edge:#2f8a46;--add-fg:#14351f;
+  --del-bg:#fbe5e3;--del-edge:#c2372b;--del-fg:#5b1a14;
+  --moved-bg:#e4e9fb;--moved-edge:#3a5bc7;--moved-fg:#1c2b66;
+  --move-proposed-edge:#6b7ed6;--move-landed-edge:#304aa8;
+  --ctx-bg:#f1f3ef;--accent:#1c5f8a;
+  --destroy-bg:#efe6f7;--destroy-edge:#7b3fb0;--archive-bg:#fdf0d5;--archive-edge:#a86a00;
+  --comment-bg:#e8ebfa;--comment-edge:#3f51b5;--comment-fg:#1f2756;
+  --hl-bg:#eceee9;--hl-type:#1c5f8a;--hl-punct:#9a5b13;--hl-comment:#6b7a72;--hl-string:#6a3fa0;--hl-meta:#8a3d6b;
+  --hl-add:rgba(47,138,70,.16);--hl-del:rgba(194,55,43,.15);
+  --f-prose:"Literata",Georgia,"Times New Roman",serif;
+  --f-label:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-code:"JetBrains Mono",ui-monospace,"DejaVu Sans Mono",monospace;
+}
+.move{border-left:4px solid var(--move-edge);padding:4px 0 4px 12px;min-width:0}
+.move-proposed{--move-edge:var(--move-proposed-edge)}
+.move-landed{--move-edge:var(--move-landed-edge)}
+.move>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
+.move-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#121815;--sheet:#1a211d;--fg:#e4e9e5;--muted:#93a199;--line:#2c3631;--chip:#25302a;
+  --add-bg:#16301f;--add-edge:#5cc47a;--add-fg:#cdeed5;
+  --del-bg:#361a18;--del-edge:#f07a6e;--del-fg:#f6d0cb;
+  --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
+  --move-proposed-edge:#9aaeff;--move-landed-edge:#7e95f5;
+  --ctx-bg:#1e2622;--accent:#7cc0ee;
+  --destroy-bg:#2a1d3a;--destroy-edge:#c39af0;--archive-bg:#392a10;--archive-edge:#f0b94f;
+  --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
+  --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
+  --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#121815;--sheet:#1a211d;--fg:#e4e9e5;--muted:#93a199;--line:#2c3631;--chip:#25302a;
+  --add-bg:#16301f;--add-edge:#5cc47a;--add-fg:#cdeed5;
+  --del-bg:#361a18;--del-edge:#f07a6e;--del-fg:#f6d0cb;
+  --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
+  --move-proposed-edge:#9aaeff;--move-landed-edge:#7e95f5;
+  --ctx-bg:#1e2622;--accent:#7cc0ee;
+  --destroy-bg:#2a1d3a;--destroy-edge:#c39af0;--archive-bg:#392a10;--archive-edge:#f0b94f;
+  --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
+  --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
+  --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font:17px/1.6 var(--f-prose);margin:0 auto;max-width:44rem;padding-inline:16px;padding-block:20px 48px;display:grid;gap:22px;align-content:start}
+body>*{min-width:0;margin:0}
+h1,h2,h3{font-family:var(--f-label);text-wrap:balance;line-height:1.25}
+h1,.book-title{font-size:1.65rem;font-weight:600;letter-spacing:.005em;margin-block:4px}
+p.book-subtitle{color:var(--muted);font-size:.95rem;margin-block:-14px 0}
+h2{font-size:1.18rem;font-weight:600;margin:0}
+h3{font-size:1rem;font-weight:600;margin:.4em 0 .2em}
+p,ul,ol{margin:0}
+.textblock{white-space:pre-wrap;overflow-wrap:anywhere;font:inherit}
+:where(article,section,div,li)>*+*{margin-top:.7em}
+a{color:var(--accent)}
+:not(pre)>code{font-family:var(--f-code);font-size:.84em;background:var(--chip);padding:.08em .35em;border-radius:4px;overflow-wrap:anywhere;word-break:normal}
+/* A figure keeps the size it is drawn at; a column narrower than it scrolls it sideways, never up and down.
+   overflow-x:auto makes the box a scroll container, whose automatic minimum height is 0, so a grid row that is short of room
+   (a page without a doctype is in quirks mode, where the body is held to the screen's height) shrinks it to nothing and the
+   next element overlaps it. A min-height does not stop that; a definite height does: height:max-content is the whole content height. */
+.figure{overflow-x:auto;overflow-y:hidden;height:max-content;max-width:100%;min-width:0}
+/* Likewise a table: sideways scroll only, its whole height always (see .figure). */
+table{border-collapse:collapse;font-family:var(--f-label);font-size:.95rem;display:block;overflow-x:auto;overflow-y:hidden;height:max-content;max-width:100%}
+th,td{border-bottom:1px solid var(--line);padding:6px 12px 6px 0;text-align:left}
+th{color:var(--muted);font-weight:600;letter-spacing:.03em}
+
+/* A proposal: a sheet with a numbered header and its target chip. */
+.proposal{background:var(--sheet);border:1px solid var(--line);border-radius:10px;padding:18px 16px 20px;min-width:0}
+.proposal>header{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start}
+.proposal>header>*{margin:0;min-width:0}
+.pnum{font-family:var(--f-label);font-weight:600;font-size:.95rem;width:1.9rem;height:1.9rem;border-radius:50%;display:grid;place-items:center;background:var(--fg);color:var(--sheet);font-variant-numeric:tabular-nums}
+.target{display:flex}
+.target code,.target{font-family:var(--f-code);font-size:.78rem}
+.target>code{display:inline-block;background:var(--chip);color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:3px 12px 3px 10px;overflow-wrap:anywhere;max-width:100%}
+.target>code::before{content:"\25A4  ";color:var(--muted)}
+
+/* A module view: the module as it stands, framed apart from a proposal (blue edge, tinted ground, a label) and from page text. */
+.module{background:color-mix(in srgb,var(--accent) 7%,var(--sheet));border:1px solid var(--line);border-left:6px solid var(--accent);border-radius:10px;padding:14px 16px 20px;min-width:0}
+.module>header{display:grid;gap:6px;justify-items:start}
+.module>header>*{margin:0;min-width:0}
+.mlabel{font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+.module h3{font-size:1.05rem;margin-top:1em}
+.markdown{min-width:0}
+.markdown>*+*{margin-top:.7em}
+.module h4{font-size:.95rem;font-weight:600;font-family:var(--f-label);margin-top:.9em}
+
+/* A change: stacked panels, each with a sign gutter. */
+.diff{display:grid;gap:6px;min-width:0}
+.diff>*{margin:0;min-width:0}
+.ctx{display:grid;grid-template-columns:1.6rem 1fr;border-radius:8px;overflow:hidden;min-width:0}
+.ctx::before{font-family:var(--f-code);font-weight:600;font-size:.95rem;text-align:center;padding-top:12px;grid-row:1/span 999}
+.ctx>*{grid-column:2;min-width:0;padding-inline:4px 14px;margin:0}
+.ctx>:first-child{padding-top:10px}
+.ctx>:last-child{padding-bottom:12px}
+.ctx>*+*{padding-top:.6em}
+.ctx{background:transparent;color:var(--fg)}
+.ctx::before{content:"";}
+.diff del,pre del{color:var(--del-edge);background:var(--hl-del);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
+.diff ins,pre ins{color:var(--add-edge);background:var(--hl-add);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
+.diff del *,pre del *{color:inherit;text-decoration:inherit}
+.diff ins *,pre ins *{color:inherit;text-decoration:none}
+/* Fallback for publishers that emit prose panels instead of inline marks. */
+.diff .del,.diff .add{color:var(--fg);background:transparent;text-decoration:none}
+.del>*,.add>*{overflow-wrap:anywhere}
+.diff .add,.diff .del{padding:6px 10px 6px 12px;border-left:4px solid;border-radius:6px;min-width:0}
+.diff .add{border-left-color:var(--add-edge)}
+.diff .moved{color:var(--moved-fg);background:var(--moved-bg);padding:6px 10px 6px 12px;border-left:4px solid var(--moved-edge);border-radius:6px;min-width:0}
+.diff .moved>*{overflow-wrap:anywhere}
+.diff .moved :is(h3,h4,h5,h6){margin:0;color:inherit}
+.diff .del{border-left-color:var(--del-edge)}
+/* A proposed figure keeps its own colours; a surround alone marks it added or removed. */
+.figmark{border:2px solid;border-left-width:8px;border-radius:6px;padding:4px;min-width:0}
+.fig-add{border-color:var(--add-edge)}
+.fig-del{border-color:var(--del-edge)}
+.part{margin:.6em 0 .2em;font-size:.95rem;font-weight:600;font-family:var(--f-label)}
+.diff .add :is(h3,h4,h5,h6),.diff .del :is(h3,h4,h5,h6){margin:0;color:inherit}
+.diff :is(ul,ol){padding-inline-start:1.3em}
+.diff :is(ul,ol)>li+li{margin-top:.25em}
+.diff pre:has(>code[class*="language-"]){margin-top:.4em}
+/* Front matter of a proposed module: a small labelled card. */
+.fm{border:1px solid var(--line);background:var(--sheet);color:var(--fg);border-radius:8px;padding:8px 12px 10px;min-width:0}
+.fm-label{font-family:var(--f-label);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.fm dl{margin:.3em 0 0;display:grid;gap:.15em .8em;grid-template-columns:auto 1fr}
+.fm dt{font-family:var(--f-label);font-weight:600;font-size:.9rem}
+.fm dd{margin:0;min-width:0;overflow-wrap:anywhere}
+@media (max-width:540px){.fm dl{grid-template-columns:1fr}.fm dd{margin-bottom:.4em}}
+.ctx pre{padding-inline:12px}
+.diff-label{font-family:var(--f-label);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+
+/* A record removed, not landed: its own colour and a mark, never the red/green of del/ins. */
+.record{border:1.5px dashed var(--rec-edge);background:var(--rec-bg);border-radius:8px;padding:10px 12px 12px;min-width:0}
+.record.destroy{--rec-edge:var(--destroy-edge);--rec-bg:var(--destroy-bg)}
+.record.archive{--rec-edge:var(--archive-edge);--rec-bg:var(--archive-bg)}
+.record::before{display:inline-block;margin-bottom:.5em;padding:2px 10px;border-radius:999px;background:var(--rec-edge);color:var(--sheet);font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+.record.destroy::before{content:"\2715  Destroy"}
+.record.archive::before{content:"\25A3  Archive"}
+.record .ctx{background:transparent}
+
+/* The machine's comment: why it proposes the lines that follow; its own colour (indigo), never module text, green or red. */
+.comment{border-left:4px solid var(--comment-edge);background:var(--comment-bg);color:var(--comment-fg);border-radius:8px;padding:8px 12px 10px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5}
+.comment::before{content:"Why";display:inline-block;margin-bottom:.35em;padding:1px 9px;border-radius:999px;background:var(--comment-edge);color:var(--sheet);font-weight:600;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase}
+.comment>p{margin:0;overflow-wrap:anywhere}
+
+/* Alternatives: the shared text once, a gap chip where they differ, then each alternative's words at each gap, marked. */
+.alternatives{display:grid;gap:10px;min-width:0}
+.alternatives>*{margin:0;min-width:0}
+.alt-label{font-family:var(--f-label);font-size:.8rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.alt-gap{display:inline-block;min-width:1.4em;padding:0 .35em;border:1.5px dashed currentColor;border-radius:6px;font-family:var(--f-label);font-weight:600;font-size:.85em;line-height:1.3;text-align:center;text-decoration:none}
+.alternative{display:grid;gap:6px;border:1px solid var(--line);border-radius:8px;padding:8px 12px 10px;min-width:0}
+.alternative>*{margin:0;min-width:0}
+.alt-words{color:var(--muted);overflow-wrap:anywhere}
+.alt-words mark{background:none;color:var(--fg);font-weight:600;border-radius:3px;padding:0 .12em}
+.alt-words.add mark{color:var(--add-edge);background:var(--hl-add)}
+.alt-words.del mark{color:var(--del-edge);background:var(--hl-del);text-decoration:none}
+.alt-words mark.alt-none{color:var(--muted);background:var(--chip);font-weight:400}
+
+/* Rulings: one card per ruling, numbered choices. */
+.rulings{display:grid;gap:12px}
+.rulings>ol{list-style:none;padding:0;margin:0;display:grid;gap:10px}
+.rulings>ol>li{background:var(--sheet);border:1px solid var(--line);border-radius:10px;padding:14px 16px 16px 3.4rem;position:relative;margin:0}
+.rulings>ol>li::before{content:counter(list-item);position:absolute;left:14px;top:13px;width:1.7rem;height:1.7rem;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--sheet);font-family:var(--f-label);font-weight:600;font-size:.9rem}
+.choices{list-style:none;padding:0;display:grid;gap:6px;counter-reset:choice}
+.choices>li{counter-increment:choice;display:block;position:relative;padding-inline-start:calc(1.8rem + 8px);min-width:0;margin:0}
+.choices>li::before{content:counter(choice);position:absolute;left:0;top:0;width:1.8rem;font-family:var(--f-label);font-weight:600;text-align:center;border:1.5px solid var(--accent);color:var(--accent);border-radius:6px;line-height:1.5}
+
+/* Code: never wraps; wide lines scroll inside their block. */
+pre:has(>code[class*="language-"]){background:var(--hl-bg);padding:12px 14px;border-radius:6px;overflow-x:auto;overflow-y:hidden;height:max-content;max-width:100%;min-width:0;margin:0}
+pre>code[class*="language-"]{background:none;padding:0;white-space:pre;font-family:var(--f-code);font-size:.82rem;line-height:1.5;display:block;tab-size:4;position:relative;isolation:isolate;min-width:max-content}
+pre>code[class*="language-"],pre>code[class*="language-"] *{white-space:pre!important}
+@media (max-width:540px){pre>code[class*="language-"]{font-size:12px}body{font-size:16px}}
+:where(*):has(pre>code[class*="language-"]){min-width:0}
+/* A change in code: one margin for a fence wholly added or removed; per line in the gutter otherwise. */
+pre.code-add{box-shadow:inset 4px 0 var(--add-edge)}
+pre.code-del{box-shadow:inset 4px 0 var(--del-edge)}
+pre.code-diff:has(>code){padding-inline:0}
+pre.code-diff .ln{display:block;padding-inline:14px;position:relative}
+pre.code-diff .ln-add{box-shadow:inset 4px 0 var(--add-edge)}
+pre.code-diff .ln-del{box-shadow:inset 4px 0 var(--del-edge)}
+pre.code-diff .ln-add::before,pre.code-diff .ln-del::before{position:absolute;left:5px;font-weight:600}
+pre.code-diff .ln-add::before{content:"+";color:var(--add-edge)}
+pre.code-diff .ln-del::before{content:"\2212";color:var(--del-edge)}
+tr.row-add>:first-child{box-shadow:inset 4px 0 var(--add-edge)}
+tr.row-del>:first-child{box-shadow:inset 4px 0 var(--del-edge)}
+/* Syntax colours, from tree-sitter's captures. */
+.ts-keyword,.ts-type,.ts-constructor{color:var(--hl-type)}
+.ts-punctuation,.ts-operator{color:var(--hl-punct)}
+.ts-comment{color:var(--hl-comment);font-style:italic}
+.ts-string,.ts-number,.ts-constant{color:var(--hl-string)}
+.ts-function,.ts-module,.ts-attribute,.ts-property,.ts-label,.ts-string.ts-special{color:var(--hl-meta)}
+.ts-type.ts-builtin,.ts-function.ts-builtin,.ts-keyword{font-weight:600}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+<script>
+  // A meta tag in the body is not reliably honoured: make sure the head carries the viewport.
+  if(!document.head.querySelector('meta[name="viewport"]')){var vm=document.createElement('meta');vm.name='viewport';vm.content='width=device-width, initial-scale=1';document.head.appendChild(vm)}
+</script>

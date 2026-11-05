@@ -1,0 +1,93 @@
+#!/usr/bin/env bb
+;; Redeem one Codex usage reset, named by its id, and show state before and after.
+;;
+;;   codex-redeem-reset [--codex PATH] [--min-used-percent N]
+;;                      [--expiry-window-minutes N] <RateLimitResetCredit_...>
+;;
+;; Refuses unless the named reset is available and is the one expiring soonest,
+;; and unless one condition holds: (1) Codex is out or nearly out: ordinary
+;; usage not allowed, or a window at least --min-used-percent used (default
+;; 95); (2) the reset expires within --expiry-window-minutes (default 90) and
+;; the current week is at least 1% used. Prints which allowed it.
+;; Run only under the judgment rule of knowledge:codex-reset.
+(require '[babashka.fs :as fs] '[clojure.string :as str])
+(load-file (str (fs/path (fs/parent (fs/real-path *file*)) "codex-app-server.clj")))
+(require '[codex-app-server :as app])
+
+(defn refuse [reason]
+  (flush)
+  (binding [*out* *err*] (println (str "refused: " reason)))
+  (System/exit 2))
+
+(defn g [x]
+  "Python's {x:g} for a number."
+  (let [d (double x)]
+    (if (== d (Math/rint d))
+      (if (< (Math/abs d) 1e6) (str (long d)) (format "%g" d))
+      (-> (java.math.BigDecimal. d) (.round (java.math.MathContext. 6)) .stripTrailingZeros .toPlainString))))
+
+(defn number-option [options k default flag]
+  (if-let [v (get options k)]
+    (try (Double/parseDouble v)
+         (catch NumberFormatException _ (refuse (str flag " needs a number, got " v))))
+    default))
+
+(defn windows [usage]
+  (for [limit (vals (app/limits-of usage)) name ["primary" "secondary"]
+        :let [w (get limit name)] :when w]
+    w))
+
+(defn most-used-percent [usage]
+  (reduce max 0 (map #(get % "usedPercent") (windows usage))))
+
+(defn week-used-percent [usage]
+  (reduce max 0 (map #(get % "usedPercent")
+                     (filter #(= 10080 (get % "windowDurationMins")) (windows usage)))))
+
+(app/main-guard
+ (fn []
+   (let [{:keys [options positional]}
+         (try (app/parse-args *command-line-args*
+                              {"--codex" :codex "--min-used-percent" :min-used
+                               "--expiry-window-minutes" :expiry-window}
+                              {})
+              (catch clojure.lang.ExceptionInfo e (refuse (.getMessage e))))
+         min-used-percent (number-option options :min-used 95.0 "--min-used-percent")
+         expiry-window-minutes (number-option options :expiry-window 90.0 "--expiry-window-minutes")
+         opts (select-keys options [:codex])]
+     (when (not= 1 (count positional)) (refuse "name exactly one reset id"))
+     (let [credit-id (first positional)
+           before (app/read-usage opts)]
+       (println (str "before:\n" (app/report before)))
+       (let [credits (app/available-credits before)]
+         (when (empty? credits) (refuse "no reset is available"))
+         (when-not (some #{credit-id} (map #(get % "id") credits))
+           (refuse (str credit-id " is not an available reset")))
+         (when (not= (get (first credits) "id") credit-id)
+           (refuse (str credit-id " is not the soonest-expiring reset; that is " (get (first credits) "id"))))
+         (let [out (false? (get before "ordinaryUsageAllowed"))
+               used (most-used-percent before)
+               expires-at (get (first credits) "expiresAt")
+               minutes-left (when (and expires-at (not (zero? expires-at)))
+                              (/ (- expires-at (/ (System/currentTimeMillis) 1000.0)) 60))
+               week-used (week-used-percent before)]
+           (cond
+             (or out (>= used min-used-percent))
+             (println (str "allowed by: Codex is out or nearly out (" used "% used)"))
+
+             (and minutes-left (< 0 minutes-left) (<= minutes-left expiry-window-minutes) (>= week-used 1))
+             (println (str "allowed by: reset expires in " (format "%.0f" (double minutes-left)) " min (within "
+                           (g expiry-window-minutes) ") and the week is " week-used "% used"))
+
+             :else
+             (refuse (str "neither condition holds: " used "% used < " min-used-percent "% and usage allowed; "
+                          "reset expiry window " (g expiry-window-minutes) " min not met "
+                          "(minutes left: " (if minutes-left (long (Math/rint (double minutes-left))) "None") ", "
+                          "week " week-used "% used, needs >= 1%)")))))
+       (let [idempotency-key (str (java.util.UUID/randomUUID))]
+         (println (str "redeeming " credit-id " with idempotency key " idempotency-key))
+         (let [result (app/call "account/rateLimitResetCredit/consume"
+                                {"idempotencyKey" idempotency-key "creditId" credit-id} opts)]
+           (println (str "outcome: " (app/py-str (get result "outcome")))))
+         (let [after (app/read-usage opts)]
+           (println (str "after:\n" (app/report after)))))))))

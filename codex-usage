@@ -1,0 +1,20 @@
+#!/usr/bin/env bb
+;; Print Codex usage left, its reset time, and the available usage resets.
+;;
+;;   codex-usage [--json] [--codex PATH]
+;;
+;; Reads account/rateLimits/read from `codex app-server` with the ~/.codex
+;; login. Read-only. --json prints the raw reply. --codex PATH names the codex
+;; binary (default: codex on PATH, then the newest /nix/store codex).
+(require '[babashka.fs :as fs])
+(load-file (str (fs/path (fs/parent (fs/real-path *file*)) "codex-app-server.clj")))
+(require '[codex-app-server :as app])
+
+(app/main-guard
+ (fn []
+   (let [{:keys [options]} (app/parse-args *command-line-args* {"--codex" :codex} {"--json" :json})
+         opts (select-keys options [:codex])
+         usage (app/read-usage opts)]
+     (if (:json options)
+       (println (app/write-json usage))
+       (println (app/report usage))))))
