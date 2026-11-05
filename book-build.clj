@@ -13,12 +13,14 @@
 ;; cannot find is left out with one line on stderr naming it, and the build
 ;; still succeeds; no content stops a build. Only a failure to read or write a
 ;; file is an error (stderr line, exit 1). A paragraph opening with
-;; **Destroy** or **Archive** wraps the record that follows in a
-;; record panel of that class. Inside a proposal, a paragraph opening with
+;; **Destroy** or **Archive** wraps the deleted module that follows, shown
+;; whole, in a record panel under the red margin with that mark. Inside a proposal, a paragraph opening with
 ;; **Comment** is the machine's comment, in its own colour, before the lines it
-;; explains; lines **Alternative 1**, **Alternative 2**, … each followed by the
-;; exact lines that alternative lands make one group: the shared text once,
-;; then each alternative's differing words alone. The page code (book-code.html) is
+;; explains. Each alternative is its own proposal. The first line may be a
+;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
+;; (the default when absent), Review or Account: a Review shows its added and
+;; removed lines in the dark shade. A paragraph opening "Created by" under the
+;; title is the signature line, shown as the subtitle. The page code (book-code.html) is
 ;; appended whole. ethos-zero (the one --ethos-zero-real names, else the pinned
 ;; main) only decides how an unlabelled module-view fence and an Ethos file are
 ;; tagged; its refusal never stops a build. --ethos-zero names the one that reads
@@ -1063,14 +1065,10 @@
   "A paragraph opening with **Comment** is the machine's comment on the proposal it sits in."
   #"^\*\*Comment\*\*(?U)\s*(.*)$")
 
-(def alternative-mark
-  "A line **Alternative N** alone opens the N-th alternative of a proposal."
-  #"^\*\*Alternative (\d+)\*\*\s*$")
-
 (declare flush-para signed-line?)
 
 (defn- marked-para
-  "A comment or alternative mark followed, without a blank line, by change
+  "A comment mark followed, without a blank line, by change
   lines: the mark's paragraph, then the change."
   [para]
   (let [diff-line? #(or (signed-line? %) (str/starts-with? % "  "))
@@ -1087,7 +1085,7 @@
   (let [para (vec para)]
     (cond
       (diff-para? para) [[:fence "text" para :per-line]]
-      (or (re-find comment-mark (first para)) (re-find alternative-mark (first para))) (marked-para para)
+      (re-find comment-mark (first para)) (marked-para para)
       :else (split-para para))))
 
 (defn- change-line?
@@ -1097,9 +1095,9 @@
 
 (defn- head-mark?
   "A line that may head a change without a blank line: its File line, the
-  machine's comment, or an alternative's mark."
+  machine's comment."
   [l]
-  (boolean (or (str/starts-with? l "File: ") (re-find comment-mark l) (re-find alternative-mark l))))
+  (boolean (or (str/starts-with? l "File: ") (re-find comment-mark l))))
 
 (defn proposal-para
   "Inside a proposal, a paragraph holding a signed line is a change, read line
@@ -1260,6 +1258,16 @@
   (let [l (first (remove #(or (blank? %) (re-find #"(?U)^<!--.*-->\s*$" %)) (str/split-lines src)))]
     (some->> l (re-find #"(?U)^Presentation\.\{\s*«([^»]*)».*\}\s*$") second strip not-empty)))
 
+(def presentation-kinds #{"Proposal" "Review" "Account"})
+
+(defn presentation-kind
+  "The kind of the Presentation datom: Proposal, Review or Account; Proposal when
+  the datom names none or no datom is there."
+  [src]
+  (let [l (first (remove #(or (blank? %) (re-find #"(?U)^<!--.*-->\s*$" %)) (str/split-lines src)))
+        k (some->> l (re-find #"(?U)^Presentation\.\{\s*«[^»]*»\s*(\w+)\s*\}\s*$") second)]
+    (if (presentation-kinds k) k "Proposal")))
+
 (defn proposal-header
   "The opening of a proposal's sheet. With no File line under it, its title
   says where it lands, and is shown as the target chip in the header."
@@ -1418,247 +1426,6 @@
     (or (nil? (ethos-zero-check *ethos-zero-real* text))
         (nil? (ethos-zero-check *ethos-zero* text)))))
 
-;; ------------------------------------------------------------ alternatives
-;;
-;; A proposal may carry two or more alternatives, **Alternative 1**,
-;; **Alternative 2**, …, each followed by the exact lines it would land. They
-;; render as one group: the text every alternative shares, once, with a gap
-;; where they differ; then each alternative alone with its words at each gap,
-;; marked, between a few shared words that place it.
-
-;; A signed diagram fence inside an alternative stays whole: its line is a mark
-;; standing for the sketch, and the alternatives renderer draws it from its figure.
-(def ^:private alt-figures (atom []))
-
-(def ^:dynamic *alt-fig*
-  "Draws a diagram's sketch lines as its figure; bound by build."
-  nil)
-
-(defn- alt-figure-mark
-  "The line standing for a sketch kept whole inside an alternative."
-  [stripped]
-  (str "\uE100" (dec (count (swap! alt-figures conj stripped))) "\uE101"))
-
-(defn- alt-figures-drawn
-  "Html with each alternative-figure mark's panel replaced by the drawn figure."
-  [html]
-  (str/replace html #"<div class=\"(add|del)\"><(?:ins|del)><p>\uE100(\d+)\uE101</p></(?:ins|del)></div>"
-               (fn [[_ cls n]]
-                 (str "<div class=\"diff\">"
-                      (panel ({"add" "+" "del" "-"} cls) [:fig (*alt-fig* (nth @alt-figures (Long/parseLong n)))])
-                      "</div>"))))
-
-(defn group-alternatives
-  "Blocks with each run of alternatives taken out as one [:alternatives
-  [[n lines] …]] block; an alternative's lines are its change lines, a blank
-  line between two of its paragraphs."
-  [bs]
-  (let [close (fn [out group] (cond-> out group (conj [:alternatives group])))]
-    (loop [bs (seq bs) out [] group nil]
-      (if-let [b (first bs)]
-        (let [mark (when (and (= :para (first b)) (= 1 (count (second b))))
-                     (re-find alternative-mark (first (second b))))
-              change (when group
-                       (cond (and (= :fence (first b)) (= "text" (second b)))
-                             (if-let [[sign stripped] (signed-figure "text" (nth b 2))]
-                               [(str sign " " (alt-figure-mark stripped))]
-                               (nth b 2))
-                             ;; unchanged lines alone, two spaces in, are context of the alternative
-                             (and (= :para (first b)) (every? #(str/starts-with? % "  ") (second b))) (second b)))]
-          (cond
-            mark (recur (rest bs) out (conj (or group []) [(Long/parseLong (second mark)) []]))
-            change (recur (rest bs) out
-                          (update-in group [(dec (count group)) 1]
-                                     #(into (cond-> % (seq %) (conj "")) change)))
-            :else (recur (rest bs) (conj (close out group) b) nil)))
-        (close out group)))))
-
-(defn- common-of
-  "A longest sequence common to all the sequences, folded pairwise."
-  [seqs]
-  (reduce (fn [c s] (mapv second (filter #(= :same (first %)) (word-diff c s))))
-          (vec (first seqs)) (rest seqs)))
-
-(defn- positions
-  "Where each item of common, a subsequence of s, sits in s."
-  [common s]
-  (loop [d (word-diff common s) i 0 out []]
-    (if-let [[k] (first d)]
-      (case k
-        :same (recur (rest d) (inc i) (conj out i))
-        :add (recur (rest d) (inc i) out)
-        :del (throw (ex-info "alternatives: shared text not found" {})))
-      out)))
-
-(defn- slots
-  "For kept indices ks of common, each sequence's items in the |ks|+1 slots
-  before, between and after them."
-  [ks ps seqs]
-  (mapv (fn [p s]
-          (let [s (vec s)]
-            (mapv (fn [[a b]] (subvec s (inc a) b))
-                  (partition 2 1 (concat [-1] (map p ks) [(count s)])))))
-        ps seqs))
-
-(defn- differs? [gs j] (not (apply = (map #(% j) gs))))
-
-(defn- word-token? [t] (boolean (re-find #"[\p{L}\p{N}]" t)))
-
-(defn- settle
-  "The kept indices of common: a shared run lying between two differences
-  with fewer than three words joins the difference around it."
-  [common ps seqs]
-  (loop [ks (vec (range (count common)))]
-    (let [gs (slots ks ps seqs)
-          real (set (filter #(differs? gs %) (range (inc (count ks)))))
-          runs (loop [r 0 out []]
-                 (if (>= r (count ks))
-                   out
-                   (let [r2 (loop [r2 r]
-                              (if (and (< (inc r2) (count ks)) (not (real (inc r2)))) (recur (inc r2)) r2))]
-                     (recur (inc r2) (conj out [r r2])))))
-          weak (first (filter (fn [[r r2]]
-                                (and (real r) (real (inc r2))
-                                     (> 3 (count (filter word-token?
-                                                         (concat (map common (subvec ks r (inc r2)))
-                                                                 (mapcat #(get-in gs [0 %]) (range (inc r) (inc r2)))))))))
-                              runs))]
-      (if weak
-        (recur (into (subvec ks 0 (first weak)) (subvec ks (inc (second weak)))))
-        ks))))
-
-(defn word-alternatives
-  "Texts differing in words: :segments, the shared text around the gaps (one
-  more than there are gaps), and :gaps, each text's words at each gap."
-  [texts]
-  (let [seqs (mapv tokens texts)
-        common (common-of seqs)
-        ps (mapv #(positions common %) seqs)
-        ks (settle common ps seqs)
-        gs (slots ks ps seqs)
-        [segs gaps] (reduce (fn [[segs gaps] j]
-                              (let [[segs gaps] (if (differs? gs j)
-                                                  [(conj segs "") (conj gaps (mapv #(str/join (% j)) gs))]
-                                                  [(update segs (dec (count segs)) str (str/join (get-in gs [0 j]))) gaps])]
-                                [(cond-> segs (< j (count ks)) (update (dec (count segs)) str (common (ks j))))
-                                 gaps]))
-                            [[""] []] (range (inc (count ks))))]
-    {:segments segs :gaps gaps}))
-
-(defn- gap-char [n] (str (char (+ 0xE000 n))))
-
-(defn- gap-html
-  "The gap marks of a rendered text as numbered (or, alone, unnumbered) chips."
-  [html numbered?]
-  (str/replace html #"[-]"
-               #(str "<span class=\"alt-gap\">" (if numbered? (- (int (first %)) 0xE000) "…") "</span>")))
-
-;; A gap mark stands apart from a word beside it.
-(defn- spaced-gaps
-  "Shared segments with the gap marks between them, a space between a mark
-  and a letter or digit touching it."
-  [segs marks]
-  (let [alnum? #(boolean (and % (re-find #"[\p{L}\p{N}]" (str %))))]
-    (apply str
-           (first segs)
-           (mapcat (fn [mark [left right]]
-                     [(when (alnum? (last left)) " ") mark (when (alnum? (first right)) " ") right])
-                   marks (partition 2 1 segs)))))
-
-(defn- context-words
-  "Up to four words, as spaces part them, of a shared segment beside a gap: its end when it is
-  left of the gap, its start when right; an ellipsis where it is cut."
-  [seg left?]
-  (let [ts (vec (re-seq #"\s+|\S+" seg))
-        ts (if left? (rseq ts) ts)
-        word? #(not (re-matches #"\s+" %))
-        [kept n] (reduce (fn [[kept n] t]
-                           (if (and (word? t) (= n 4)) (reduced [kept n])
-                               [(conj kept t) (cond-> n (word? t) inc)]))
-                         [[] 0] ts)
-        cut? (< (count kept) (count ts))
-        text (str/join (if left? (rseq kept) kept))]
-    (cond (not cut?) (if left? (strip-left text) (rstrip text))
-          left? (str "…" (strip-left text))
-          :else (str (rstrip text) "…"))))
-
-(defn alternatives-html
-  "An alternatives group: the shared text once, its differences as gaps; then
-  each alternative alone, only its words at each gap, marked."
-  [alts]
-  (let [nums (map first alts)]
-    (when (< (count alts) 2)
-      (throw (ex-info (str "alternative " (first nums) " stands alone; alternatives come two or more together") {})))
-    (when (not= nums (range 1 (inc (count alts))))
-      (throw (ex-info (str "alternatives numbered " (str/join ", " nums) "; they are numbered 1, 2, … in order") {})))
-    (doseq [[n ls] alts]
-      (when-not (some signed-line? ls)
-        (throw (ex-info (str "alternative " n " carries no change") {})))))
-  (let [seqs (mapv (fn [[_ ls]] (vec (remove blank? ls))) alts)
-        common (common-of seqs)
-        ps (mapv #(positions common %) seqs)
-        ks (vec (range (count common)))
-        gs (slots ks ps seqs)
-        counter (volatile! 0)
-        ;; a slot where every alternative has as many lines, signed alike, is
-        ;; read line by line: a line they all share stays whole, the others
-        ;; differ in words; any other slot differs in whole lines
-        diffs (vec (for [j (range (inc (count ks))) :when (differs? gs j)
-                         :let [ls (mapv #(% j) gs)
-                               signs (mapv #(mapv (comp first sign-content) %) ls)]
-                         row (if (apply = signs)
-                               (for [i (range (count (first ls)))
-                                     :let [texts (map #(nth % i) ls)]]
-                                 (if (apply = texts)
-                                   {:j j :same (first texts)}
-                                   (let [w (word-alternatives (map #(second (sign-content %)) texts))]
-                                     {:j j :words w :sign (nth (first signs) i)
-                                      :nums (vec (repeatedly (count (:gaps w)) #(vswap! counter inc)))})))
-                               [{:j j :lines ls :nums [(vswap! counter inc)]}])]
-                     row))
-        _ (when (every? :same diffs)
-            (throw (ex-info "alternatives that do not differ: one proposal is enough" {})))
-        numbered? (< 1 @counter)
-        diff-at (group-by :j diffs)
-        shared (vec (mapcat (fn [j]
-                              (concat
-                               (for [{:keys [same words sign nums]} (diff-at j)]
-                                 (cond same same
-                                       words (str sign " " (spaced-gaps (:segments words) (map gap-char nums)))
-                                       :else (str "  " (gap-char (first nums)))))
-                               (when (< j (count ks)) [(common (ks j))])))
-                            (range (inc (count ks)))))
-        badge #(when numbered? (str "<span class=\"alt-gap\">" % "</span> "))
-        alternative
-        (fn [a [n _]]
-          (str "<div class=\"alternative\"><div class=\"alt-label\">Alternative " n "</div>"
-               (apply str
-                      (for [{:keys [words sign lines nums]} (remove :same diffs)]
-                        (if words
-                          (apply str
-                                 (for [[g num] (map vector (range) nums)
-                                       :let [t (get-in words [:gaps g a])
-                                             [_ lead core trail] (re-find #"(?s)^(\s*)(.*?)(\s*)$" t)
-                                             cls ({"+" "add" "-" "del"} sign "ctx")]]
-                                   (str "<p class=\"alt-words " cls "\">" (badge num)
-                                        (inline (str (context-words (get-in words [:segments g]) true) lead))
-                                        (if (= "" core)
-                                          "<mark class=\"alt-none\" title=\"nothing here\">∅</mark>"
-                                          (str "<mark>" (inline core) "</mark>"))
-                                        (inline (str trail (context-words (get-in words [:segments (inc g)]) false)))
-                                        "</p>")))
-                          (let [ls (nth lines a)]
-                            (str (when numbered? (str "<p class=\"alt-words\">" (badge (first nums)) "</p>"))
-                                 (if (seq ls)
-                                   (text-panels ls true)
-                                   "<p class=\"alt-words\"><mark class=\"alt-none\" title=\"nothing here\">∅</mark></p>"))))))
-               "</div>"))]
-    (alt-figures-drawn
-     (str "<div class=\"alternatives\"><div class=\"alt-label\">Shared by the " (count alts) " alternatives</div>"
-          (gap-html (text-panels shared true) numbered?)
-          (apply str (map-indexed alternative alts))
-          "</div>"))))
-
 (defn comment-html
   "The machine's comment on the proposal it sits in."
   [text]
@@ -1668,7 +1435,8 @@
   (let [nfig (or *shared-figure-counter* (volatile! 0))
         heading-where (volatile! nil)
         datom-title (presentation-title src)
-        bs (vec (group-alternatives (blocks src)))
+        kind (presentation-kind src)
+        bs (vec (blocks src))
         file-next? (fn [i] (let [[kind ls] (get bs (inc i))]
                              (and (= :para kind) (str/starts-with? (first ls) "File: "))))
         show-fig (fn [lines]
@@ -1680,14 +1448,10 @@
                               (catch clojure.lang.ExceptionInfo e
                                 (binding [*out* *err*]
                                   (println (str "book-build: figure fig-" n ".svg left out: " (ex-message e))))
-                                (if *move-context*
-                                  (throw (ex-info (str "required move figure fig-" n ".svg is invalid") {}))
-                                  ""))))
+                                "")))
                        (do (binding [*out* *err*]
                              (println (str "book-build: figure fig-" n ".svg not found; diagram " n " left out")))
-                           (if *move-context*
-                             (throw (ex-info (str "required move figure fig-" n ".svg not found") {}))
-                             "")))))
+                           ""))))
         out (atom [])
         target (volatile! nil)
         in-article (volatile! false)
@@ -1729,12 +1493,6 @@
           (emit (str "<section class=\"move move-" state "\"><header><h2>From "
                      (esc from) " → To " (esc to) "</h2><span class=\"move-state\">"
                      (str/capitalize state) "</span></header>" inner "</section>")))
-
-        (= :alternatives (first b))
-        (do (when (and @rulings @pending-close) (close-rulings true))
-            (emit (try (binding [*alt-fig* show-fig] (alternatives-html (second b)))
-                       (catch clojure.lang.ExceptionInfo _
-                         (apply str (for [[_ ls] (second b)] (text-panels ls true)))))))
 
         (= :fence (first b))
         (let [[_ raw-lang lines per-line] b
@@ -1831,6 +1589,8 @@
               (when-not *move-context*
                 (append! "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
                 (append! (str "<title>" (esc (or datom-title title)) "</title>"))
+                (when (not= "Proposal" kind)
+                  (append! (str "<meta name=\"book-kind\" content=\"" (str/lower-case kind) "\">")))
                 (vreset! after-title true))
               (append! (str "<h1 class=\"book-title\">" (esc title) "</h1>")))
 

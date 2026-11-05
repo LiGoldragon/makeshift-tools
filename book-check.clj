@@ -56,8 +56,10 @@
       (throw (ex-info "module-source-unavailable" {})))
     (git "show" (str revision ":" relative-path))))
 
+(def ^:private sign-prefix "(?:[+-] |  )?")
+
 (defn- fence-close-re [ch size]
-  (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote ch) "{" size ",}\\s*\\z")))
+  (re-pattern (str "^" sign-prefix " {0,3}" (java.util.regex.Pattern/quote ch) "{" size ",}\\s*\\z")))
 
 (defn- diagram-fence?
   "An unlabelled fence whose body draws boxes or arrows; prose is not a diagram."
@@ -78,26 +80,15 @@
   ([source {:keys [read-module] :or {read-module read-context-module}}]
    (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))
          st (atom {:errors [] :fence nil :section nil :in-comment false
-                   :proposals 0 :title false :presentation false :shown #{}})
+                   :proposals 0 :title false :presentation false :kind "Proposal" :signature nil :shown #{}})
          err! (fn [line reason] (swap! st update :errors conj {:line line :reason reason}))
          section #(:section @st)
          set-section! (fn [f] (swap! st update :section f))
-         mark-changed! (fn []
-                         (set-section! (fn [s] (cond-> (assoc s :changed true)
-                                                 (:alternative s) (assoc-in [:alternative :changed] true)))))
-         ;; An alternative that carries no change refuses at its own mark.
-         close-alternative! (fn []
-                              (let [s (section)]
-                                (when (and (:alternative s) (not (get-in s [:alternative :changed])))
-                                  (err! (get-in s [:alternative :line]) "alternative-without-change"))))
+         mark-changed! (fn [] (set-section! #(assoc % :changed true)))
          finish! (fn []
                    (let [s (section)]
                      (when (and s (not (:changed s)) (not (:deleted s)))
                        (err! (:line s) "no-change-in-proposal"))
-                     (close-alternative!)
-                     ;; Alternatives come two or more together, as one group.
-                     (when (= (:alternatives s) 1)
-                       (err! (get-in s [:alternative :line]) "single-alternative"))
                      (swap! st assoc :section nil)))
          body! (fn [line number]
                  ;; The location lives in the heading; a File: line in the body is the retired form.
@@ -106,14 +97,8 @@
                    ;; The machine's comment comes first: before every change and alternative of its proposal, once.
                    (let [s (section)]
                      (cond (:comment s) (err! number "second-comment-in-proposal")
-                           (or (:changed s) (pos? (:alternatives s))) (err! number "comment-after-change"))
+                           (:changed s) (err! number "comment-after-change"))
                      (set-section! #(assoc % :comment true))))
-                 (when-let [[_ n] (and (section) (re-find #"^\*\*Alternative (\d+)\*\*\s*\z" line))]
-                   (close-alternative!)
-                   (when (not= (Long/parseLong n) (inc (:alternatives (section))))
-                     (err! number "alternative-out-of-order"))
-                   (set-section! #(-> % (update :alternatives inc)
-                                      (assoc :alternative {:line number :changed false}))))
                  (when (and (section) (change? line)) (mark-changed!)))
          handle-module-view!
          (fn [i number heading-text [_ repo path]]
@@ -166,7 +151,8 @@
              (:code fence)
              (do (swap! st update-in [:fence :lines] conj line)
                  ;; A removed line is quoted as it is; the width limit binds proposed code only.
-                 (when (and (not (str/starts-with? line "- ")) (> (code-points line) 52))
+                 (when (and (not= "mermaid" (:language fence)) (not (str/starts-with? line "- "))
+                            (> (code-points line) 52))
                    (err! number "code-over-52-columns"))
                  (when (and (section) (re-find #"^[+-] .*\S" line)) (mark-changed!)))
 
@@ -181,14 +167,21 @@
            (swap! st assoc :in-comment (not (str/includes? line "-->")))
 
            :else
-           (let [opening (re-find #"^ {0,3}(`{3,}|~{3,})\s*([^ ]*)" line)]
+           (let [opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*)")) line)
+                 opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
              (if opening
                (let [language (str/lower-case (nth opening 2))]
-                 ;; An unlabelled fence outside a section is allowed only as a diagram (a context figure).
-                 (when (and (not (section)) (not (and (= language "") (diagram-fence? lines i opening))))
+                 ;; Outside a section a fence is allowed only as a diagram: an unlabelled
+                 ;; sketch or a labelled mermaid figure (a context figure).
+                 (when (and (not (section))
+                            (not (or (= language "mermaid")
+                                     (and (= language "") (diagram-fence? lines i opening)))))
                    (err! number "text-outside-proposal-without-module"))
+                 ;; A signed opener is a change line, as the fence it opens is read.
+                 (when (and (section) (re-find #"^[+-] " (nth opening 3))) (mark-changed!))
                  (swap! st assoc :fence
                         {:char (subs (second opening) 0 1) :size (count (second opening)) :line number
+                         :language language
                          :code (not (#{"text" "prose" "markdown" "md"} language))
                          :plain (boolean (#{"" "text" "txt" "prose"} language))
                          :lines []}))
@@ -205,11 +198,12 @@
                              (swap! st #(-> % (update :proposals inc)
                                             (assoc :section {:line number :level level :changed false
                                                              :deleted (str/ends-with? text ", a deleted file")
-                                                             :comment false :alternatives 0 :alternative nil})))
+                                                             :comment false})))
                              (err! number "proposal-heading-without-location")))
 
                        (not (section))
-                       (let [location (when (= level 2) (re-find module-location text))]
+                       (let [account? (= "Account" (:kind @st))
+                             location (when (= level 2) (re-find module-location text))]
                          (cond
                            (and location (valid-location? (nth location 1) (nth location 2)))
                            (handle-module-view! i number text location)
@@ -218,17 +212,37 @@
                                 (not (:title @st)) (zero? (:proposals @st)) (empty? (:shown @st)))
                            (swap! st assoc :title true)
 
+                           ;; An account holds headings of its own.
+                           account? nil
+
                            :else (err! number "heading-outside-proposal-without-module")))))
                    (do
+                     (when (and (not (section)) (str/blank? line) (= :open (:signature @st)))
+                       (swap! st assoc :signature :done))
                      (when (and (not (section)) (not (str/blank? line)))
-                       (if (and (not (:presentation @st)) (not (:title @st)) (zero? (:proposals @st))
-                                (empty? (:shown @st)) (re-find #"^Presentation\.\{ «[^»]*» \}\z" line))
-                         (swap! st assoc :presentation true)
-                         (err! number "text-outside-proposal-without-module")))
+                       (cond
+                         (and (not (:presentation @st)) (not (:title @st)) (zero? (:proposals @st))
+                              (empty? (:shown @st)) (re-find #"^Presentation\.\{ «[^»]*»(?: \w+)? \}\z" line))
+                         (let [kind (second (re-find #"»(?: (\w+))? \}\z" line))]
+                           (swap! st assoc :presentation true :kind (or kind "Proposal"))
+                           (when-not (#{"Proposal" "Review" "Account"} (or kind "Proposal"))
+                             (err! number "presentation-kind-unknown")))
+
+                         ;; The signature line: the paragraph under the title naming the creating
+                         ;; model and each helper's help.
+                         (or (= :open (:signature @st))
+                             (and (:title @st) (nil? (:signature @st)) (zero? (:proposals @st))
+                                  (empty? (:shown @st)) (str/starts-with? line "Created by")))
+                         (swap! st assoc :signature :open)
+
+                         ;; An account holds prose of its own.
+                         (= "Account" (:kind @st)) nil
+
+                         :else (err! number "text-outside-proposal-without-module")))
                      (when (re-find #"^ {0,3}>" line) (err! number "quote-block-in-book"))
                      (body! line number)))))))))
      (finish!)
-     (when (zero? (:proposals @st)) (err! 1 "missing-proposal"))
+     (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st))) (err! 1 "missing-proposal"))
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))
 

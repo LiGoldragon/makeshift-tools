@@ -11,20 +11,17 @@
          </div>
        </article>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
-       A record removed rather than landed (separate from del/ins; violet for Destroy, amber for Archive):
-         <div class="record destroy">  or  <div class="record archive">   the mark ("Destroy" / "Archive") is drawn by the class
-           <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the record removed
-           <div class="ctx">…</div>                  the record's text, shown whole
+       A deleted module shown whole, under the red del margin, with a Destroy or Archive mark (drawn by the class):
+         <div class="record destroy">  or  <div class="record archive">
+           <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
+           <div class="ctx">…</div>                  its text, shown whole
          </div>
        The machine's comment on the proposal it sits in, before its lines (indigo, labelled "Why" by the class):
          <aside class="comment"><p>…</p></aside>
-       Alternatives of one proposal, one group:
-         <div class="alternatives"><div class="alt-label">Shared by the 2 alternatives</div>
-           <div class="diff">…</div>                 the shared text once; <span class="alt-gap">1</span> (or …) where they differ
-           <div class="alternative"><div class="alt-label">Alternative 1</div>
-             <p class="alt-words add">shared words <mark>its words</mark> shared words</p>   one per gap; class add, del or ctx by the line's sign
-           </div>
-         </div>
+       Each alternative is its own proposal; there is no alternatives group.
+       A review (<meta name="book-kind" content="review"> in the page) shows every added and removed line in the dark shade
+       (--add-landed-edge, --del-landed-edge); a proposal or an account shows the light shade.
+       <p class="book-subtitle">Created by …</p>   the signature line under the title: the creating model and each helper's help
        <section class="rulings"><h2>Rulings</h2><ol>   (a single ruling may sit inside its proposal; <li value="N"> keeps its number)
          <li><p>Proposal 1:</p><ol class="choices"><li>land</li><li>amend</li></ol></li>
        </ol></section>
@@ -46,7 +43,7 @@
   --moved-bg:#e4e9fb;--moved-edge:#3a5bc7;--moved-fg:#1c2b66;
   --move-proposed-edge:#6b7ed6;--move-landed-edge:#304aa8;
   --ctx-bg:#f1f3ef;--accent:#1c5f8a;
-  --destroy-bg:#efe6f7;--destroy-edge:#7b3fb0;--archive-bg:#fdf0d5;--archive-edge:#a86a00;
+  --add-landed-edge:#14602b;--del-landed-edge:#8e1d12;
   --comment-bg:#e8ebfa;--comment-edge:#3f51b5;--comment-fg:#1f2756;
   --hl-bg:#eceee9;--hl-type:#1c5f8a;--hl-punct:#9a5b13;--hl-comment:#6b7a72;--hl-string:#6a3fa0;--hl-meta:#8a3d6b;
   --hl-add:rgba(47,138,70,.16);--hl-del:rgba(194,55,43,.15);
@@ -66,7 +63,7 @@
   --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
   --move-proposed-edge:#9aaeff;--move-landed-edge:#7e95f5;
   --ctx-bg:#1e2622;--accent:#7cc0ee;
-  --destroy-bg:#2a1d3a;--destroy-edge:#c39af0;--archive-bg:#392a10;--archive-edge:#f0b94f;
+  --add-landed-edge:#2f9a52;--del-landed-edge:#c4493d;
   --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
   --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}}
@@ -77,7 +74,7 @@
   --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
   --move-proposed-edge:#9aaeff;--move-landed-edge:#7e95f5;
   --ctx-bg:#1e2622;--accent:#7cc0ee;
-  --destroy-bg:#2a1d3a;--destroy-edge:#c39af0;--archive-bg:#392a10;--archive-edge:#f0b94f;
+  --add-landed-edge:#2f9a52;--del-landed-edge:#c4493d;
   --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
   --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}
@@ -166,32 +163,20 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .ctx pre{padding-inline:12px}
 .diff-label{font-family:var(--f-label);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 
-/* A record removed, not landed: its own colour and a mark, never the red/green of del/ins. */
-.record{border:1.5px dashed var(--rec-edge);background:var(--rec-bg);border-radius:8px;padding:10px 12px 12px;min-width:0}
-.record.destroy{--rec-edge:var(--destroy-edge);--rec-bg:var(--destroy-bg)}
-.record.archive{--rec-edge:var(--archive-edge);--rec-bg:var(--archive-bg)}
-.record::before{display:inline-block;margin-bottom:.5em;padding:2px 10px;border-radius:999px;background:var(--rec-edge);color:var(--sheet);font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+/* A deleted module shown whole: under the red margin of a removal, with its Destroy or Archive mark. */
+.record{border-left:4px solid var(--del-edge);padding:4px 0 4px 12px;min-width:0}
+.record::before{display:inline-block;margin-bottom:.5em;padding:2px 10px;border-radius:999px;background:var(--del-edge);color:var(--sheet);font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
 .record.destroy::before{content:"\2715  Destroy"}
 .record.archive::before{content:"\25A3  Archive"}
 .record .ctx{background:transparent}
+
+/* A review: every added and removed line shows in the dark shade, the landed edge. */
+:root:has(meta[name="book-kind"][content="review"]){--add-edge:var(--add-landed-edge);--del-edge:var(--del-landed-edge)}
 
 /* The machine's comment: why it proposes the lines that follow; its own colour (indigo), never module text, green or red. */
 .comment{border-left:4px solid var(--comment-edge);background:var(--comment-bg);color:var(--comment-fg);border-radius:8px;padding:8px 12px 10px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5}
 .comment::before{content:"Why";display:inline-block;margin-bottom:.35em;padding:1px 9px;border-radius:999px;background:var(--comment-edge);color:var(--sheet);font-weight:600;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase}
 .comment>p{margin:0;overflow-wrap:anywhere}
-
-/* Alternatives: the shared text once, a gap chip where they differ, then each alternative's words at each gap, marked. */
-.alternatives{display:grid;gap:10px;min-width:0}
-.alternatives>*{margin:0;min-width:0}
-.alt-label{font-family:var(--f-label);font-size:.8rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.alt-gap{display:inline-block;min-width:1.4em;padding:0 .35em;border:1.5px dashed currentColor;border-radius:6px;font-family:var(--f-label);font-weight:600;font-size:.85em;line-height:1.3;text-align:center;text-decoration:none}
-.alternative{display:grid;gap:6px;border:1px solid var(--line);border-radius:8px;padding:8px 12px 10px;min-width:0}
-.alternative>*{margin:0;min-width:0}
-.alt-words{color:var(--muted);overflow-wrap:anywhere}
-.alt-words mark{background:none;color:var(--fg);font-weight:600;border-radius:3px;padding:0 .12em}
-.alt-words.add mark{color:var(--add-edge);background:var(--hl-add)}
-.alt-words.del mark{color:var(--del-edge);background:var(--hl-del);text-decoration:none}
-.alt-words mark.alt-none{color:var(--muted);background:var(--chip);font-weight:400}
 
 /* Rulings: one card per ruling, numbered choices. */
 .rulings{display:grid;gap:12px}

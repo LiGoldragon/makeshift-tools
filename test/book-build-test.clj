@@ -598,9 +598,6 @@
 
 (def ^:private head "# B\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n")
 
-(defn- alternative [n added]
-  (str "**Alternative " n "**\n\n  Context before.\n\n- An old line here.\n+ " added "\n\n  Context after.\n\n"))
-
 (deftest a-machine-comment-sits-before-the-proposal-it-explains
   (let [html (built (str head "**Comment** Proposed because the rule repeats.\n\n- Old.\n+ New.\n"))]
     (is (str/includes? html "<aside class=\"comment\"><p>Proposed because the rule repeats.</p></aside>"))
@@ -621,62 +618,6 @@
     (is (every? #(str/includes? code (str ".comment{" %)) ["border-left:4px solid var(--comment-edge)"]))
     (doseq [c ["#2f8a46" "#c2372b" "#5cc47a" "#f07a6e" "#1c5f8a" "#7cc0ee"]]
       (is (not (colours c)) (str "not the green, red or module colour " c)))))
-
-(deftest alternatives-show-the-shared-text-once-then-each-difference
-  (let [one "A proposal may carry the machine's comment, in its own colour, saying why it proposes the line."
-        two "A proposal may show the machine's comment, in a colour of its own, saying why it proposes the line."
-        html (built (str head "**Comment** Two wordings.\n\n" (alternative 1 one) (alternative 2 two)
-                         "Ruling: land 1, land 2, amend, or reject.\n"))
-        group (second (re-find #"(?s)(<div class=\"alternatives\">.*)<p>Ruling" html))
-        count-of (fn [s sub] (count (re-seq (re-pattern (java.util.regex.Pattern/quote sub)) s)))]
-    (is (= 1 (count-of html "class=\"alternatives\"")) "one group")
-    (is (< (str/index-of html "class=\"comment\"") (str/index-of html "class=\"alternatives\"")) "the comment first")
-    (is (= 1 (count-of group "Context before.")) "context shown once")
-    (is (= 1 (count-of group "An old line here")) "the removal shown once")
-    (is (= 1 (count-of group "saying why it proposes the line")) "shared added text shown once")
-    (is (re-find #"<ins>A proposal may <span class=\"alt-gap\">1</span> the machine's comment, in <span class=\"alt-gap\">2</span>, saying why" group))
-    (is (str/includes? group "<div class=\"alt-label\">Alternative 1</div><p class=\"alt-words add\"><span class=\"alt-gap\">1</span> A proposal may <mark>carry</mark> the machine's comment, in</p>"))
-    (is (str/includes? group "in <mark>its own colour</mark>, saying"))
-    (is (str/includes? group "may <mark>show</mark> the"))
-    (is (str/includes? group "in <mark>a colour of its own</mark>, saying"))
-    (is (not (str/includes? group one)) "no alternative shown whole")
-    (is (not (str/includes? group two)) "no alternative shown whole")))
-
-(deftest one-difference-is-an-unnumbered-gap
-  (let [html (built (str head (alternative 1 "Every book carries figures.") (alternative 2 "Every book carries pictures.")))]
-    (is (str/includes? html "<ins>Every book carries <span class=\"alt-gap\">…</span></ins>."))
-    (is (str/includes? html "<p class=\"alt-words add\">Every book carries <mark>figures</mark>.</p>"))
-    (is (str/includes? html "<p class=\"alt-words add\">Every book carries <mark>pictures</mark>.</p>"))))
-
-(deftest an-alternative-that-adds-lines-shows-them-alone
-  (let [html (built (str head "**Alternative 1**\n\n- Old.\n+ New one.\n\n**Alternative 2**\n\n- Old.\n+ New one.\n+ And a second line.\n"))]
-    (is (str/includes? html "<del>Old</del><ins>New one</ins>.") "the shared line once")
-    (is (= 1 (count (re-seq #"And a second line" html))))
-    (is (re-find #"Alternative 1</div><p class=\"alt-words\"><mark class=\"alt-none\"" html) "the first adds nothing there")
-    (is (re-find #"Alternative 2</div><div class=\"diff\"><div class=\"add\"><p>And a second line.</p></div></div>" html))))
-
-(deftest alternatives-of-several-lines-differ-line-by-line
-  (let [html (built (str head "**Alternative 1**\n\n- Old.\n+ Shared first line.\n+\n+ The second line says one thing.\n\n"
-                         "**Alternative 2**\n\n- Old.\n+ Shared first line.\n+\n+ The second line says another thing.\n"))]
-    (is (= 1 (count (re-seq #"Shared first line" html))) "a line every alternative lands, once")
-    (is (str/includes? html "<div class=\"add\"><p>The second line says <span class=\"alt-gap\">\u2026</span> thing.</p></div>"))
-    (is (str/includes? html "<p class=\"alt-words add\">The second line says <mark>one</mark> thing.</p>"))
-    (is (str/includes? html "<p class=\"alt-words add\">The second line says <mark>another</mark> thing.</p>"))))
-
-(deftest alternatives-are-rendered-however-they-come
-  (doseq [md [(str head (alternative 1 "Only one."))
-              (str head (alternative 1 "One.") (alternative 3 "Three."))
-              (str head (alternative 1 "Same.") (alternative 2 "Same."))
-              (str head (alternative 1 "One.") "**Alternative 2**\n\n  Context only.\n\n")
-              (str "# B\n\n" (alternative 1 "One.") (alternative 2 "Two."))]]
-    (is (string? (built md)) md)))
-
-(deftest word-alternatives-keep-every-text
-  (let [texts ["a b c d e f" "a x c d e y" "a b c q e f"]
-        {:keys [segments gaps]} (book-build/word-alternatives texts)]
-    (doseq [[k t] (map-indexed vector texts)]
-      (is (= t (apply str (first segments) (mapcat (fn [g s] [(get-in gaps [g k]) s]) (range) (rest segments))))
-          "shared segments with an alternative's gap words give that alternative back"))))
 
 (deftest signed-figures-show-green-or-red
   (let [fig (fn [sign] (str head "```text\n" sign " +---+   +---+\n" sign " | a |-->| b |\n" sign " +---+   +---+\n```\n"))
@@ -720,6 +661,13 @@
     (is (not (str/includes? html "<title>Inner</title>")))
     (is (= 2 (count (re-seq #"class=\"figure\"" html))) "move and adjacent figure share numbering")))
 
+(deftest a-missing-move-figure-is-left-out-and-the-build-goes-on
+  (let [src "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::"
+        err (stderr-of #(is (string? (book-build/build src ""))))]
+    (is (str/includes? err "fig-1.svg") "one stderr line names the figure"))
+  (with-figures {"fig-1.svg" "not svg"}
+    #(is (string? (book-build/build "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::" "")))))
+
 (deftest move-container-refusals-and-fenced-delimiter
   (doseq [op ["::: move" "::: move bogus"]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"source line 1"
@@ -732,11 +680,6 @@
         (book-build/build "::: move proposed\nfrom: a\nto: b\n\nbody" "")))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nested move container"
         (book-build/build "::: move proposed\nfrom: a\nto: b\n\n::: move landed\nfrom: c\nto: d\n\nbody\n:::\n:::" "")))
-  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"required move figure"
-        (book-build/build "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::" "")))
-  (with-figures {"fig-1.svg" "not svg"}
-    #(is (thrown-with-msg? clojure.lang.ExceptionInfo #"required move figure"
-          (book-build/build "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::" ""))))
   (doseq [fence ["```rust\n::: move bogus\n```" "~~~rust\n::: move bogus\n~~~" "````rust\n::: move bogus\n````"]]
     (is (str/includes? (book-build/build (str "::: move proposed\nfrom: a\nto: b\n\n" fence "\n:::") "") "::: move bogus"))))
 
@@ -756,6 +699,55 @@
   (let [langs (cheshire.core/parse-string (slurp (str (fs/path tools-dir "book-fence-languages.json"))))]
     (is (= (set (langs "text")) book-build/text-languages))
     (is (= (set (langs "markdown")) book-build/markdown-languages))))
+
+(deftest alternatives-are-proposals-of-their-own
+  (is (not (re-find #"\.alt-|\.alternatives?\{" code)) "no alternatives styles in the page code")
+  (is (not (str/includes? (built (str head "**Alternative 1**\n\n- Old.\n+ New.\n")) "class=\"alternatives\""))))
+
+(deftest destroy-and-archive-show-the-deleted-module-whole-under-the-red-margin
+  (is (not (re-find #"destroy-edge|archive-edge|--destroy|--archive" code)) "no violet or amber record colours")
+  (is (str/includes? code ".record{border-left:4px solid var(--del-edge)"))
+  (is (str/includes? code "content:\"\\2715  Destroy\""))
+  (let [html (built (str head "**Archive**\n\n```text\n- Whole line.\n```\n"))]
+    (is (str/includes? html "<div class=\"record archive\">"))
+    (is (str/includes? html "<div class=\"del\"><p>Whole line.</p></div>"))))
+
+(def ^:private review-src
+  "Presentation.{ «A review» Review }\n\n# A review\n\nCreated by Opus, helped by Sonnet (the checking).\n\n### Proposal 1: Landed · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n")
+
+(deftest the-kind-is-data-in-the-presentation-datom
+  (is (= "Proposal" (book-build/presentation-kind "Presentation.{ «T» }\n\n# T\n")) "absent means Proposal")
+  (is (= "Proposal" (book-build/presentation-kind "# T\n")))
+  (is (= "Proposal" (book-build/presentation-kind "Presentation.{ «T» Proposal }\n")))
+  (is (= "Review" (book-build/presentation-kind "Presentation.{ «T» Review }\n")))
+  (is (= "Account" (book-build/presentation-kind "Presentation.{ «T» Account }\n")))
+  (is (= "T" (book-build/presentation-title "Presentation.{ «T» Review }\n")))
+  (let [review (built review-src)
+        proposal (built (str/replace review-src " Review }" " Proposal }"))
+        plain (built (str/replace review-src " Review }" " }"))]
+    (is (str/includes? review "<meta name=\"book-kind\" content=\"review\">") "a review says so")
+    (is (not (str/includes? proposal "book-kind")) "a proposal shows the light shade")
+    (is (= proposal plain))
+    (is (str/includes? review "<title>A review</title>")))
+  (is (str/includes? code "--add-landed-edge") "landed edge colours for add and del")
+  (is (str/includes? code "--del-landed-edge"))
+  (is (re-find #":root:has\(meta\[name=\"book-kind\"\]\[content=\"review\"\]\)\{--add-edge:var\(--add-landed-edge\);--del-edge:var\(--del-landed-edge\)\}" code)))
+
+(deftest the-signature-line-is-the-subtitle
+  (doseq [kind ["Proposal" "Review" "Account"]]
+    (let [html (built (str/replace review-src "Review" kind))]
+      (is (str/includes? html "<p class=\"book-subtitle\">Created by Opus, helped by Sonnet (the checking).</p>") kind))))
+
+(deftest an-account-builds-with-its-prose-and-headings
+  (let [html (built "Presentation.{ «An account» Account }\n\n# An account\n\nCreated by Fable.\n\n## The gist\n\nIt happened so.\n")]
+    (is (str/includes? html "<h2>The gist</h2>"))
+    (is (str/includes? html "<p>It happened so.</p>"))))
+
+(deftest a-context-mermaid-fence-is-a-figure
+  (let [html (with-figures {"fig-1.svg" a-to-b}
+               #(built "# B\n\n```mermaid\nflowchart LR\n    a[\"a\"] -- \"to\" --> b[\"b\"]\n```\n"))]
+    (is (= 1 (count (re-seq #"class=\"figure\"" html))))
+    (is (not (str/includes? html "flowchart LR")))))
 
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

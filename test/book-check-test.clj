@@ -164,7 +164,6 @@
            (reasons (str "# A book\n```\nJust some prose here.\n```\n" after-title*))))))
 
 (def located "### Proposal 1: Replace · psyche-belief › vision/book.md\n")
-(defn alternative [n added] (str "**Alternative " n "**\n\n  Context.\n\n- Old.\n+ " added "\n\n"))
 
 (deftest comment-comes-first-once
   (is (= [] (check (str located "**Comment** Why it is proposed.\n\n- Old.\n+ New.\n"))))
@@ -172,14 +171,52 @@
   (is (= ["second-comment-in-proposal"] (reasons (str located "**Comment** One.\n\n**Comment** Two.\n\n+ New.\n"))))
   (is (= ["text-outside-proposal-without-module"] (reasons (str "**Comment** Loose.\n" located "+ New.\n")))))
 
-(deftest alternatives
-  (is (= [] (check (str located "**Comment** Two wordings.\n\n" (alternative 1 "One.") (alternative 2 "Two.")
-                        "Ruling: land 1, land 2, amend, or reject.\n"))))
-  (is (= ["single-alternative"] (reasons (str located (alternative 1 "One.")))))
-  (is (= ["alternative-out-of-order"] (reasons (str located (alternative 1 "One.") (alternative 3 "Three.")))))
-  (is (= ["alternative-without-change"] (reasons (str located "**Alternative 1**\n\n  Context only.\n\n" (alternative 2 "Two.")))))
-  (is (= ["comment-after-change"] (reasons (str located (alternative 1 "One.") (alternative 2 "Two.") "**Comment** Late.\n"))))
-  (is (= ["alternative-without-change"] (reasons (str located (alternative 1 "One.") "**Alternative 2**\n\n  Context only.\n")))))
+(deftest each-alternative-is-its-own-proposal
+  (is (= [] (check (str located "- Old.\n+ One.\n\n"
+                        "### Proposal 2: Replace, another way · psyche-belief › vision/book.md\n\n- Old.\n+ Two.\n"))))
+  (is (= [] (check (str located "**Comment** A lone proposal.\n\n- Old.\n+ One.\n")))))
+
+(def sig "Created by Opus, helped by Sonnet (the checking).\n")
+
+(deftest the-presentation-kind
+  (let [proposal "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"]
+    (doseq [kind ["" " Proposal" " Review" " Account"]]
+      (is (= [] (check (str "Presentation.{ «T»" kind " }\n\n# T\n\n" proposal))) kind))
+    (is (= ["presentation-kind-unknown"] (reasons (str "Presentation.{ «T» Essay }\n\n# T\n\n" proposal))))
+    (is (= ["missing-proposal"] (reasons "Presentation.{ «T» Review }\n\n# T\n\n")) "a review shows landed changes")))
+
+(deftest an-account-holds-prose-and-headings
+  (let [account "Presentation.{ «T» Account }\n\n# T\n\nCreated by Fable.\n\n## The gist\n\nIt happened so.\n\n### What followed\n\nMore prose.\n"]
+    (is (= [] (check account)) "no missing-proposal either")
+    (is (= [] (check (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"))))
+    (is (= ["no-change-in-proposal"]
+           (reasons (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\nOnly prose.\n")))
+        "a proposal inside an account is checked as a proposal")
+    (is (= ["missing-proposal" "text-outside-proposal-without-module"]
+           (reasons "# T\n\nProse in a proposal book.\n")))
+    (is (= ["missing-proposal" "text-outside-proposal-without-module"]
+           (reasons "Presentation.{ «T» Review }\n\n# T\n\nProse in a review.\n")))))
+
+(deftest the-signature-line-is-accepted-for-every-kind
+  (doseq [kind ["" " Review" " Account"]]
+    (is (= [] (check (str "Presentation.{ «T»" kind " }\n\n# T\n\n" sig "\n" after-title*)))
+        (str "signature under kind" kind)))
+  (is (= [] (check (str "# T\n\nCreated by Opus,\nhelped by Sonnet.\n\n" after-title*))) "a wrapped signature")
+  (is (= ["text-outside-proposal-without-module"]
+         (reasons (str "# T\n\n" sig "\nOther prose.\n\n" after-title*)))
+      "only the paragraph that opens Created by"))
+
+(deftest mermaid-figures
+  (let [mermaid (str "```mermaid\nflowchart LR\n    a[\"" (rep "x" 80) "\"] -- \"to\" --> b[\"b\"]\n```\n")]
+    (is (= [] (reasons (str "# T\n\n" mermaid "\n" after-title*))) "a context figure outside a proposal")
+    (is (= [] (reasons (str good "\n" mermaid))) "no 52-column limit on mermaid lines")
+    (is (= [] (reasons (str located "- Old.\n+ New.\n\n" (str/replace mermaid #"(?m)^" "+ ")))))
+    (is (= [] (reasons (str "### Proposal 1: A · psyche-belief › vision/book.md\n\n"
+                            (str/replace mermaid #"(?m)^(.)" "+ $1")))) "a signed opener is a fence and its change")
+    (is (= ["code-over-52-columns"]
+           (reasons (str good "```rust\n" (rep "x" 80) "\n```\n"))) "other code keeps the limit")
+    (is (= ["code-over-52-columns"]
+           (reasons (str good "+ ```rust\n+ " (rep "x" 80) "\n+ ```\n"))) "a signed fence is checked like an unsigned one")))
 
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
