@@ -9,10 +9,10 @@
 ;; blocks, and numbered rulings. An ASCII box-and-arrow diagram in an unlabelled
 ;; fence, and every unlabelled fence outside a proposal, boxed or not, is a
 ;; diagram; it is never drawn: the n-th diagram is shown as fig-n.svg from the
-;; --figures directory. The builder renders what it is given: a figure file it
-;; cannot find is left out with one line on stderr naming it, and the build
-;; still succeeds; no content stops a build. Only a failure to read or write a
-;; file is an error (stderr line, exit 1). A paragraph opening with
+;; --figures directory. Every Mermaid fence requires its ordered figure file;
+;; a missing or unreadable one stops the build and names that file. Other
+;; diagram forms keep their existing optional-figure behavior. A failure to
+;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
 ;; **Destroy** or **Archive** wraps the deleted module that follows, shown
 ;; whole, in a record panel under the red margin with that mark. Inside a proposal, a paragraph opening with
 ;; **Comment** is the machine's comment, in its own colour, before the lines it
@@ -847,8 +847,7 @@
       nil)))
 
 (defn panel [sign body]
-  (let [body (if (and *module-fig* (= :code (first body)) (= "mermaid" (first (second body)))
-                      (#{"+" "-"} sign))
+  (let [body (if (and *module-fig* (= :code (first body)) (= "mermaid" (first (second body))))
                [:fig (*module-fig* (second (second body)))]
                body)
         inner (body-html body)]
@@ -1439,19 +1438,28 @@
         bs (vec (blocks src))
         file-next? (fn [i] (let [[kind ls] (get bs (inc i))]
                              (and (= :para kind) (str/starts-with? (first ls) "File: "))))
-        show-fig (fn [lines]
-                   (let [n (vswap! nfig inc)
-                         f (when *figures-dir* (fs/path *figures-dir* (str "fig-" n ".svg")))]
-                     (if (and f (fs/exists? f))
-                       (let [svg (slurp (str f) :encoding "UTF-8")]
-                         (try (illustration-el svg)
-                              (catch clojure.lang.ExceptionInfo e
-                                (binding [*out* *err*]
-                                  (println (str "book-build: figure fig-" n ".svg left out: " (ex-message e))))
-                                "")))
-                       (do (binding [*out* *err*]
-                             (println (str "book-build: figure fig-" n ".svg not found; diagram " n " left out")))
-                           ""))))
+        render-fig (fn [lines required?]
+                     (let [n (vswap! nfig inc)
+                           name (str "fig-" n ".svg")
+                           f (when *figures-dir* (fs/path *figures-dir* name))]
+                       (if (and f (fs/exists? f))
+                         (let [svg (slurp (str f) :encoding "UTF-8")]
+                           (try (illustration-el svg)
+                                (catch clojure.lang.ExceptionInfo e
+                                  (if required?
+                                    (throw (ex-info (str "figure " name " unrendered: " (ex-message e))
+                                                    {:figure name} e))
+                                    (do (binding [*out* *err*]
+                                          (println (str "book-build: figure " name " left out: " (ex-message e))))
+                                        "")))))
+                         (if required?
+                           (throw (ex-info (str "figure " name " not found; Mermaid fence " n " unrendered")
+                                           {:figure name}))
+                           (do (binding [*out* *err*]
+                                 (println (str "book-build: figure " name " not found; diagram " n " left out")))
+                               "")))))
+        show-fig (fn [lines] (render-fig lines false))
+        show-mermaid (fn [lines] (render-fig lines true))
         out (atom [])
         target (volatile! nil)
         in-article (volatile! false)
@@ -1510,18 +1518,20 @@
             ;; a figure proposed for the module it will live in: all + is added, all - removed
             (and @in-article (signed-figure lang lines))
             (let [[sign stripped] (signed-figure lang lines)]
-              (emit (str "<div class=\"diff\">" (panel sign [:fig (show-fig stripped)]) "</div>")))
+              (emit (str "<div class=\"diff\">"
+                         (panel sign [:fig ((if (= lang "mermaid") show-mermaid show-fig) stripped)])
+                         "</div>")))
 
             (and (= lang "figure") (try (read-figure lines) (catch Exception _ nil)))
             (emit (show-fig lines))
 
             ;; a Mermaid flowchart is a diagram: shown as its fig-N.svg
             (= raw-lang "mermaid")
-            (emit (show-fig lines))
+            (emit (show-mermaid lines))
 
             ;; a proposal's unchanged lines, written outside a fence, are panels of the change
             (and per-line (not-any? signed-line? lines))
-            (emit-panels (text-panels lines true))
+            (emit-panels (binding [*module-fig* show-mermaid] (text-panels lines true)))
 
             ;; Whatever its label or place, a fence that is an ASCII drawing is drawn: it needs
             ;; its fig-N.svg, else the build fails. A built page never holds an undrawn drawing.
@@ -1565,7 +1575,7 @@
             (emit (signed-code-html (guess-code-language (unsign-lines lines)) lines))
 
             (= lang "text")
-            (emit-panels (binding [*module-fig* show-fig]
+            (emit-panels (binding [*module-fig* show-mermaid]
                            (text-panels lines (= :per-line per-line))))
 
             ;; Code written as a change: wholly added or removed takes one margin;
@@ -1734,6 +1744,9 @@
                 *ethos-zero* (if (>= ei 0) (get args (inc ei)) pinned-ethos-zero)
                 *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) pinned-ethos-zero)]
         (try (spit out-path (build (read-text src-path) (read-text code-path)) :encoding "UTF-8")
+             (catch clojure.lang.ExceptionInfo e
+               (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
+               (System/exit 1))
              (catch java.io.IOException e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
                (System/exit 1)))))))

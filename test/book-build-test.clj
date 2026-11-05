@@ -661,12 +661,14 @@
     (is (not (str/includes? html "<title>Inner</title>")))
     (is (= 2 (count (re-seq #"class=\"figure\"" html))) "move and adjacent figure share numbering")))
 
-(deftest a-missing-move-figure-is-left-out-and-the-build-goes-on
+(deftest a-missing-move-mermaid-figure-refuses-the-build
   (let [src "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::"
-        err (stderr-of #(is (string? (book-build/build src ""))))]
-    (is (str/includes? err "fig-1.svg") "one stderr line names the figure"))
+        message (refusal src)]
+    (is (= "figure fig-1.svg not found; Mermaid fence 1 unrendered" message)))
   (with-figures {"fig-1.svg" "not svg"}
-    #(is (string? (book-build/build "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::" "")))))
+    #(is (str/starts-with?
+           (refusal "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::")
+           "figure fig-1.svg unrendered:"))))
 
 (deftest move-container-refusals-and-fenced-delimiter
   (doseq [op ["::: move" "::: move bogus"]]
@@ -693,6 +695,52 @@
     (is (not (str/includes? html "flowchart LR")) "no mermaid source is shown")
     (is (str/includes? html "<div class=\"add\"><pre><code class=\"language-rust\">let a = 1;</code>")
         "the code fence is code in the addition colour, its margin stripped")))
+
+(def mermaid-margin-src
+  (str "# B\n\n"
+       "```mermaid\nflowchart TB\n    p[plain] --> q[end]\n```\n\n"
+       "### Proposal 1: Figures · psyche-belief › vision/book.md\n\n"
+       "  ```mermaid\n  flowchart TB\n      c[context] --> q[end]\n  ```\n\n"
+       "+ ```mermaid\n+ flowchart TB\n+     a[added] --> q[end]\n+ ```\n\n"
+       "- ```mermaid\n- flowchart TB\n-     r[removed] --> q[end]\n- ```\n"))
+
+(deftest every-mermaid-margin-keeps-document-order-and-colour
+  (let [figures {"fig-1.svg" (faithful 1 "plain")
+                 "fig-2.svg" (faithful 1 "context")
+                 "fig-3.svg" (faithful 1 "added")
+                 "fig-4.svg" (faithful 1 "removed")}
+        html (with-figures figures #(built mermaid-margin-src))]
+    (is (= 4 (count (re-seq #"class=\"figure\"" html))))
+    (is (apply < (map #(str/index-of html %) [">plain<" ">context<" ">added<" ">removed<"]))
+        "fig-N.svg follows source order across every margin")
+    (is (re-find #"class=\"ctx\"><div class=\"figure\"" html) "two-space context keeps its margin")
+    (is (re-find #"class=\"figmark fig-add\"><div class=\"figure\"" html) "added keeps green margin")
+    (is (re-find #"class=\"figmark fig-del\"><div class=\"figure\"" html) "removed keeps red margin")
+    (is (not (str/includes? html "flowchart TB")) "no Mermaid fence is left as code")))
+
+(deftest an-unrendered-mermaid-names-the-ordered-figure
+  (with-figures {"fig-1.svg" (faithful 1 "plain")
+                 "fig-2.svg" (faithful 1 "context")}
+    #(is (= "figure fig-3.svg not found; Mermaid fence 3 unrendered"
+            (refusal mermaid-margin-src))))
+  (with-figures {"fig-1.svg" (faithful 1 "plain")
+                 "fig-2.svg" (faithful 1 "context")
+                 "fig-3.svg" (faithful 1 "added")
+                 "fig-4.svg" "not an svg"}
+    #(is (str/starts-with? (refusal mermaid-margin-src) "figure fig-4.svg unrendered:"))))
+
+(deftest cli-refuses-an-unrendered-mermaid-without-writing-the-page
+  (let [dir (fs/create-temp-dir)
+        src (str (fs/path dir "b.md"))
+        out (str (fs/path dir "b.html"))]
+    (try
+      (spit src "# B\n\n```mermaid\nflowchart TB\n    a --> b\n```\n")
+      (let [r (clojure.java.shell/sh "bb" (str (fs/path tools-dir "book-build.clj")) src out
+                                     "--figures" (str dir))]
+        (is (= 1 (:exit r)))
+        (is (= "book-build: figure fig-1.svg not found; Mermaid fence 1 unrendered\n" (:err r)))
+        (is (not (fs/exists? out))))
+      (finally (fs/delete-tree dir)))))
 
 (deftest prose-fence-renders-as-text
   ;; one list, book-fence-languages.json, read by book-build.clj
