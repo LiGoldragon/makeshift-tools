@@ -1193,8 +1193,10 @@
                   lang (if (or (= "" (m 2)) (text-languages (m 2))) "text" (m 2))
                   close-re (re-pattern (str "(?U)^" (if (= \` (first (m 1))) "`" "~") "{" (count (m 1)) ",}\\s*$"))
                   j (loop [j (inc i)] (if (and (< j n) (not (re-find close-re (lines j)))) (recur (inc j)) j))]
-              (recur (inc j) (conj out (with-meta [:fence lang (subvec lines (inc i) (min n j))]
-                                         {:bare (= "" (m 2))})) [] proposal))
+              (recur (inc j) (conj out (if (= "diff" (m 2))
+                                         [:fence "diff" (subvec lines (inc i) (min n j)) :per-line]
+                                         (with-meta [:fence lang (subvec lines (inc i) (min n j))]
+                                           {:bare (= "" (m 2))}))) [] proposal))
             (cond
               ;; Exactly two spaces mark an unchanged line in a diff paragraph;
               ;; don't mistake that context marker for a paragraph separator.
@@ -1628,6 +1630,11 @@
 
             (= raw-lang "mermaid")
             (emit (show-mermaid lines))
+
+            ;; A diff fence is prose: its lines are text under their margins, unwrapped.
+            ;; Only a fenced block inside it is code.
+            (and (= raw-lang "diff") (not-any? #(re-find #"^(?:[+-] |  )?\s*```mermaid" %) lines))
+            (emit-panels (binding [*module-fig* show-mermaid] (text-panels lines true)))
 
             ;; a proposal's unchanged lines, written outside a fence, are panels of the change
             (and per-line (not-any? signed-line? lines))

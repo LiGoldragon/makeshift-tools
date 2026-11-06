@@ -271,7 +271,19 @@
              :else
              (do (swap! st update-in [:fence :lines] conj line)
                  (when (re-find #"^File:" line) (err! number "file-line-in-body"))
-                 (when (and (section) (change? line)) (mark-changed!))))
+                 (when (and (section) (change? line)) (mark-changed!))
+                 (when (:diff fence)
+                   ;; Inside a diff fence the 52-column limit binds only its fenced blocks.
+                   (cond
+                     (:inner fence)
+                     (if (re-find (re-pattern (str "^" sign-prefix " {0,3}`{3,}\\s*$")) line)
+                       (swap! st assoc-in [:fence :inner] false)
+                       (when (and (not (str/starts-with? line "- ")) (> (code-points line) 52))
+                         (err! number "code-over-52-columns")))
+                     (re-find (re-pattern (str "^" sign-prefix " {0,3}`{3,}\\s*[^ `]*\\s*$")) line)
+                     (swap! st assoc-in [:fence :inner] true)
+                     :else
+                     (body! line number)))))
 
            in-comment
            (when (str/includes? line "-->") (swap! st assoc :in-comment false))
@@ -339,7 +351,9 @@
                  (swap! st assoc :fence
                         {:char (subs (second opening) 0 1) :size (count (second opening)) :line number
                          :language language
-                         :code (not (#{"text" "prose" "markdown" "md"} language))
+                         ;; A diff fence is prose; only its fenced blocks are code.
+                         :diff (= language "diff")
+                         :code (not (#{"text" "prose" "markdown" "md" "diff"} language))
                          :plain (boolean (#{"" "text" "txt" "prose"} language))
                          :lines []}))
                :else
