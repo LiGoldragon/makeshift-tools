@@ -1315,6 +1315,10 @@
   *ethos-zero-real*'s for real code."
   nil)
 
+(def ^:dynamic *enforce-ethos*
+  "When true, Ethos Check is a publication gate."
+  false)
+
 (defn- sh [& args]
   (let [p (.start (doto (ProcessBuilder. ^java.util.List (vec args))
                     (.redirectErrorStream true)))
@@ -1425,6 +1429,23 @@
     (or (nil? (ethos-zero-check *ethos-zero-real* text))
         (nil? (ethos-zero-check *ethos-zero* text)))))
 
+(defn- check-ethos!
+  "Run Check and distinguish rejection from an unavailable validator."
+  [ref text]
+  (let [result (try
+                 (if *ethos-check*
+                   (*ethos-check* text)
+                   (ethos-zero-check ref text))
+                 (catch Throwable e
+                   (throw (ex-info (str "ethos validator unavailable: " (ex-message e))
+                                   {:kind :validator-unavailable} e))))]
+    (when result
+      (if (str/starts-with? result "ethos-zero ")
+        (throw (ex-info (str "ethos validator unavailable: " result)
+                        {:kind :validator-unavailable}))
+        (throw (ex-info (str "ethos rejected: " result) {:kind :ethos-rejected}))))
+    true))
+
 (defn comment-html
   "The machine's comment on the proposal it sits in."
   [text]
@@ -1513,6 +1534,9 @@
               lang (cond md? "text"
                          (and code-file? (= raw-lang "text")) (file-language @module-file)
                          :else raw-lang)]
+          (when (and *enforce-ethos* (= lang "ethos"))
+            (check-ethos! (if code-file? *ethos-zero-real* *ethos-zero*)
+                          (str/join "\n" lines)))
           (when (and @rulings @pending-close) (close-rulings true))
           (cond
             ;; a figure proposed for the module it will live in: all + is added, all - removed
@@ -1726,6 +1750,14 @@
   [path]
   (str/replace (slurp (str path) :encoding "UTF-8") #"\r\n?" "\n"))
 
+(defn- check-source! [src]
+  (load-file (str (fs/path script-dir "book-check.clj")))
+  (let [errors ((ns-resolve 'book-check 'check-book) src)]
+    (when (seq errors)
+      (throw (ex-info (str "source check failed: " (pr-str errors))
+                      {:kind :source-invalid :errors errors})))
+    true))
+
 (defn -main [& args]
   (let [args (vec args)]
     (when (< (count args) 2)
@@ -1743,7 +1775,10 @@
       (binding [*figures-dir* (when (>= fi 0) (get args (inc fi)))
                 *ethos-zero* (if (>= ei 0) (get args (inc ei)) pinned-ethos-zero)
                 *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) pinned-ethos-zero)]
-        (try (spit out-path (build (read-text src-path) (read-text code-path)) :encoding "UTF-8")
+        (try (let [src (read-text src-path)]
+               (check-source! src)
+               (binding [*enforce-ethos* true]
+                 (spit out-path (build src (read-text code-path)) :encoding "UTF-8")))
              (catch clojure.lang.ExceptionInfo e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
                (System/exit 1))

@@ -97,7 +97,7 @@
 
 (deftest historical-books
   (let [read #(slurp (str (fs/path root "test/fixtures/books" %)))]
-    (is (= [] (check (read "02-chronos-golden-example-2.md"))))
+    (is (seq (check (read "02-chronos-golden-example-2.md"))))
     (is (seq (check (read "50-lean-flows.md"))))
     (is (some #{"file-line-in-body"} (reasons (read "01-chronos-golden-example.md"))))))
 
@@ -218,16 +218,28 @@
       "only the paragraph that opens Created by"))
 
 (deftest mermaid-figures
-  (let [mermaid (str "```mermaid\nflowchart LR\n    a[\"" (rep "x" 80) "\"] -- \"to\" --> b[\"b\"]\n```\n")]
+  (let [mermaid (str "```mermaid\nflowchart LR\n    a[\"x\"] -- \"to\" --> b[\"b\"]\n```\n")
+        long-mermaid (str "```mermaid\nflowchart LR\n    a[\"" (rep "x" 80) "\"] -- \"to\" --> b[\"b\"]\n```\n")]
     (is (= [] (reasons (str "# T\n\n" mermaid "\n" after-title*))) "a context figure outside a proposal")
-    (is (= [] (reasons (str good "\n" mermaid))) "no 52-column limit on mermaid lines")
+    (is (= [] (reasons (str good "\n" mermaid))) "Mermaid within 52 columns")
     (is (= [] (reasons (str located "- Old.\n+ New.\n\n" (str/replace mermaid #"(?m)^" "+ ")))))
     (is (= [] (reasons (str "### Proposal 1: A · psyche-belief › vision/book.md\n\n"
                             (str/replace mermaid #"(?m)^(.)" "+ $1")))) "a signed opener is a fence and its change")
+    (is (= ["code-over-52-columns"] (reasons (str good long-mermaid))) "Mermaid over 52 columns")
     (is (= ["code-over-52-columns"]
            (reasons (str good "```rust\n" (rep "x" 80) "\n```\n"))) "other code keeps the limit")
     (is (= ["code-over-52-columns"]
            (reasons (str good "+ ```rust\n+ " (rep "x" 80) "\n+ ```\n"))) "a signed fence is checked like an unsigned one")))
+
+(deftest proposal-fences-name-their-language
+  (is (= ["fence-language-required"]
+         (reasons "### Proposal 1: Code · repo › x.md\n+ Added.\n\n```\nplain text\n```\n")))
+  (is (= ["fence-language-required"]
+         (reasons "### Proposal 1: Code · repo › x.md\n+ Added.\n\n```\n+ added\n```\n")))
+  (is (= ["fence-language-required"]
+         (reasons "### Proposal 1: Code · repo › x.md\n+ Added.\n\n```\n- removed\n```\n")))
+  (is (= []
+         (reasons "### Proposal 1: Code · repo › x.md\n+ Added.\n\n```text\nplain text\n```\n"))))
 
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

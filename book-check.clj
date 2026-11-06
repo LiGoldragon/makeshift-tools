@@ -151,7 +151,7 @@
              (:code fence)
              (do (swap! st update-in [:fence :lines] conj line)
                  ;; A removed line is quoted as it is; the width limit binds proposed code only.
-                 (when (and (not= "mermaid" (:language fence)) (not (str/starts-with? line "- "))
+                 (when (and (not (str/starts-with? line "- "))
                             (> (code-points line) 52))
                    (err! number "code-over-52-columns"))
                  (when (and (section) (re-find #"^[+-] .*\S" line)) (mark-changed!)))
@@ -171,6 +171,10 @@
                  opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
              (if opening
                (let [language (str/lower-case (nth opening 2))]
+                 ;; Every proposal code fence names its language.  Unlabelled
+                 ;; fences remain the authored diagram form outside proposals.
+                 (when (and (section) (= language ""))
+                   (err! number "fence-language-required"))
                  ;; Outside a section a fence is allowed only as a diagram: an unlabelled
                  ;; sketch or a labelled mermaid figure (a context figure).
                  (when (and (not (section))

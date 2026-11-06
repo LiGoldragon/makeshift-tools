@@ -273,9 +273,10 @@
 
 (deftest cli-renders-what-it-is-given
   (let [dir (fs/create-temp-dir)
+        source (str "### Proposal 1: Figures · repo › book.md\n\n+ Added.\n\n" sketch-md)
         src (str (fs/path dir "b.md")) out (str (fs/path dir "b.html"))
         bb #(apply clojure.java.shell/sh "bb" (str (fs/path tools-dir "book-build.clj")) %&)]
-    (try (spit src sketch-md)
+    (try (spit src source)
          (let [r (bb src out)]
            (is (= 0 (:exit r)) (:err r))
            (is (= 2 (count (str/split-lines (:err r)))) "one line for each of the two missing figures")
@@ -484,12 +485,12 @@
         src (str (fs/path dir "b.md")) out (str (fs/path dir "b.html"))
         fake (fake-checker dir "Refuser")
         run #(apply clojure.java.shell/sh "bb" (str (fs/path tools-dir "book-build.clj")) src out "--figures" (str dir) %&)]
-    (try (spit src (str "# B\n\n```ethos\n" accepted-ethos "\n```\n\n### Proposal 1: x\n\n```ethos\nB\n```\n\n\n```\n+------+\n| a    |\n+------+\n   | to\n   v\n+------+\n| b    |\n+------+\n```\n"))
+    (try (spit src (str "### Proposal 1: x · repo › x.md\n\n+ Added.\n\n```ethos\n" accepted-ethos "\n```\n\n```figure\n+------+\n| a    |\n+------+\n   | to\n   v\n+------+\n| b    |\n+------+\n```\n"))
          (spit (str (fs/path dir "fig-1.svg")) a-to-b)
          (let [r (run "--ethos-zero" fake "--ethos-zero-real" fake)]
-           (is (= 0 (:exit r)) (:err r))
-           (is (= "" (:err r)))
-           (is (fs/exists? out)))
+          (is (= 1 (:exit r)) (:err r))
+          (is (str/starts-with? (:err r) "book-build: ethos rejected:"))
+          (is (not (fs/exists? out))))
          (finally (fs/delete-tree dir)))))
 
 (deftest an-unlabelled-fence-is-code-only-inside-a-module-view
@@ -734,7 +735,7 @@
         src (str (fs/path dir "b.md"))
         out (str (fs/path dir "b.html"))]
     (try
-      (spit src "# B\n\n```mermaid\nflowchart TB\n    a --> b\n```\n")
+      (spit src "### Proposal 1: x · repo › x.md\n\n+ Added.\n\n```mermaid\nflowchart TB\n    a --> b\n```\n")
       (let [r (clojure.java.shell/sh "bb" (str (fs/path tools-dir "book-build.clj")) src out
                                      "--figures" (str dir))]
         (is (= 1 (:exit r)))
