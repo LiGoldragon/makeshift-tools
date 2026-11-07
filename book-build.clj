@@ -14,9 +14,9 @@
 ;; diagram forms keep their existing optional-figure behavior. A failure to
 ;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
 ;; **Destroy** or **Archive** wraps the deleted module that follows, shown
-;; whole, in a record panel under the red margin with that mark. Inside a proposal, a paragraph opening with
-;; **Comment** is the machine's comment, in its own colour, before the lines it
-;; explains. Each alternative is its own proposal. The first line may be a
+;; whole, in a record panel under the red margin with that mark. Inside a proposal,
+;; a ::: comment container is the author's reason, in its own box, before the
+;; module text it explains. Each alternative is its own proposal. The first line may be a
 ;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
 ;; (the default when absent), Review or Account: a Review shows its added and
 ;; removed lines in the dark shade. A paragraph opening "Created by" under the
@@ -1060,23 +1060,7 @@
                   (or (some #(or (str/starts-with? % "+") (= "- ---" (rstrip %))) para)
                       (kept (first para)))))))
 
-(def comment-mark
-  "A paragraph opening with **Comment** is the machine's comment on the proposal it sits in."
-  #"^\*\*Comment\*\*(?U)\s*(.*)$")
-
 (declare flush-para signed-line?)
-
-(defn- marked-para
-  "A comment mark followed, without a blank line, by change
-  lines: the mark's paragraph, then the change."
-  [para]
-  (let [diff-line? #(or (signed-line? %) (str/starts-with? % "  "))
-        k (first (keep-indexed (fn [k l] (when (and (pos? k) (diff-line? l)
-                                                    (diff-para? (subvec para k))) k))
-                               para))]
-    (if k
-      (into [[:para (subvec para 0 k)]] (flush-para (subvec para k)))
-      [[:para para]])))
 
 (defn flush-para
   "Outside a proposal, a paragraph written as a change is a text fence read line by line."
@@ -1084,19 +1068,12 @@
   (let [para (vec para)]
     (cond
       (diff-para? para) [[:fence "text" para :per-line]]
-      (re-find comment-mark (first para)) (marked-para para)
       :else (split-para para))))
 
 (defn- change-line?
   "A line of a change: signed, or unchanged and two spaces in."
   [l]
   (or (signed-line? l) (str/starts-with? l "  ")))
-
-(defn- head-mark?
-  "A line that may head a change without a blank line: its File line, the
-  machine's comment."
-  [l]
-  (boolean (or (str/starts-with? l "File: ") (re-find comment-mark l))))
 
 (defn proposal-para
   "Inside a proposal, a paragraph holding a signed line is a change, read line
@@ -1128,9 +1105,10 @@
         skip #"(?U)^(<!--.*-->|Presentation\.\{.*\})\s*$"
         fence-open-re #"(?U)^(`{3,}|~{3,})(\w*)\s*$"
         move-open-re #"^::: move(?:\s+.*)?$"
+        comment-open-re #"^::: comment(?:\s+.*)?$"
         shown-open-re #"^::: shown(?:\s+.*)?$"
         shown-location-re #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)$"
-        container-open-re #"^::: (?:move|shown)(?:\s+.*)?$"
+        container-open-re #"^::: (?:comment|move|shown)(?:\s+.*)?$"
         flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))]
     (loop [i 0 out [] para [] proposal nil]
       (if (>= i n)
@@ -1162,6 +1140,24 @@
                   _ (when-not (and location (some (complement blank?) (rest body)))
                       (throw (ex-info (str "shown container needs a module path and excerpt at source line " line-no) {})))]
               (recur (inc end) (conj out [:shown (second location) (nth location 2) (subvec body 1)]) [] proposal))
+            (if (re-find comment-open-re l)
+              (let [line-no (inc i)
+                    _ (when-not (= l "::: comment")
+                        (throw (ex-info (str "malformed comment container at source line " line-no) {})))
+                    _ (when-not proposal
+                        (throw (ex-info (str "comment container outside proposal at source line " line-no) {})))
+                    out (cond-> out (seq para) (into (flush para proposal)))
+                    start (inc i)
+                    [end body] (loop [j start]
+                                 (if (>= j n)
+                                   (throw (ex-info (str "unclosed comment container at source line " line-no) {}))
+                                   (let [x (lines j)]
+                                     (cond
+                                       (= x ":::") [j (subvec lines start j)]
+                                       (re-find container-open-re x)
+                                       (throw (ex-info (str "nested container at source line " (inc j)) {}))
+                                       :else (recur (inc j))))))]
+                (recur (inc end) (conj out [:comment body]) [] proposal))
             (if (re-find move-open-re l)
             (let [state (second (re-find #"^::: move(?:\s+(.*))?$" l))
                   line-no (inc i)
@@ -1209,7 +1205,7 @@
               (re-find proposal-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] proposal)
               (re-find skip l) (recur (inc i) out para proposal)
-              :else (recur (inc i) out (conj para l) proposal))))))))))
+              :else (recur (inc i) out (conj para l) proposal)))))))))))
 
 (defn parse-list [lines]
   (reduce (fn [items l]
@@ -1473,9 +1469,11 @@
     true))
 
 (defn comment-html
-  "The machine's comment on the proposal it sits in."
-  [text]
-  (str "<aside class=\"comment\"><p>" (inline text) "</p></aside>"))
+  "The proposal author's reason, apart from the module text it explains."
+  [lines]
+  (str "<aside class=\"comment\" aria-label=\"Why\">"
+       "<div class=\"comment-label\">Why</div>"
+       "<div class=\"comment-body\">" (markdown-html lines) "</div></aside>"))
 
 (defn shown-html
   "A checked excerpt of the named source module as it stands."
@@ -1548,6 +1546,9 @@
                         (when (not= "" diff) (emit diff))))]
     (doseq [[i b] (map-indexed vector bs)]
       (cond
+        (= :comment (first b))
+        (emit (comment-html (second b)))
+
         (= :shown (first b))
         (let [[_ repository path lines] b]
           (emit (shown-html repository path lines)))
@@ -1730,10 +1731,6 @@
               (close-record)
               (vreset! heading-where t)
               (emit (str "<" h " class=\"part\"><code>" (esc t) "</code></" h ">")))
-
-            (re-find comment-mark first-line)
-            (do (when (and @rulings @pending-close) (close-rulings true))
-                (emit (comment-html (second (re-find comment-mark text)))))
 
             ;; A module-change page carries its short reason as ordinary prose.
             ;; `Why:` is source notation for that reason, not a label in this

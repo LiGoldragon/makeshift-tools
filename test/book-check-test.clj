@@ -54,11 +54,12 @@
 (deftest located-proposal-with-a-change
   (is (= ["missing-proposal" "text-outside-proposal-without-module" "text-outside-proposal-without-module"]
          (reasons "# A book\nText.\n+ Added.\n")))
-  (is (= ["no-change-in-proposal"] (reasons (str good "## Proposal 2: flows › a/b.md\nOnly prose.\n"))))
+  (is (= ["no-change-in-proposal" "context-module-unavailable"]
+         (reasons (str good "## Proposal 2: flows › a/b.md\nOnly prose.\n"))))
   (is (= [] (check (str good "## Proposal 2: flows › a/b.md\n**Archive** the record.\n"))))
   (is (= [] (check (str good "## Proposal 2: flows › a/b.md\n**Destroy** a sentence.\n"))))
   (is (= [] (check "## Proposal 1: chronos › src/lib.rs\n```rust\n+ fn f() {}\n```\n")))
-  (is (= ["no-change-in-proposal" "heading-outside-proposal-without-module" "text-outside-proposal-without-module"]
+  (is (= ["no-change-in-proposal" "context-module-unavailable" "heading-outside-proposal-without-module" "text-outside-proposal-without-module"]
          (reasons "## Proposal 1: flows › a.md\nText.\n## Elsewhere\n+ Added.\n"))))
 
 (deftest heading-inside-code-or-comment-opens-no-proposal
@@ -190,15 +191,33 @@
 (def located "### Proposal 1: Replace · psyche-belief › vision/book.md\n")
 
 (deftest comment-comes-first-once
-  (is (= [] (check (str located "**Comment** Why it is proposed.\n\n- Old.\n+ New.\n"))))
-  (is (= ["comment-after-change"] (reasons (str located "- Old.\n+ New.\n\n**Comment** Too late.\n"))))
-  (is (= ["second-comment-in-proposal"] (reasons (str located "**Comment** One.\n\n**Comment** Two.\n\n+ New.\n"))))
-  (is (= ["text-outside-proposal-without-module"] (reasons (str "**Comment** Loose.\n" located "+ New.\n")))))
+  (is (= [] (check (str located "::: comment\nWhy it is proposed.\n:::\n\n- Old.\n+ New.\n"))))
+  (is (= ["comment-after-change"] (reasons (str located "- Old.\n+ New.\n\n::: comment\nToo late.\n:::\n"))))
+  (is (= ["second-comment-in-proposal"] (reasons (str located "::: comment\nOne.\n:::\n\n::: comment\nTwo.\n:::\n\n+ New.\n"))))
+  (is (= ["comment-outside-proposal" "missing-proposal"] (reasons "::: comment\nLoose.\n:::\n")))
+  (is (= ["comment-container-required"] (reasons (str located "**Comment** Legacy.\n\n+ New.\n")))))
 
 (deftest each-alternative-is-its-own-proposal
   (is (= [] (check (str located "- Old.\n+ One.\n\n"
                         "### Proposal 2: Replace, another way · psyche-belief › vision/book.md\n\n- Old.\n+ Two.\n"))))
-  (is (= [] (check (str located "**Comment** A lone proposal.\n\n- Old.\n+ One.\n")))))
+  (is (= [] (check (str located "::: comment\nA lone proposal.\n:::\n\n- Old.\n+ One.\n")))))
+
+(deftest proposal-prose-is-authenticated-as-one-module-paragraph
+  (let [module (str "---\ndescription: fixture\ndependencies: []\n---\n\n"
+                    "First paragraph wraps\nacross two lines.\n\nSecond paragraph.\n")
+        opts {:read-module (fn [repo path]
+                             (same! "psyche-belief" repo)
+                             (same! "vision/book.md" path)
+                             module)}]
+    (is (= [] (check (str located "First paragraph wraps across two lines.\n\n+ New.\n") opts))
+        "layout whitespace alone is normalized")
+    (is (= ["proposal-module-text-absent"]
+           (reasons (str located "First paragraph wraps Second paragraph.\n\n+ New.\n") opts))
+        "paragraphs are not assembled across their boundary")
+    (is (= ["proposal-module-text-absent"]
+           (reasons (str located "First paragraph wraps across two lines. Extra.\n\n+ New.\n") opts))
+        "the paragraph is not accepted as a substring")
+    (is (= [] (check (str located "::: comment\nAuthor explanation.\n:::\n\n+ New.\n") opts)))))
 
 (deftest shown-is-an-exact-contiguous-current-module-excerpt
   (let [module "First line.\nSecond line.\n\n- A real list item.\nLast line.\n"
@@ -208,7 +227,8 @@
                              module)}
         source (fn [body] (str located "::: shown\npsyche-belief › vision/book.md\n" body "\n:::\n\n+ New.\n"))]
     (is (= [] (check (source "First line.\nSecond line.") opts)))
-    (is (= [] (check (source "- A real list item.\nLast line.") opts)))
+    (is (= [] (check (source "- A real list item.\nLast line.") opts))
+        "an exact module list is current text, not a coloured change")
     (is (= ["shown-module-text-absent"] (reasons (source "First line.\nInvented.") opts)))
     (is (= ["shown-module-text-absent"] (reasons (source "+ Current change.") opts)))
     (is (= ["shown-location-invalid"]
@@ -229,7 +249,7 @@
   (let [account "Presentation.{ «T» Account }\n\n# T\n\nCreated by Fable.\n\n## The gist\n\nIt happened so.\n\n### What followed\n\nMore prose.\n"]
     (is (= [] (check account)) "no missing-proposal either")
     (is (= [] (check (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"))))
-    (is (= ["no-change-in-proposal"]
+    (is (= ["no-change-in-proposal" "proposal-module-text-absent"]
            (reasons (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\nOnly prose.\n")))
         "a proposal inside an account is checked as a proposal")
     (is (= ["missing-proposal" "text-outside-proposal-without-module"]

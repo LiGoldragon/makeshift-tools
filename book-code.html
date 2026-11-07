@@ -16,8 +16,8 @@
            <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
            <div class="ctx">…</div>                  its text, shown whole
          </div>
-       The machine's comment on the proposal it sits in, before its lines (indigo, labelled "Why" by the class):
-         <aside class="comment"><p>…</p></aside>
+       The proposal author's reason on the proposal it sits in, before its lines (an indigo box visibly labelled "Why"):
+         <aside class="comment" aria-label="Why"><div class="comment-label">Why</div><div class="comment-body"><p>…</p></div></aside>
        Each alternative is its own proposal; there is no alternatives group.
        A review (<meta name="book-kind" content="review"> in the page) shows every added and removed line in the dark shade
        (--add-landed-edge, --del-landed-edge); a proposal or an account shows the light shade.
@@ -177,9 +177,9 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 :root:has(meta[name="book-kind"][content="review"]){--add-edge:var(--add-landed-edge);--del-edge:var(--del-landed-edge)}
 
 /* The machine's comment: why it proposes the lines that follow; its own colour (indigo), never module text, green or red. */
-.comment{border-left:4px solid var(--comment-edge);background:var(--comment-bg);color:var(--comment-fg);border-radius:8px;padding:8px 12px 10px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5}
-.comment::before{content:"Why";display:inline-block;margin-bottom:.35em;padding:1px 9px;border-radius:999px;background:var(--comment-edge);color:var(--sheet);font-weight:600;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase}
-.comment>p{margin:0;overflow-wrap:anywhere}
+.comment{border:1px solid var(--comment-edge);border-left-width:4px;background:var(--comment-bg);color:var(--comment-fg);border-radius:8px;margin:18px 0 20px;padding:10px 12px 12px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5}
+.comment-label{display:table;margin:0 0 7px;padding:1px 9px;border-radius:999px;background:var(--comment-edge);color:var(--sheet);font-weight:600;font-size:.74rem;letter-spacing:.04em}
+.comment-body> :first-child{margin-top:0}.comment-body> :last-child{margin-bottom:0}.comment-body p{overflow-wrap:anywhere}
 
 /* An excerpt of its named source module as it stands: a fourth colour beside added, removed and moved. */
 .shown{border:1px solid var(--shown-edge);border-left-width:5px;border-radius:8px;background:var(--shown-bg);color:var(--shown-fg);margin:16px 0;padding:10px 12px;min-width:0}

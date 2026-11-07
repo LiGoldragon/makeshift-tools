@@ -402,7 +402,7 @@
                                  "<div class=\"diff\"><div class=\"del\"><p>Gone line.</p></div>"
                                  "<div class=\"ctx\"><p>Kept line.</p></div></div>"))
         "a File line may head its change without a blank line"))
-  (let [html (book-build/build "## Proposal 1: x\n\n**Comment** Why.\n- Gone line.\n  Kept line.\n" "")]
+  (let [html (book-build/build "## Proposal 1: x\n\n::: comment\nWhy.\n:::\n\n- Gone line.\n  Kept line.\n" "")]
     (is (str/includes? html "<div class=\"del\"><p>Gone line.</p></div><div class=\"ctx\"><p>Kept line.</p></div>")
         "a comment may head its change without a blank line"))
   (let [html (book-build/build "## Proposal 2: x\n\nNot yet parseable:\n- Gone line.\n+ New line.\n" "")]
@@ -599,24 +599,33 @@
 
 (def ^:private head "# B\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n")
 
-(deftest a-machine-comment-sits-before-the-proposal-it-explains
-  (let [html (built (str head "**Comment** Proposed because the rule repeats.\n\n- Old.\n+ New.\n"))]
-    (is (str/includes? html "<aside class=\"comment\"><p>Proposed because the rule repeats.</p></aside>"))
+(deftest an-author-comment-is-a-labelled-box-before-the-proposal-it-explains
+  (let [html (built (str head "::: comment\nProposed because the rule repeats.\n:::\n\n- Old.\n+ New.\n"))]
+    (is (str/includes? html (str "<aside class=\"comment\" aria-label=\"Why\">"
+                                 "<div class=\"comment-label\">Why</div>"
+                                 "<div class=\"comment-body\"><p>Proposed because the rule repeats.</p></div></aside>")))
     (is (< (str/index-of html "class=\"comment\"") (str/index-of html "class=\"diff\"")) "the comment comes before the lines")
     (is (< (str/index-of html "class=\"proposal\"") (str/index-of html "class=\"comment\"")) "inside its proposal"))
-  (is (= (built (str head "**Comment** Why.\n\n- Old.\n+ New.\n"))
-         (built (str head "**Comment** Why.\n- Old.\n+ New.\n")))
-      "a comment followed at once by its change lines is the same comment and change")
-  (is (str/includes? (built (str head "**Comment** Uses `code` and **bold**.\n\n+ New.\n"))
+  (is (str/includes? (built (str head "::: comment\nUses `code` and **bold**.\n:::\n\n+ New.\n"))
                      "<p>Uses <code>code</code> and <strong>bold</strong>.</p>"))
-  (is (str/includes? (built "# B\n\n**Comment** Loose.\n") "Loose.")
-      "a comment outside a proposal is rendered"))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"outside proposal"
+        (built "# B\n\n::: comment\nLoose.\n:::\n"))))
+
+(deftest comment-and-move-containers-are-distinct
+  (let [html (built (str head
+                         "::: comment\nThe passage moves as one.\n:::\n\n"
+                         "::: move proposed\nfrom: vision/old.md\nto: vision/new.md\n\nMoved passage.\n:::\n"))]
+    (is (str/includes? html "<div class=\"comment-body\"><p>The passage moves as one.</p></div>"))
+    (is (str/includes? html "<section class=\"move move-proposed\">"))
+    (is (= 1 (count (re-seq #"The passage moves as one\." html))))))
 
 (deftest the-comment-has-its-own-colour-light-and-dark
   (let [vars (re-seq #"--comment-(?:bg|edge|fg):(#[0-9a-f]{6})" code)
         colours (set (map second vars))]
     (is (= 9 (count vars)) "three comment colours in light, dark, and the dark theme")
-    (is (every? #(str/includes? code (str ".comment{" %)) ["border-left:4px solid var(--comment-edge)"]))
+    (is (str/includes? code ".comment{border:1px solid var(--comment-edge);border-left-width:4px"))
+    (is (str/includes? code "margin:18px 0 20px"))
+    (is (str/includes? code ".comment-label{"))
     (doseq [c ["#2f8a46" "#c2372b" "#5cc47a" "#f07a6e" "#1c5f8a" "#7cc0ee"]]
       (is (not (colours c)) (str "not the green, red or module colour " c)))))
 

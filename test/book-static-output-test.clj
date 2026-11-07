@@ -36,18 +36,20 @@
     (is (not (str/includes? without "class=\"pnum\""))
         "a module-change page emits no numbered Proposal badge")
     (is (not (str/includes? without "class=\"comment\""))
-        "a module-change page emits no Why comment node")
+        "a module-change page emits no comment aside")
     (is (not (str/includes? without ">Why:")) "the source marker is not emitted as a label")
     (is (str/includes? without "<p>the module keeps the rendering rule.</p>")
         "the reason remains as ordinary prose"))
   (let [with (book-build/build
               (str "## Proposal 7: change a module\n\n"
-                   "**Comment** the reason is wanted here.\n\n"
+                   "::: comment\nThe reason is wanted here.\n:::\n\n"
                    "+ Added.\n") "")]
     (is (str/includes? with "<span class=\"pnum\">7</span>")
         "a numbered Proposal form includes its badge")
-    (is (str/includes? with "<aside class=\"comment\">")
-        "an explicit Comment form includes its Why node")))
+    (is (str/includes? with (str "<aside class=\"comment\" aria-label=\"Why\">"
+                                 "<div class=\"comment-label\">Why</div>"
+                                 "<div class=\"comment-body\">"))
+        "an explicit comment container includes its own visibly labelled box")))
 
 (deftest whole-module-inline-proposal-marks
   (let [html (book-build/build

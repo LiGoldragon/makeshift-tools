@@ -11,6 +11,8 @@
 ;; A proposal names one location, or two locations joined by ", and", in its heading.
 ;; A new/deleted-file suffix belongs to the final location.
 (def located #"^Proposal \d+: (?:.+ · )?[^\s›·]+ › [^\s,]+(?:, and [^\s›·]+ › [^\s,]+)?(?:, a (?:new|deleted) file)?\z")
+(def single-proposal-location
+  #"^Proposal \d+: (?:.+ · )?([^\s›·]+) › ([^\s,]+)(?:, a (?:new|deleted) file)?\z")
 ;; A removal is a change: removed lines, or the whole file deleted.
 (defn change? [line]
   (boolean (or (re-find #"^[+-] .*\S" line)
@@ -79,7 +81,18 @@
 (defn- module-body [text]
   (-> text (str/replace "\r\n" "\n") (str/replace-first #"\A---\n(?s:.*?)\n---\n" "") str/trim))
 
-(defn- contains-lines? [haystack needle]
+(defn- normalized-paragraph [lines]
+  (-> (str/join "\n" lines) str/trim (str/replace #"(?U)\s+" " ")))
+
+(defn- module-paragraphs [text]
+  (->> (str/split (module-body text) #"\n\s*\n")
+       (map #(normalized-paragraph [%]))
+       (remove str/blank?)
+       set))
+
+(defn- contains-lines?
+  "Whether needle is one exact contiguous excerpt of lines."
+  [haystack needle]
   (and (seq needle)
        (some #(= needle (subvec haystack % (+ % (count needle))))
              (range (inc (- (count haystack) (count needle)))))))
@@ -92,12 +105,39 @@
   ([source] (check-book source {}))
   ([source {:keys [read-module] :or {read-module read-context-module}}]
    (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))
-         st (atom {:errors [] :fence nil :section nil :in-comment false :shown-container nil
+         st (atom {:errors [] :fence nil :section nil :in-comment false :container nil :plain nil
                    :proposals 0 :title false :presentation false :kind "Proposal" :signature nil :shown #{}})
+         module-cache (atom {})
          err! (fn [line reason] (swap! st update :errors conj {:line line :reason reason}))
          section #(:section @st)
          set-section! (fn [f] (swap! st update :section f))
          mark-changed! (fn [] (set-section! #(assoc % :changed true)))
+         flush-plain!
+         (fn []
+           (when-let [{:keys [line lines repository path]} (:plain @st)]
+             (let [paragraph (normalized-paragraph lines)]
+               (when-not (str/blank? paragraph)
+                 (if-not (and repository path)
+                   (err! line "proposal-module-text-absent")
+                   (let [key [repository path]
+                         paragraphs (if (contains? @module-cache key)
+                                      (@module-cache key)
+                                      (let [v (try (module-paragraphs (read-module repository path))
+                                                   (catch Throwable _ ::unavailable))]
+                                        (swap! module-cache assoc key v)
+                                        v))]
+                     (if (= ::unavailable paragraphs)
+                       (err! line "context-module-unavailable")
+                       (when-not (contains? paragraphs paragraph)
+                         (err! line "proposal-module-text-absent")))))))
+             (swap! st assoc :plain nil)))
+         plain! (fn [line number]
+                  (if (str/blank? line)
+                    (flush-plain!)
+                    (swap! st update :plain
+                           #(if % (update % :lines conj line)
+                                {:line number :lines [line]
+                                 :repository (:repository (section)) :path (:path (section))}))))
          check-shown!
          (fn [{:keys [line lines]}]
            (let [location (when-let [location-line (first lines)]
@@ -114,6 +154,7 @@
                    (= ::unavailable source) (err! line "shown-module-unavailable")
                    (not (contains-lines? source excerpt)) (err! line "shown-module-text-absent"))))))
          finish! (fn []
+                   (flush-plain!)
                    (let [s (section)]
                      (when (and s (not (:changed s)) (not (:deleted s)))
                        (err! (:line s) "no-change-in-proposal"))
@@ -121,13 +162,18 @@
          body! (fn [line number]
                  ;; The location lives in the heading; a File: line in the body is the retired form.
                  (when (re-find #"^File:" line) (err! number "file-line-in-body"))
-                 (when (and (section) (re-find #"^\*\*Comment\*\*" line))
-                   ;; The machine's comment comes first: before every change and alternative of its proposal, once.
-                   (let [s (section)]
-                     (cond (:comment s) (err! number "second-comment-in-proposal")
-                           (:changed s) (err! number "comment-after-change"))
-                     (set-section! #(assoc % :comment true))))
-                 (when (and (section) (change? line)) (mark-changed!)))
+                 (when (and (section) (change? line))
+                   (flush-plain!)
+                   (mark-changed!))
+                 (when (and (section)
+                            (not (:deleted (section)))
+                            (not (str/blank? line))
+                            (not (change? line))
+                            (not (str/starts-with? line "  "))
+                            (not (str/starts-with? line "**Comment**"))
+                            (not (re-find #"^(?:File:|Ruling(?::|,)|\d+\. |\*\*(?:Archive|Destroy)\*\*)" line)))
+                   (plain! line number))
+                 (when (str/blank? line) (flush-plain!)))
          handle-module-view!
          (fn [i number heading-text [_ repo path]]
            (let [end (loop [end (inc i) literal nil]
@@ -160,16 +206,24 @@
      (doseq [i (range (count lines))]
        (let [line (lines i)
              number (inc i)
-             {:keys [fence in-comment shown-container shown]} @st]
+             {:keys [fence in-comment container shown]} @st]
          (cond
            (contains? shown i) nil
 
-           shown-container
+           container
            (cond
-             (= line ":::") (do (check-shown! shown-container)
-                                  (swap! st assoc :shown-container nil))
-             (re-find #"^::: (?:move|shown)(?:\s|$)" line) (err! number "nested-container")
-             :else (swap! st update-in [:shown-container :lines] conj line))
+             (= line ":::")
+             (do (when (and (= :comment (:kind container)) (not (:content container)))
+                   (err! (:line container) "empty-comment-container"))
+                 (when (= :shown (:kind container)) (check-shown! container))
+                 (swap! st assoc :container nil))
+             (re-find #"^::: (?:comment|move|shown)(?:\s|$)" line)
+             (err! number "nested-container")
+             :else
+             (swap! st (fn [s] (-> s
+                                    (update-in [:container :lines] (fnil conj []) line)
+                                    (cond-> (not (str/blank? line))
+                                      (assoc-in [:container :content] true))))))
 
            fence
            (cond
@@ -198,7 +252,8 @@
 
              :else
              (do (swap! st update-in [:fence :lines] conj line)
-                 (body! line number)))
+                 (when (re-find #"^File:" line) (err! number "file-line-in-body"))
+                 (when (and (section) (change? line)) (mark-changed!))))
 
            in-comment
            (when (str/includes? line "-->") (swap! st assoc :in-comment false))
@@ -207,22 +262,50 @@
            (swap! st assoc :in-comment (not (str/includes? line "-->")))
 
            :else
-           (let [shown-open? (= line "::: shown")
+           (let [comment-open? (= line "::: comment")
+                 malformed-comment? (re-find #"^::: comment(?:\s|$)" line)
+                 shown-open? (= line "::: shown")
                  malformed-shown? (re-find #"^::: shown(?:\s|$)" line)
+                 move-open (re-matches #"::: move (proposed|landed)" line)
+                 malformed-move? (re-find #"^::: move(?:\s|$)" line)
                  opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*)")) line)
                  opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
              (cond
+               comment-open?
+               (do (flush-plain!)
+                   (if-not (section)
+                     (err! number "comment-outside-proposal")
+                     (let [s (section)]
+                       (cond (:comment s) (err! number "second-comment-in-proposal")
+                             (:changed s) (err! number "comment-after-change"))
+                       (set-section! #(assoc % :comment true))))
+                   (swap! st assoc :container {:kind :comment :line number :content false :lines []}))
+
+               malformed-comment?
+               (do (flush-plain!) (err! number "malformed-comment-container"))
+
                shown-open?
-               (if-not (section)
-                 (err! number "shown-outside-proposal")
-                 (swap! st assoc :shown-container {:line number :lines []}))
+               (do (flush-plain!)
+                   (when-not (section) (err! number "shown-outside-proposal"))
+                   (swap! st assoc :container {:kind :shown :line number :content false :lines []}))
 
-               malformed-shown? (err! number "malformed-shown-container")
+               malformed-shown?
+               (do (flush-plain!) (err! number "malformed-shown-container"))
 
-               (= line ":::") (err! number "unexpected-container-close")
+               move-open
+               (do (flush-plain!)
+                   (when (section) (mark-changed!))
+                   (swap! st assoc :container {:kind :move :line number :content false :lines []}))
+
+               malformed-move?
+               (do (flush-plain!) (err! number "malformed-move-container"))
+
+               (= line ":::")
+               (do (flush-plain!) (err! number "unexpected-container-close"))
 
                opening
                (let [language (str/lower-case (nth opening 2))]
+                 (flush-plain!)
                  ;; Every proposal code fence names its language.  Unlabelled
                  ;; fences remain the authored diagram form outside proposals.
                  (when (and (section) (= language ""))
@@ -252,10 +335,13 @@
                        (re-find #"(?i)^Proposal\b" text)
                        (do (finish!)
                            (if (re-find located text)
-                             (swap! st #(-> % (update :proposals inc)
-                                            (assoc :section {:line number :level level :changed false
-                                                             :deleted (str/ends-with? text ", a deleted file")
-                                                             :comment false})))
+                             (let [location (re-matches single-proposal-location text)]
+                               (swap! st #(-> % (update :proposals inc)
+                                              (assoc :section {:line number :level level :changed false
+                                                               :deleted (str/ends-with? text ", a deleted file")
+                                                               :repository (nth location 1 nil)
+                                                               :path (nth location 2 nil)
+                                                               :comment false}))))
                              (err! number "proposal-heading-without-location")))
 
                        (not (section))
@@ -297,10 +383,12 @@
 
                          :else (err! number "text-outside-proposal-without-module")))
                      (when (re-find #"^ {0,3}>" line) (err! number "quote-block-in-book"))
+                     (when (and (section) (str/starts-with? line "**Comment**"))
+                       (err! number "comment-container-required"))
                      (body! line number)))))))))
      (finish!)
-     (when-let [shown-container (:shown-container @st)]
-       (err! (:line shown-container) "unclosed-shown-container"))
+     (when-let [c (:container @st)]
+       (err! (:line c) (str "unclosed-" (name (:kind c)) "-container")))
      (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st))) (err! 1 "missing-proposal"))
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))
