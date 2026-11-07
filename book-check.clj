@@ -15,6 +15,14 @@
 (defn change? [line]
   (boolean (or (re-find #"^[+-] .*\S" line)
                (re-find #"^\*\*(?:Archive|Destroy)\*\*" line))))
+
+(defn- signed-fence-line? [line]
+  (boolean (and (#{\+ \-} (first line))
+                (or (= 1 (count line)) (= \space (nth line 1))))))
+
+(defn- coherent-signed-mermaid? [lines]
+  (and (seq lines) (every? signed-fence-line? lines)
+       (apply = (map first lines))))
 ;; The three context repositories hold only their authored modules; any other
 ;; repository of the living holds any file, named by a relative path.
 (def context-repository #"^(?:psyche|mind|field)-belief\z")
@@ -173,12 +181,17 @@
                             (not-any? #(re-find #"^- \S" %) (:lines fence))
                             (some #(re-find #"^#{1,6} \S" %) (:lines fence)))
                    (err! (:line fence) "markdown-in-code-block"))
+                 (when (and (= "mermaid" (:language fence))
+                            (some signed-fence-line? (:lines fence))
+                            (not (coherent-signed-mermaid? (:lines fence))))
+                   (err! (:line fence) "mixed-mermaid-change"))
                  (swap! st assoc :fence nil))
 
              (:code fence)
              (do (swap! st update-in [:fence :lines] conj line)
                  ;; A removed line is quoted as it is; the width limit binds proposed code only.
-                 (when (and (not (str/starts-with? line "- "))
+                 (when (and (not= "mermaid" (:language fence))
+                            (not (str/starts-with? line "- "))
                             (> (code-points line) 52))
                    (err! number "code-over-52-columns"))
                  (when (and (section) (re-find #"^[+-] .*\S" line)) (mark-changed!)))

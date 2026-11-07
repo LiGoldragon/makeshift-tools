@@ -73,6 +73,19 @@
   (is (= [] (check (str good "```clojure\n- " (rep "x" 90) "\n+ " (rep "y" 50) "\n```\n"))))
   (is (= "code-over-52-columns" (:reason (first (check (str good "```clojure\n+ " (rep "y" 51) "\n```\n")))))))
 
+(deftest mermaid-change-signs-and-width
+  (let [fence (fn [body] (str good "```mermaid\n" body "\n```\n"))]
+    (is (= [] (check (fence (str "+ flowchart LR\n+     a[\"" (rep "x" 70) "\"] --> b")))))
+    (is (= [] (check (fence (str "- flowchart LR\n-     a[\"" (rep "x" 70) "\"] --> b")))))
+    (is (= ["mixed-mermaid-change"] (reasons (fence "+ flowchart LR\n-     a --> b"))))
+    (is (= ["mixed-mermaid-change"] (reasons (fence "+ flowchart LR\n\n+     a --> b")))
+        "a bare blank is unmarked; write the sign alone for an intentional blank")
+    (is (= [] (check (fence (str "flowchart LR\n    a[\"" (rep "x" 70) "\"] --> b"))))
+        "the width exemption also applies to an unmarked whole Mermaid fence")
+    (is (= "code-over-52-columns"
+           (:reason (first (check (str good "```rust\n" (rep "x" 53) "\n```\n")))))
+        "the width rule remains outside Mermaid")))
+
 (deftest shorter-fence-does-not-close-code
   (is (= "unclosed-code-fence" (:reason (last (check (str good "````rust\n```\n")))))))
 
@@ -241,7 +254,7 @@
     (is (= [] (reasons (str located "- Old.\n+ New.\n\n" (str/replace mermaid #"(?m)^" "+ ")))))
     (is (= [] (reasons (str "### Proposal 1: A · psyche-belief › vision/book.md\n\n"
                             (str/replace mermaid #"(?m)^(.)" "+ $1")))) "a signed opener is a fence and its change")
-    (is (= ["code-over-52-columns"] (reasons (str good long-mermaid))) "Mermaid over 52 columns")
+    (is (= [] (reasons (str good long-mermaid))) "Mermaid is exempt from the 52-column code limit")
     (is (= ["code-over-52-columns"]
            (reasons (str good "```rust\n" (rep "x" 80) "\n```\n"))) "other code keeps the limit")
     (is (= ["code-over-52-columns"]

@@ -648,6 +648,20 @@
          (is (not (re-find #"class=\"(add|del)\"" plain)) "an unsigned figure renders as before")
          (is (str/includes? plain "<div class=\"figure\""))))))
 
+(deftest uniformly-signed-mermaid-renders-one-svg-in-its-change-margin
+  (let [source (fn [sign] (str head "```mermaid\n"
+                               sign " flowchart LR\n"
+                               sign "     a[\"a\"] -- \"to\" --> b[\"b\"]\n```\n"))]
+    (doseq [[sign class] [["+" "fig-add"] ["-" "fig-del"]]]
+      (let [html (with-figures {"fig-1.svg" a-to-b} #(built (source sign)))]
+        (is (str/includes? html (str "<div class=\"figmark " class "\"><div class=\"figure\"")))
+        (is (= 1 (count (re-seq #"<svg" html))) "the stripped Mermaid source becomes one actual SVG")
+        (is (not (str/includes? html (str sign " flowchart"))) "the source marker is absent only from renderer input")))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mixed Mermaid change"
+          (built (str head "```mermaid\n+ flowchart LR\n-     a --> b\n```\n"))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mixed Mermaid change"
+          (built (str head "```mermaid\n+ flowchart LR\n\n+     a --> b\n```\n"))))))
+
 (deftest signed-code-fences-show-as-code
   (let [fence (fn [lang sign body] (str head "```" lang "\n" (str/join "\n" (map #(str sign " " %) body)) "\n```\n"))
         ethos ["Library" "[]" "[ Lock.{ Vector<String> } ]" "[]" "[]"]

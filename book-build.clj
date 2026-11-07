@@ -1237,13 +1237,13 @@
   (boolean (and (#{\+ \- \~} (first l)) (or (= 1 (count l)) (= \space (nth l 1))))))
 
 (defn signed-figure
-  "[sign stripped-lines] when every non-blank line of a fence carries one same sign
+  "[sign stripped-lines] when every line of a fence carries one same sign
   (a proposed figure: all + added, all - removed) and, signs stripped, it is a figure
   (an EDN or ASCII graph, an ASCII drawing, or a Mermaid flowchart); else nil."
   [lang lines]
-  (let [ls (remove blank? lines)
-        sign (some-> (first ls) first)]
-    (when (and (#{"" "text" "figure" "mermaid"} lang) (seq ls) (every? signed-line? ls) (every? #(= sign (first %)) ls))
+  (let [sign (some-> (first lines) first)]
+    (when (and (#{"" "text" "figure" "mermaid"} lang) (seq lines)
+               (every? signed-line? lines) (every? #(= sign (first %)) lines))
       (let [stripped (mapv #(if (< (count %) 2) "" (subs % 2)) lines)]
         (when (or (= lang "mermaid")
                   (and (= lang "figure") (try (read-figure stripped) (catch Exception _ nil)))
@@ -1587,6 +1587,10 @@
             (emit (show-fig lines))
 
             ;; a Mermaid flowchart is a diagram: shown as its fig-N.svg
+            (and (= raw-lang "mermaid") (some signed-line? lines))
+            (throw (ex-info "mixed Mermaid change: every line must carry the same + or - marker"
+                            {:kind :mixed-mermaid-change}))
+
             (= raw-lang "mermaid")
             (emit (show-mermaid lines))
 
