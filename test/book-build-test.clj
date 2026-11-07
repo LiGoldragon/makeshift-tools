@@ -718,6 +718,24 @@
         (is (not (str/includes? html "<svg")))
         (is (not (str/includes? html "figmark")))))))
 
+(deftest only-a-drawn-mermaid-fence-takes-a-figure-number
+  ;; a removed fence, however it is written, is code and takes no number: the
+  ;; added fence after it is fig-1, the only figure the page asks for
+  (let [removed "- flowchart TB\n-     r[\"gone\"] --> q[\"end\"]\n"
+        added "+ flowchart TB\n+     a[\"new\"] --> q[\"end\"]\n"
+        pages [(str head "```mermaid\n" removed "```\n\n```mermaid\n" added "```\n")
+               (str head "```text\n" removed "```\n\n```mermaid\n" added "```\n")
+               (str head "- ```mermaid\n" removed "- ```\n\n+ ```mermaid\n" added "+ ```\n")]]
+    (doseq [src pages]
+      (with-figures {"fig-1.svg" (faithful 1 "new")}
+        #(let [html (built src)]
+           (is (= 1 (count (re-seq #"class=\"figure\"" html))) src)
+           (is (str/includes? html ">new<") "the added fence is fig-1")
+           (is (str/includes? html "r[\"gone\"] --&gt;") "the removed fence is its source"))))
+    (with-figures {}
+      #(is (= "figure fig-1.svg not found; Mermaid fence 1 unrendered" (refusal (first pages)))
+           "the missing figure asked for is the added fence's fig-1"))))
+
 (deftest signed-code-fences-show-as-code
   (let [fence (fn [lang sign body] (str head "```" lang "\n" (str/join "\n" (map #(str sign " " %) body)) "\n```\n"))
         ethos ["Library" "[]" "[ Lock.{ Vector<String> } ]" "[]" "[]"]
