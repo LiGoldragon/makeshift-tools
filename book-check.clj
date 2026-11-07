@@ -25,6 +25,19 @@
 (defn- coherent-signed-mermaid? [lines]
   (and (seq lines) (every? signed-fence-line? lines)
        (apply = (map first lines))))
+
+(defn- ethos-fence-kind [lines]
+  (let [nonblank (remove str/blank? lines)
+        signed? #(boolean (or (= % "+") (= % "-")
+                              (str/starts-with? % "+ ")
+                              (str/starts-with? % "- ")))
+        context? #(str/starts-with? % "  ")
+        has-change? (some signed? nonblank)]
+    (cond
+      (and has-change? (every? #(or (signed? %) (context? %)) nonblank)) :fragment
+      has-change? :malformed-fragment
+      (and (seq nonblank) (every? #(str/starts-with? % " ") nonblank)) :context-only
+      :else :whole)))
 ;; The three context repositories hold only their authored modules; any other
 ;; repository of the living holds any file, named by a relative path.
 (def context-repository #"^(?:psyche|mind|field)-belief\z")
@@ -239,6 +252,11 @@
                             (some signed-fence-line? (:lines fence))
                             (not (coherent-signed-mermaid? (:lines fence))))
                    (err! (:line fence) "mixed-mermaid-change"))
+                 (when (and (section) (= "ethos" (:language fence)))
+                   (case (ethos-fence-kind (:lines fence))
+                     :context-only (err! (:line fence) "ethos-change-changes-nothing")
+                     :malformed-fragment (err! (:line fence) "malformed-ethos-change-fragment")
+                     nil))
                  (swap! st assoc :fence nil))
 
              (:code fence)

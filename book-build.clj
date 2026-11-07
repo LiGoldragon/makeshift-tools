@@ -1416,6 +1416,23 @@
     (when (and (seq ls) (every? signed-line? ls))
       (mapv #(if (signed-line? %) (if (< (count %) 2) "" (subs % 2)) %) lines))))
 
+(defn ethos-fence-kind
+  "How an Ethos fence is authored: a coherent marked fragment, a context-only
+  change, malformed marked text, or a whole Ethos document. Blank lines carry
+  no mark; two spaces carry unchanged diff context."
+  [lines]
+  (let [nonblank (remove blank? lines)
+        signed? #(boolean (or (= % "+") (= % "-")
+                              (str/starts-with? % "+ ")
+                              (str/starts-with? % "- ")))
+        context? #(str/starts-with? % "  ")
+        has-change? (some signed? nonblank)]
+    (cond
+      (and has-change? (every? #(or (signed? %) (context? %)) nonblank)) :fragment
+      has-change? :malformed-fragment
+      (and (seq nonblank) (every? #(str/starts-with? % " ") nonblank)) :context-only
+      :else :whole)))
+
 (defn guess-code-language
   "An unlabelled fence's language read from its text: \"ethos\" when it opens
   with a root word or declares Name.{ } / Name.[ ] with Vector<>, \"datom\" when
@@ -1571,8 +1588,10 @@
               code-file? (and @in-module (not @module-md) (not= raw-lang "figure"))
               lang (cond md? "text"
                          (and code-file? (= raw-lang "text")) (file-language @module-file)
-                         :else raw-lang)]
-          (when (and *enforce-ethos* (= lang "ethos"))
+                         :else raw-lang)
+              ethos-kind (when (and (= lang "ethos") @in-article (not code-file?))
+                           (ethos-fence-kind lines))]
+          (when (and *enforce-ethos* (= lang "ethos") (not= ethos-kind :fragment))
             (check-ethos! (if code-file? *ethos-zero-real* *ethos-zero*)
                           (str/join "\n" lines)))
           (when (and @rulings @pending-close) (close-rulings true))

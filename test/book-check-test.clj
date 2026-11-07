@@ -87,6 +87,25 @@
            (:reason (first (check (str good "```rust\n" (rep "x" 53) "\n```\n")))))
         "the width rule remains outside Mermaid")))
 
+(deftest ethos-whole-documents-and-marked-fragments-are-distinct
+  (let [fence (fn [body] (str good "```ethos\n" body "\n```\n"))]
+    (is (= [] (reasons (fence "  Library\n  []\n- [ Old.Integer ]\n+ [ New.Integer ]\n\n  []\n  []")))
+        "added, removed, context and bare blank lines form one coherent fragment")
+    (is (= ["malformed-ethos-change-fragment"]
+           (filterv #{"malformed-ethos-change-fragment"}
+                    (reasons (fence "+ Library\n[]"))))
+        "a root-at-zero line cannot be mixed into a signed fragment")
+    (is (= ["ethos-change-changes-nothing"]
+           (filterv #{"ethos-change-changes-nothing"}
+                    (reasons (fence "  Library\n  []"))))
+        "context alone is named as a change that changes nothing")
+    (is (empty? (filterv #{"malformed-ethos-change-fragment" "ethos-change-changes-nothing"}
+                         (reasons (fence "Library\n[]\n[]\n[]"))))
+        "a column-zero root remains a whole Ethos document")
+    (is (empty? (filterv #{"malformed-ethos-change-fragment" "ethos-change-changes-nothing"}
+                         (reasons (fence "\n"))))
+        "an empty or all-blank fence never becomes a fragment")))
+
 (deftest shorter-fence-does-not-close-code
   (is (= "unclosed-code-fence" (:reason (last (check (str good "````rust\n```\n")))))))
 

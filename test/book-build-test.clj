@@ -450,6 +450,42 @@
 
 (def accepted-ethos "Library\n[]\n[ Point.{ X.Integer Y.Integer } ]\n[]\n[]")
 
+(deftest marked-ethos-is-a-highlighted-fragment-not-a-whole-document
+  (let [calls (atom [])
+        check (fn [text] (swap! calls conj text) nil)
+        render (fn [body]
+                 (binding [book-build/*enforce-ethos* true
+                           book-build/*ethos-check* check
+                           book-build/*highlight* true]
+                   (book-build/build (str "### Proposal 1: Ethos · repo › x.ethos\n\n```ethos\n"
+                                           body "\n```\n") "")))
+        fragment "  Library\n  []\n- [ Old.Integer ]\n+ [ New.Integer ]\n\n  []\n  []"]
+    (let [html (render fragment)]
+      (is (empty? @calls) "a marked fragment never reaches the whole-document checker")
+      (is (str/includes? html "class=\"language-ethos\""))
+      (is (str/includes? html "ts-keyword") "the stripped sides are highlighted as Ethos")
+      (is (str/includes? html "ln-del"))
+      (is (str/includes? html "ln-add")))
+    (reset! calls [])
+    (render accepted-ethos)
+    (is (= [accepted-ethos] @calls) "a root at column zero remains a whole Ethos document")
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected"
+          (binding [book-build/*enforce-ethos* true
+                    book-build/*ethos-check* (constantly "Rejected.invalid")]
+            (book-build/build (str "### Proposal 1: Ethos · repo › x.ethos\n\n"
+                                    "```ethos\nLibrary\ninvalid\n```\n") ""))))
+    (reset! calls [])
+    (render "\n")
+    (is (= ["\n"] @calls) "an empty fence is not a fragment and reaches the whole checker")
+    (is (= :context-only (book-build/ethos-fence-kind ["  Library" "  []"])))
+    (is (= :malformed-fragment (book-build/ethos-fence-kind ["+ Library" "[]"])))
+    (let [datom (binding [book-build/*enforce-ethos* true
+                          book-build/*ethos-check* (fn [& _] (throw (Exception. "Ethos checker called")))]
+                  (book-build/build (str "### Proposal 1: Datom · repo › x.datom\n\n"
+                                          "```datom\n+ Lock.{ 1 «name» }\n```\n") ""))]
+      (is (str/includes? datom "class=\"language-datom\""))
+      (is (str/includes? datom "class=\"code-add\"")))))
+
 (defn- fake-checker
   "An executable that refuses every file, naming itself in the refusal."
   [dir name]
