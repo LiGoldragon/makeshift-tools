@@ -697,15 +697,26 @@
   (let [source (fn [sign] (str head "```mermaid\n"
                                sign " flowchart LR\n"
                                sign "     a[\"a\"] -- \"to\" --> b[\"b\"]\n```\n"))]
-    (doseq [[sign class] [["+" "fig-add"] ["-" "fig-del"]]]
-      (let [html (with-figures {"fig-1.svg" a-to-b} #(built (source sign)))]
-        (is (str/includes? html (str "<div class=\"figmark " class "\"><div class=\"figure\"")))
-        (is (= 1 (count (re-seq #"<svg" html))) "the stripped Mermaid source becomes one actual SVG")
-        (is (not (str/includes? html (str sign " flowchart"))) "the source marker is absent only from renderer input")))
+    (let [html (with-figures {"fig-1.svg" a-to-b} #(built (source "+")))]
+      (is (str/includes? html "<div class=\"figmark fig-add\"><div class=\"figure\""))
+      (is (= 1 (count (re-seq #"<svg" html))) "the stripped Mermaid source becomes one actual SVG")
+      (is (not (str/includes? html "+ flowchart")) "the source marker is absent only from renderer input"))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mixed Mermaid change"
           (built (str head "```mermaid\n+ flowchart LR\n-     a --> b\n```\n"))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mixed Mermaid change"
           (built (str head "```mermaid\n+ flowchart LR\n\n+     a --> b\n```\n"))))))
+
+(deftest a-removed-mermaid-fence-is-its-source-as-code
+  (let [body "- flowchart LR\n-     a[\"a\"] -- \"to\" --> b[\"b\"]"
+        source "flowchart LR\n    a[\"a\"] -- \"to\" --&gt; b[\"b\"]</code></pre>"]
+    (doseq [[src margin]
+            [[(str head "```mermaid\n" body "\n```\n") "<pre class=\"code-del\">"]
+             [(str head "```text\n" body "\n```\n") "<pre class=\"code-del\">"]
+             [(str head "- ```mermaid\n" body "\n- ```\n") "<div class=\"del\"><pre>"]]]
+      (let [html (built src)]   ; no figures directory: nothing is drawn, nothing is refused
+        (is (str/includes? html (str margin "<code class=\"language-mermaid\">" source)) src)
+        (is (not (str/includes? html "<svg")))
+        (is (not (str/includes? html "figmark")))))))
 
 (deftest signed-code-fences-show-as-code
   (let [fence (fn [lang sign body] (str head "```" lang "\n" (str/join "\n" (map #(str sign " " %) body)) "\n```\n"))
@@ -784,16 +795,17 @@
 (deftest every-mermaid-margin-keeps-document-order-and-colour
   (let [figures {"fig-1.svg" (faithful 1 "plain")
                  "fig-2.svg" (faithful 1 "context")
-                 "fig-3.svg" (faithful 1 "added")
-                 "fig-4.svg" (faithful 1 "removed")}
+                 "fig-3.svg" (faithful 1 "added")}
         html (with-figures figures #(built mermaid-margin-src))]
-    (is (= 4 (count (re-seq #"class=\"figure\"" html))))
-    (is (apply < (map #(str/index-of html %) [">plain<" ">context<" ">added<" ">removed<"]))
+    (is (= 3 (count (re-seq #"class=\"figure\"" html))) "a removed fence is not drawn")
+    (is (apply < (map #(str/index-of html %) [">plain<" ">context<" ">added<" "r[removed]"]))
         "fig-N.svg follows source order across every margin")
     (is (re-find #"class=\"ctx\"><div class=\"figure\"" html) "two-space context keeps its margin")
     (is (re-find #"class=\"figmark fig-add\"><div class=\"figure\"" html) "added keeps green margin")
-    (is (re-find #"class=\"figmark fig-del\"><div class=\"figure\"" html) "removed keeps red margin")
-    (is (not (str/includes? html "flowchart TB")) "no Mermaid fence is left as code")))
+    (is (not (str/includes? html "fig-del")) "a removed fence is no figure")
+    (is (re-find #"<div class=\"del\"><pre><code class=\"language-mermaid\">flowchart TB\n    r\[removed\]" html)
+        "removed is its source as code under the red margin")
+    (is (= 1 (count (re-seq #"flowchart TB" html))) "no other Mermaid fence is left as code")))
 
 (deftest an-unrendered-mermaid-names-the-ordered-figure
   (with-figures {"fig-1.svg" (faithful 1 "plain")
@@ -802,9 +814,8 @@
             (refusal mermaid-margin-src))))
   (with-figures {"fig-1.svg" (faithful 1 "plain")
                  "fig-2.svg" (faithful 1 "context")
-                 "fig-3.svg" (faithful 1 "added")
-                 "fig-4.svg" "not an svg"}
-    #(is (str/starts-with? (refusal mermaid-margin-src) "figure fig-4.svg unrendered:"))))
+                 "fig-3.svg" "not an svg"}
+    #(is (str/starts-with? (refusal mermaid-margin-src) "figure fig-3.svg unrendered:"))))
 
 (deftest cli-refuses-an-unrendered-mermaid-without-writing-the-page
   (let [dir (fs/create-temp-dir)

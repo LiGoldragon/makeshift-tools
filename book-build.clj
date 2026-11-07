@@ -847,7 +847,7 @@
       nil)))
 
 (defn panel [sign body]
-  (let [body (if (and *module-fig* (= :code (first body)) (= "mermaid" (first (second body))))
+  (let [body (if (and *module-fig* (not= "-" sign) (= :code (first body)) (= "mermaid" (first (second body))))
                [:fig (*module-fig* (second (second body)))]
                body)
         inner (body-html body)]
@@ -1248,6 +1248,17 @@
                        (every? #(or (blank? %) (<= (count (strip %)) 30) (re-find #"[|+\u2500-\u257f]" %)) stripped)))
           [(str sign) stripped])))))
 
+(defn removed-mermaid
+  "The unsigned source lines when every line of a fence is a removed line and the fence is
+  Mermaid: labelled mermaid, or text whose source opens as a flowchart; else nil."
+  [lang lines]
+  (when (and (#{"mermaid" "text"} lang) (seq lines)
+             (every? #(and (signed-line? %) (= \- (first %))) lines))
+    (let [stripped (mapv #(if (< (count %) 2) "" (subs % 2)) lines)]
+      (when (or (= lang "mermaid")
+                (re-find #"^(flowchart|graph)\b" (strip (first (remove blank? stripped)))))
+        stripped))))
+
 (def ^:private target-langs
   {"ethos" "ethos" "datom" "datom" "rs" "rust" "clj" "clojure" "cljc" "clojure"
    "edn" "clojure" "sh" "bash" "bash" "bash"})
@@ -1596,6 +1607,10 @@
                           (str/join "\n" lines)))
           (when (and @rulings @pending-close) (close-rulings true))
           (cond
+            ;; a removed Mermaid fence is its source, as any removed code block: nothing is drawn
+            (and @in-article (removed-mermaid lang lines))
+            (emit (code-html "mermaid" (removed-mermaid lang lines) "-"))
+
             ;; a figure proposed for the module it will live in: all + is added, all - removed
             (and @in-article (signed-figure lang lines))
             (let [[sign stripped] (signed-figure lang lines)]
