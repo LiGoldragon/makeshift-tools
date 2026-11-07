@@ -67,12 +67,13 @@
          (reasons "```text\n## Proposal 1: a › b.md\n+ x\n```\n")))
   (is (= ["missing-proposal"] (reasons "<!--\n## Proposal 1: a › b.md\n+ x\n-->\n"))))
 
-(deftest code-width
+(deftest code-and-comment-width-do-not-block-publication
   (is (= [] (check (str good "```text\n" (rep "p" 100) "\n```\n"))))
-  (is (= "code-over-52-columns" (:reason (first (check (str good "~~~clojure\n" (rep "x" 53) "\n~~~\n"))))))
-  (is (= [] (check (str good "```rust\n" (rep "x" 52) "\n```\n"))))
-  (is (= [] (check (str good "```clojure\n- " (rep "x" 90) "\n+ " (rep "y" 50) "\n```\n"))))
-  (is (= "code-over-52-columns" (:reason (first (check (str good "```clojure\n+ " (rep "y" 51) "\n```\n")))))))
+  (is (= [] (check (str good "~~~clojure\n" (rep "x" 160) "\n~~~\n"))))
+  (is (= [] (check (str good "```rust\n" (rep "x" 200) "\n```\n"))))
+  (is (= [] (check (str good "```clojure\n- " (rep "x" 190) "\n+ " (rep "y" 180) "\n```\n"))))
+  (is (= [] (check (str "## Proposal 1: Wide comment · psyche-belief › vision/example.md\n\n"
+                         "::: comment\n" (rep "reason " 40) "\n:::\n\n+ Changed.\n")))))
 
 (deftest mermaid-change-signs-and-width
   (let [fence (fn [body] (str good "```mermaid\n" body "\n```\n"))]
@@ -81,11 +82,8 @@
     (is (= ["mixed-mermaid-change"] (reasons (fence "+ flowchart LR\n-     a --> b"))))
     (is (= ["mixed-mermaid-change"] (reasons (fence "+ flowchart LR\n\n+     a --> b")))
         "a bare blank is unmarked; write the sign alone for an intentional blank")
-    (is (= [] (check (fence (str "flowchart LR\n    a[\"" (rep "x" 70) "\"] --> b"))))
-        "the width exemption also applies to an unmarked whole Mermaid fence")
-    (is (= "code-over-52-columns"
-           (:reason (first (check (str good "```rust\n" (rep "x" 53) "\n```\n")))))
-        "the width rule remains outside Mermaid")))
+    (is (= [] (check (fence (str "flowchart LR\n    a[\"" (rep "x" 170) "\"] --> b"))))
+        "an unmarked whole Mermaid fence keeps its authored width")))
 
 (deftest ethos-whole-documents-and-marked-fragments-are-distinct
   (let [fence (fn [body] (str good "```ethos\n" body "\n```\n"))]
@@ -289,15 +287,15 @@
   (let [mermaid (str "```mermaid\nflowchart LR\n    a[\"x\"] -- \"to\" --> b[\"b\"]\n```\n")
         long-mermaid (str "```mermaid\nflowchart LR\n    a[\"" (rep "x" 80) "\"] -- \"to\" --> b[\"b\"]\n```\n")]
     (is (= [] (reasons (str "# T\n\n" mermaid "\n" after-title*))) "a context figure outside a proposal")
-    (is (= [] (reasons (str good "\n" mermaid))) "Mermaid within 52 columns")
+    (is (= [] (reasons (str good "\n" mermaid))) "Mermaid figure")
     (is (= [] (reasons (str located "- Old.\n+ New.\n\n" (str/replace mermaid #"(?m)^" "+ ")))))
     (is (= [] (reasons (str "### Proposal 1: A · psyche-belief › vision/book.md\n\n"
                             (str/replace mermaid #"(?m)^(.)" "+ $1")))) "a signed opener is a fence and its change")
-    (is (= [] (reasons (str good long-mermaid))) "Mermaid is exempt from the 52-column code limit")
-    (is (= ["code-over-52-columns"]
-           (reasons (str good "```rust\n" (rep "x" 80) "\n```\n"))) "other code keeps the limit")
-    (is (= ["code-over-52-columns"]
-           (reasons (str good "+ ```rust\n+ " (rep "x" 80) "\n+ ```\n"))) "a signed fence is checked like an unsigned one")))
+    (is (= [] (reasons (str good long-mermaid))) "wide Mermaid")
+    (is (= [] (reasons (str good "```rust\n" (rep "x" 180) "\n```\n")))
+        "wide code publishes")
+    (is (= [] (reasons (str good "+ ```rust\n+ " (rep "x" 180) "\n+ ```\n")))
+        "wide code nested in a diff fence publishes")))
 
 (deftest proposal-fences-name-their-language
   (is (= ["fence-language-required"]

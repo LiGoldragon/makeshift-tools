@@ -110,8 +110,6 @@
        (some #(= needle (subvec haystack % (+ % (count needle))))
              (range (inc (- (count haystack) (count needle)))))))
 
-(defn- code-points [s] (.codePointCount ^String s 0 (count s)))
-
 (defn check-book
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
   (fn [repository path]) -> file text; it throws when the module is unavailable."
@@ -261,11 +259,6 @@
 
              (:code fence)
              (do (swap! st update-in [:fence :lines] conj line)
-                 ;; A removed line is quoted as it is; the width limit binds proposed code only.
-                 (when (and (not= "mermaid" (:language fence))
-                            (not (str/starts-with? line "- "))
-                            (> (code-points line) 52))
-                   (err! number "code-over-52-columns"))
                  (when (and (section) (re-find #"^[+-] .*\S" line)) (mark-changed!)))
 
              :else
@@ -273,13 +266,11 @@
                  (when (re-find #"^File:" line) (err! number "file-line-in-body"))
                  (when (and (section) (change? line)) (mark-changed!))
                  (when (:diff fence)
-                   ;; Inside a diff fence the 52-column limit binds only its fenced blocks.
+                   ;; A nested fence is code rather than module prose.
                    (cond
                      (:inner fence)
                      (if (re-find (re-pattern (str "^" sign-prefix " {0,3}`{3,}\\s*$")) line)
-                       (swap! st assoc-in [:fence :inner] false)
-                       (when (and (not (str/starts-with? line "- ")) (> (code-points line) 52))
-                         (err! number "code-over-52-columns")))
+                       (swap! st assoc-in [:fence :inner] false))
                      (re-find (re-pattern (str "^" sign-prefix " {0,3}`{3,}\\s*[^ `]*\\s*$")) line)
                      (swap! st assoc-in [:fence :inner] true)
                      :else

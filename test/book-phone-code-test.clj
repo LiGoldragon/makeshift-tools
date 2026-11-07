@@ -31,7 +31,7 @@
 <section class=\"proposal\"><header><span class=\"pnum\">1</span><h2>Flow title</h2></header>
 <section class=\"rulings\"><ol><li value=\"3\"><p>the title of a thread.</p><ol class=\"choices\" type=\"a\"><li>the address written short, then the flow's three words: <code id=\"choice-value\">" (escape value) "</code></li><li>other</li></ol></li></ol></section></section>
 <pre id=\"full-code\"><code class=\"language-ethos\">" (escape code) "</code></pre>
-<!-- A deliberate overflow stress case, separate from the source 52-column gate. -->
+<!-- A deliberate overflow stress case for the page's sideways code scrolling. -->
 <pre id=\"overflow-code\"><code class=\"language-ethos\">" (escape overflow-code) "</code></pre>
 <div class=\"figure\" id=\"fig\"><svg viewBox=\"0 0 520 321\" width=\"520\" height=\"321\" style=\"display:block\"><rect width=\"520\" height=\"321\"/></svg></div>
 <table id=\"tbl\"><thead><tr><th>Name</th><th>Value</th></tr></thead><tbody><tr><td>" (apply str (repeat 40 "wide")) "</td><td>one</td></tr>" (apply str (repeat 30 "<tr><td>two</td><td>three</td></tr>")) "</tbody></table>
