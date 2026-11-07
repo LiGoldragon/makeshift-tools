@@ -45,6 +45,7 @@
   --ctx-bg:#f1f3ef;--accent:#1c5f8a;
   --add-landed-edge:#14602b;--del-landed-edge:#8e1d12;
   --comment-bg:#e8ebfa;--comment-edge:#3f51b5;--comment-fg:#1f2756;
+  --shown-bg:#fff4d6;--shown-edge:#b87500;--shown-fg:#4d3100;
   --hl-bg:#eceee9;--hl-type:#1c5f8a;--hl-punct:#9a5b13;--hl-comment:#6b7a72;--hl-string:#6a3fa0;--hl-meta:#8a3d6b;
   --hl-add:rgba(47,138,70,.16);--hl-del:rgba(194,55,43,.15);
   --f-prose:"Literata",Georgia,"Times New Roman",serif;
@@ -65,6 +66,7 @@
   --ctx-bg:#1e2622;--accent:#7cc0ee;
   --add-landed-edge:#2f9a52;--del-landed-edge:#c4493d;
   --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
+  --shown-bg:#3a2b10;--shown-edge:#e6aa42;--shown-fg:#ffe4aa;
   --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}}
 :root[data-theme="dark"]{
@@ -76,6 +78,7 @@
   --ctx-bg:#1e2622;--accent:#7cc0ee;
   --add-landed-edge:#2f9a52;--del-landed-edge:#c4493d;
   --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
+  --shown-bg:#3a2b10;--shown-edge:#e6aa42;--shown-fg:#ffe4aa;
   --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}
 body{background:var(--bg);color:var(--fg);font:17px/1.6 var(--f-prose);margin:0 auto;max-width:44rem;padding-inline:16px;padding-block:20px 48px;display:grid;gap:22px;align-content:start}
@@ -177,6 +180,11 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .comment{border-left:4px solid var(--comment-edge);background:var(--comment-bg);color:var(--comment-fg);border-radius:8px;padding:8px 12px 10px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5}
 .comment::before{content:"Why";display:inline-block;margin-bottom:.35em;padding:1px 9px;border-radius:999px;background:var(--comment-edge);color:var(--sheet);font-weight:600;font-size:.74rem;letter-spacing:.08em;text-transform:uppercase}
 .comment>p{margin:0;overflow-wrap:anywhere}
+
+/* An excerpt of its named source module as it stands: a fourth colour beside added, removed and moved. */
+.shown{border:1px solid var(--shown-edge);border-left-width:5px;border-radius:8px;background:var(--shown-bg);color:var(--shown-fg);margin:16px 0;padding:10px 12px;min-width:0}
+.shown>header{display:flex;align-items:center;gap:9px;margin:0 0 8px;font-family:var(--f-label)}
+.shown>header code{overflow-wrap:anywhere}.shown>pre{margin:0}
 
 /* Rulings: one card per ruling, numbered choices. */
 .rulings{display:grid;gap:12px}

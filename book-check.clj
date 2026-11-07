@@ -71,6 +71,11 @@
 (defn- module-body [text]
   (-> text (str/replace "\r\n" "\n") (str/replace-first #"\A---\n(?s:.*?)\n---\n" "") str/trim))
 
+(defn- contains-lines? [haystack needle]
+  (and (seq needle)
+       (some #(= needle (subvec haystack % (+ % (count needle))))
+             (range (inc (- (count haystack) (count needle)))))))
+
 (defn- code-points [s] (.codePointCount ^String s 0 (count s)))
 
 (defn check-book
@@ -79,12 +84,27 @@
   ([source] (check-book source {}))
   ([source {:keys [read-module] :or {read-module read-context-module}}]
    (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))
-         st (atom {:errors [] :fence nil :section nil :in-comment false
+         st (atom {:errors [] :fence nil :section nil :in-comment false :shown-container nil
                    :proposals 0 :title false :presentation false :kind "Proposal" :signature nil :shown #{}})
          err! (fn [line reason] (swap! st update :errors conj {:line line :reason reason}))
          section #(:section @st)
          set-section! (fn [f] (swap! st update :section f))
          mark-changed! (fn [] (set-section! #(assoc % :changed true)))
+         check-shown!
+         (fn [{:keys [line lines]}]
+           (let [location (when-let [location-line (first lines)]
+                            (re-matches module-location location-line))
+                 excerpt (vec (rest lines))]
+             (cond
+               (nil? location) (err! line "shown-location-invalid")
+               (not (some (complement str/blank?) excerpt)) (err! line "shown-excerpt-empty")
+               :else
+               (let [repository (second location) path (nth location 2)
+                     source (try (vec (str/split (module-body (read-module repository path)) #"\n" -1))
+                                 (catch Throwable _ ::unavailable))]
+                 (cond
+                   (= ::unavailable source) (err! line "shown-module-unavailable")
+                   (not (contains-lines? source excerpt)) (err! line "shown-module-text-absent"))))))
          finish! (fn []
                    (let [s (section)]
                      (when (and s (not (:changed s)) (not (:deleted s)))
@@ -132,9 +152,16 @@
      (doseq [i (range (count lines))]
        (let [line (lines i)
              number (inc i)
-             {:keys [fence in-comment shown]} @st]
+             {:keys [fence in-comment shown-container shown]} @st]
          (cond
            (contains? shown i) nil
+
+           shown-container
+           (cond
+             (= line ":::") (do (check-shown! shown-container)
+                                  (swap! st assoc :shown-container nil))
+             (re-find #"^::: (?:move|shown)(?:\s|$)" line) (err! number "nested-container")
+             :else (swap! st update-in [:shown-container :lines] conj line))
 
            fence
            (cond
@@ -167,9 +194,21 @@
            (swap! st assoc :in-comment (not (str/includes? line "-->")))
 
            :else
-           (let [opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*)")) line)
+           (let [shown-open? (= line "::: shown")
+                 malformed-shown? (re-find #"^::: shown(?:\s|$)" line)
+                 opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*)")) line)
                  opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
-             (if opening
+             (cond
+               shown-open?
+               (if-not (section)
+                 (err! number "shown-outside-proposal")
+                 (swap! st assoc :shown-container {:line number :lines []}))
+
+               malformed-shown? (err! number "malformed-shown-container")
+
+               (= line ":::") (err! number "unexpected-container-close")
+
+               opening
                (let [language (str/lower-case (nth opening 2))]
                  ;; Every proposal code fence names its language.  Unlabelled
                  ;; fences remain the authored diagram form outside proposals.
@@ -189,6 +228,7 @@
                          :code (not (#{"text" "prose" "markdown" "md"} language))
                          :plain (boolean (#{"" "text" "txt" "prose"} language))
                          :lines []}))
+               :else
                ;; Inside a proposal, a line prefixed "  ", "+ " or "- " is module content, never book structure.
                (let [heading (when-not (and (section) (re-find #"^(?:  |\+ |- )" line))
                                (re-find #"^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*\z" line))]
@@ -246,6 +286,8 @@
                      (when (re-find #"^ {0,3}>" line) (err! number "quote-block-in-book"))
                      (body! line number)))))))))
      (finish!)
+     (when-let [shown-container (:shown-container @st)]
+       (err! (:line shown-container) "unclosed-shown-container"))
      (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st))) (err! 1 "missing-proposal"))
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))

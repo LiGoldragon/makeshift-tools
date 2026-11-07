@@ -187,6 +187,22 @@
                         "### Proposal 2: Replace, another way · psyche-belief › vision/book.md\n\n- Old.\n+ Two.\n"))))
   (is (= [] (check (str located "**Comment** A lone proposal.\n\n- Old.\n+ One.\n")))))
 
+(deftest shown-is-an-exact-contiguous-current-module-excerpt
+  (let [module "First line.\nSecond line.\n\n- A real list item.\nLast line.\n"
+        opts {:read-module (fn [repo path]
+                             (same! "psyche-belief" repo)
+                             (same! "vision/book.md" path)
+                             module)}
+        source (fn [body] (str located "::: shown\npsyche-belief › vision/book.md\n" body "\n:::\n\n+ New.\n"))]
+    (is (= [] (check (source "First line.\nSecond line.") opts)))
+    (is (= [] (check (source "- A real list item.\nLast line.") opts)))
+    (is (= ["shown-module-text-absent"] (reasons (source "First line.\nInvented.") opts)))
+    (is (= ["shown-module-text-absent"] (reasons (source "+ Current change.") opts)))
+    (is (= ["shown-location-invalid"]
+           (reasons (str located "::: shown\nnot a location\nFirst line.\n:::\n\n+ New.\n") opts)))
+    (is (= ["shown-excerpt-empty"]
+           (reasons (str located "::: shown\npsyche-belief › vision/book.md\n:::\n\n+ New.\n") opts)))))
+
 (def sig "Created by Opus, helped by Sonnet (the checking).\n")
 
 (deftest the-presentation-kind

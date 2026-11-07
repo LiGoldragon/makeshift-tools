@@ -1128,6 +1128,9 @@
         skip #"(?U)^(<!--.*-->|Presentation\.\{.*\})\s*$"
         fence-open-re #"(?U)^(`{3,}|~{3,})(\w*)\s*$"
         move-open-re #"^::: move(?:\s+.*)?$"
+        shown-open-re #"^::: shown(?:\s+.*)?$"
+        shown-location-re #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)$"
+        container-open-re #"^::: (?:move|shown)(?:\s+.*)?$"
         flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))]
     (loop [i 0 out [] para [] proposal nil]
       (if (>= i n)
@@ -1137,7 +1140,29 @@
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
                              (and (empty? para) (str/starts-with? l "## ")) nil
                              :else proposal)]
-          (if (re-find move-open-re l)
+          (if (re-find shown-open-re l)
+            (let [line-no (inc i)
+                  _ (when-not (= l "::: shown")
+                      (throw (ex-info (str "malformed shown container at source line " line-no) {})))
+                  _ (when-not proposal
+                      (throw (ex-info (str "shown container outside proposal at source line " line-no) {})))
+                  out (cond-> out (seq para) (into (flush para proposal)))
+                  start (inc i)
+                  [end body] (loop [j start]
+                               (if (>= j n)
+                                 (throw (ex-info (str "unclosed shown container at source line " line-no) {}))
+                                 (let [x (lines j)]
+                                   (cond
+                                     (= x ":::") [j (subvec lines start j)]
+                                     (re-find container-open-re x)
+                                     (throw (ex-info (str "nested container at source line " (inc j)) {}))
+                                     :else (recur (inc j))))))
+                  location (when-let [location-line (first body)]
+                             (re-matches shown-location-re location-line))
+                  _ (when-not (and location (some (complement blank?) (rest body)))
+                      (throw (ex-info (str "shown container needs a module path and excerpt at source line " line-no) {})))]
+              (recur (inc end) (conj out [:shown (second location) (nth location 2) (subvec body 1)]) [] proposal))
+            (if (re-find move-open-re l)
             (let [state (second (re-find #"^::: move(?:\s+(.*))?$" l))
                   line-no (inc i)
                   out (cond-> out (seq para) (into (flush para proposal)))
@@ -1163,7 +1188,7 @@
                                                 :else nil)]
                                    (cond
                                      (and (nil? fence) (= x ":::")) [j (subvec lines start j)]
-                                     (and (nil? fence) (re-find move-open-re x))
+                                     (and (nil? fence) (re-find container-open-re x))
                                      (throw (ex-info (str "nested move container at source line " (inc j)) {}))
                                      :else (recur (inc j) fence')))))]
               (recur (inc end) (conj out [:move state (second fm) (second tm) body]) [] proposal))
@@ -1184,7 +1209,7 @@
               (re-find proposal-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] proposal)
               (re-find skip l) (recur (inc i) out para proposal)
-              :else (recur (inc i) out (conj para l) proposal)))))))))
+              :else (recur (inc i) out (conj para l) proposal))))))))))
 
 (defn parse-list [lines]
   (reduce (fn [items l]
@@ -1243,7 +1268,8 @@
 
 (def ^:private file-langs
   (merge target-langs {"js" "javascript" "mjs" "javascript" "py" "python" "nix" "nix" "toml" "toml"
-                       "json" "json" "yaml" "yaml" "yml" "yaml" "html" "html" "ts" "typescript"}))
+                       "json" "json" "yaml" "yaml" "yml" "yaml" "html" "html" "ts" "typescript"
+                       "md" "markdown" "markdown" "markdown"}))
 
 (defn file-language
   "The code language a file's path names by extension; \"text\" otherwise."
@@ -1451,6 +1477,13 @@
   [text]
   (str "<aside class=\"comment\"><p>" (inline text) "</p></aside>"))
 
+(defn shown-html
+  "A checked excerpt of the named source module as it stands."
+  [repository path lines]
+  (str "<section class=\"shown\"><header><span class=\"mlabel\">as it stands</span>"
+       "<code>" (esc (str repository " › " path)) "</code></header>"
+       (code-html (file-language path) lines) "</section>"))
+
 (defn build [src code]
   (let [nfig (or *shared-figure-counter* (volatile! 0))
         heading-where (volatile! nil)
@@ -1515,6 +1548,10 @@
                         (when (not= "" diff) (emit diff))))]
     (doseq [[i b] (map-indexed vector bs)]
       (cond
+        (= :shown (first b))
+        (let [[_ repository path lines] b]
+          (emit (shown-html repository path lines)))
+
         (= :move (first b))
         (let [[_ state from to body] b
               inner (binding [*shared-figure-counter* nfig *move-context* true]

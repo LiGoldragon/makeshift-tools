@@ -620,6 +620,23 @@
     (doseq [c ["#2f8a46" "#c2372b" "#5cc47a" "#f07a6e" "#1c5f8a" "#7cc0ee"]]
       (is (not (colours c)) (str "not the green, red or module colour " c)))))
 
+(deftest a-shown-container-is-a-source-headed-fourth-colour-module-excerpt
+  (let [html (built (str head "::: shown\npsyche-belief › vision/book.md\nLibrary\n[]\n:::\n\n+ New.\n"))]
+    (is (str/includes? html (str "<section class=\"shown\"><header><span class=\"mlabel\">as it stands</span>"
+                                 "<code>psyche-belief › vision/book.md</code></header>")))
+    (is (str/includes? html "<code class=\"language-markdown\">Library\n[]</code>"))
+    (is (not (re-find #"shown[^>]*(?:add|del|move)|<(?:ins|del)>Library" html)))
+    (is (str/includes? code ".shown{border:1px solid var(--shown-edge);border-left-width:5px"))
+    (doseq [other ["var(--add-edge)" "var(--del-edge)" "var(--moved-edge)"]]
+      (is (not (str/includes? (second (re-find #"(?s)(\.shown\{[^}]+)" code)) other))))))
+
+(deftest a-shown-ethos-excerpt-is-highlighted-but-not-whole-file-checked
+  (let [source (str head "::: shown\npsyche-belief › vision/example.ethos\nRecord.{ String\n:::\n\n+ New.\n")
+        html (binding [book-build/*ethos-check* (fn [& _] (throw (Exception. "whole checker called")))
+                       book-build/*highlight* false]
+               (book-build/build source ""))]
+    (is (str/includes? html "<code class=\"language-ethos\">Record.{ String</code>"))))
+
 (deftest signed-figures-show-green-or-red
   (let [fig (fn [sign] (str head "```text\n" sign " +---+   +---+\n" sign " | a |-->| b |\n" sign " +---+   +---+\n```\n"))
         unsigned (str head "```text\n+---+   +---+\n| a |-->| b |\n+---+   +---+\n```\n")]
