@@ -1377,6 +1377,67 @@
                              {})))
            (str store "/bin/ethos-zero")))))))
 
+(def ^:private ethos-roots #{"Library" "Signal" "Operation" "Memory" "Emission"})
+
+(defn- strip-ethos-comments
+  "The text with `;` comments (to end of line, outside guillemets) dropped."
+  [text]
+  (loop [cs (seq text) out (StringBuilder.) quoted false]
+    (if-let [c (first cs)]
+      (cond
+        quoted (do (.append out c)
+                   (cond (= c \\) (do (when-let [n (second cs)] (.append out n))
+                                       (recur (drop 2 cs) out true))
+                         (= c \u00bb) (recur (rest cs) out false)
+                         :else (recur (rest cs) out true)))
+        (= c \u00ab) (do (.append out c) (recur (rest cs) out true))
+        (= c \;) (recur (drop-while #(not= % \newline) cs) out false)
+        :else (do (.append out c) (recur (rest cs) out false)))
+      (str out))))
+
+(defn- split-ethos-declarations
+  "The top-level forms of a comment-free text: runs of non-blank characters,
+  broken only at whitespace outside { } [ ] and guillemets."
+  [text]
+  (loop [cs (seq text) depth 0 quoted false cur (StringBuilder.) forms []]
+    (let [flush (fn [] (if (pos? (.length cur)) (conj forms (str cur)) forms))]
+      (if-let [c (first cs)]
+        (cond
+          quoted (do (.append cur c)
+                     (cond (= c \\) (do (when-let [n (second cs)] (.append cur n))
+                                         (recur (drop 2 cs) depth true cur forms))
+                           (= c \u00bb) (recur (rest cs) depth false cur forms)
+                           :else (recur (rest cs) depth true cur forms)))
+          (= c \u00ab) (do (.append cur c) (recur (rest cs) depth true cur forms))
+          (and (zero? depth) (Character/isWhitespace ^char c))
+          (let [forms (flush)] (recur (rest cs) depth false (StringBuilder.) forms))
+          :else (do (.append cur c)
+                    (recur (rest cs)
+                           (cond (#{\{ \[} c) (inc depth) (#{\} \]} c) (max 0 (dec depth)) :else depth)
+                           false cur forms)))
+        (flush)))))
+
+(defn- trait-declaration?
+  "A trait declaration is a head whose body is a bracket of capabilities,
+  each a lowercase head: `Name.[ capability.... ]`."
+  [form]
+  (boolean (re-find #"^[A-Z]\w*\.\[\s*[a-z]" form)))
+
+(defn ethos-gate-text
+  "The text Check reads for a fence. A fence of bare declarations, with no
+  root head, is a fragment of an implied Library: each declaration goes into
+  the types or the traits section by what it is, and comments are dropped.
+  A fence that opens with a root head (or holds nothing) is checked whole."
+  [text]
+  (let [bare (strip-ethos-comments text)
+        forms (split-ethos-declarations bare)
+        head (some-> (first forms) (str/split #"[^A-Za-z0-9_]" 2) first)]
+    (if (or (empty? forms) (ethos-roots head))
+      text
+      (let [{traits true types false} (group-by trait-declaration? forms)]
+        (let [section #(if (seq %) (str "[ " (str/join " " %) " ]") "[]")]
+          (str "Library [] " (section types) " " (section traits) " []"))))))
+
 (defn ethos-zero-check
   "ethos-zero's Check of an ethos text: nil when accepted, else its refusal
   without the temporary file's path, or why ethos-zero could not be had.
@@ -1486,8 +1547,8 @@
   [ref text]
   (let [result (try
                  (if *ethos-check*
-                   (*ethos-check* text)
-                   (ethos-zero-check ref text))
+                   (*ethos-check* (ethos-gate-text text))
+                   (ethos-zero-check ref (ethos-gate-text text)))
                  (catch Throwable e
                    (throw (ex-info (str "ethos validator unavailable: " (ex-message e))
                                    {:kind :validator-unavailable} e))))]

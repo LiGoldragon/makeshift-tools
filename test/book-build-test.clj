@@ -486,6 +486,37 @@
       (is (str/includes? datom "class=\"language-datom\""))
       (is (str/includes? datom "class=\"code-add\"")))))
 
+;; A fence of bare declarations is a fragment of an implied Library.
+(deftest bare-declarations-are-checked-as-a-fragment-of-a-library
+  (let [gate book-build/ethos-gate-text]
+    (is (= "Library [] [ Depth.Integer Outline.{ Title.Text Vector<Outline> } ] [] []"
+           (gate "Depth.Integer\nOutline.{ Title.Text Vector<Outline> }"))
+        "a fragment of types")
+    (is (= (str "Library [] [ Depth.Integer Outline.{ Title.Text Vector<Outline> } ] "
+                "[ Structural.[ outline.{ [ Depth ] [ Vector<Outline> ] } ] ] []")
+           (gate (str "Depth.Integer\nOutline.{ Title.Text Vector<Outline> }\n"
+                      "Structural.[ outline.{ [ Depth ] [ Vector<Outline> ] } ]")))
+        "types and traits mixed in one fence")
+    (is (= "Library [] [] [ Deep.[ depth.[ Integer ] ] Structural.[ outline.{ [ Deep ] [ Vector<Outline> ] } ] ] []"
+           (gate (str "Deep.[ depth.[ Integer ] ]                  ; the quality\n"
+                      "Structural.[ outline.{ [ Deep ] [ Vector<Outline> ] } ]")))
+        "comments are dropped; a trait body opens with a lowercase head")
+    (is (= "Library [] [] [ Structural.[ outline.{ [ Depth ] [ Vector<Outline> ] } ] ] []"
+           (gate "; unchanged\nStructural.[ outline.{ [ Depth ] [ Vector<Outline> ] } ]")))
+    (is (= "Library [] [ Kind.[ A B ] Note.{ «a ; b» } ] [] []"
+           (gate "Kind.[ A B ]\nNote.{ «a ; b» }"))
+        "an enumeration is a type; a ; inside guillemets is not a comment")
+    (doseq [rooted [accepted-ethos "Signal\n[]\n[]" "; note\nLibrary\n[]\n[]\n[]\n[]" "\n" ""]]
+      (is (= rooted (gate rooted)) "a rooted or empty fence is checked whole"))
+    (let [calls (atom [])
+          render (fn [body]
+                   (binding [book-build/*enforce-ethos* true
+                             book-build/*ethos-check* (fn [text] (swap! calls conj text) nil)]
+                     (book-build/build (str "# B\n\n```ethos\n" body "\n```\n") "")))]
+      (render "Depth.Integer")
+      (render accepted-ethos)
+      (is (= ["Library [] [ Depth.Integer ] [] []" accepted-ethos] @calls)))))
+
 (defn- fake-checker
   "An executable that refuses every file, naming itself in the refusal."
   [dir name]
