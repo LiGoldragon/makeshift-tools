@@ -1330,8 +1330,8 @@
 ;; it is substituted or built on the remote builder.
 
 (def pinned-ethos-zero
-  "The ethos-zero the books are checked against: main of LiGoldragon/ethos-zero."
-  "github:LiGoldragon/ethos-zero/07714b0171802787bea1eefe4caa2d826d9c4030")
+  "The ethos-zero the books are checked against: tag v20.0.0 of LiGoldragon/ethos-zero."
+  "github:LiGoldragon/ethos-zero/04d93e4b705a1b2abbb806fa385a04ce74b13cdd")
 
 (def ^:dynamic *ethos-zero*
   "The ethos-zero that checks proposed code (a fence inside a proposal or
