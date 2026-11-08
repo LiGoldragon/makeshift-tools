@@ -331,9 +331,11 @@
                  ;; fences remain the authored diagram form outside proposals.
                  (when (and (section) (= language ""))
                    (err! number "fence-language-required"))
-                 ;; Outside a section a fence is allowed only as a diagram: an unlabelled
-                 ;; sketch or a labelled mermaid figure (a context figure).
+                 ;; Outside a section a fence is allowed as a diagram (an unlabelled
+                 ;; sketch or a labelled mermaid figure, a context figure), and in an
+                 ;; Account as labelled code, as inside a proposal.
                  (when (and (not (section))
+                            (not (and (= "Account" (:kind @st)) (not= language "")))
                             (not (or (= language "mermaid")
                                      (and (= language "") (diagram-fence? lines i opening)))))
                    (err! number "text-outside-proposal-without-module"))

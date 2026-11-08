@@ -274,6 +274,14 @@
     (is (= ["missing-proposal" "text-outside-proposal-without-module"]
            (reasons "Presentation.{ «T» Review }\n\n# T\n\nProse in a review.\n")))))
 
+(deftest an-account-accepts-code-fences
+  (let [account "Presentation.{ «T» Account }\n\n# T\n\nCreated by Fable.\n\n## The gist\n\n"]
+    (is (= [] (check (str account "```rust\nfn f() {}\n```\n"))) "labelled code in an account")
+    (is (= [] (check (str account "```clojure\n(+ 1 2)\n```\n\nProse after.\n"))))
+    (is (= ["missing-proposal" "text-outside-proposal-without-module"]
+           (reasons "Presentation.{ «T» Review }\n\n# T\n\n```rust\nfn f() {}\n```\n"))
+        "other kinds are unchanged")))
+
 (deftest the-signature-line-is-accepted-for-every-kind
   (doseq [kind ["" " Review" " Account"]]
     (is (= [] (check (str "Presentation.{ «T»" kind " }\n\n# T\n\n" sig "\n" after-title*)))

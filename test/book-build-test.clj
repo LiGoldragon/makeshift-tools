@@ -897,6 +897,10 @@
     (is (str/includes? html "<h2>The gist</h2>"))
     (is (str/includes? html "<p>It happened so.</p>"))))
 
+(deftest an-account-shows-a-code-fence-as-code
+  (let [html (built "Presentation.{ «An account» Account }\n\n# An account\n\nCreated by Fable.\n\n## The gist\n\n```rust\nfn f() {}\n```\n")]
+    (is (str/includes? html "<code class=\"language-rust\">"))))
+
 (deftest a-context-mermaid-fence-is-a-figure
   (let [html (with-figures {"fig-1.svg" a-to-b}
                #(built "# B\n\n```mermaid\nflowchart LR\n    a[\"a\"] -- \"to\" --> b[\"b\"]\n```\n"))]
