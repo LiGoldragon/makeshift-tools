@@ -1325,7 +1325,9 @@
 ;; Every ```ethos fence, and every fence in a proposal whose language is
 ;; ethos (its File line or its heading names an .ethos file), is read by
 ;; ethos-zero's Check; a block it refuses fails the build. A fence written as
-;; a change is checked as it reads after the change. ethos-zero is never
+;; a change is checked as it reads after the change. A fence in a module view
+;; (the module as it stands) is not: book-check authenticates the view as the
+;; module's source text, and its fences may use one another's types. ethos-zero is never
 ;; compiled here: the flake reference is realised with no local build job, so
 ;; it is substituted or built on the remote builder.
 
@@ -1665,7 +1667,10 @@
                          :else raw-lang)
               ethos-kind (when (and (= lang "ethos") @in-article (not code-file?))
                            (ethos-fence-kind lines))]
-          (when (and *enforce-ethos* (= lang "ethos") (not= ethos-kind :fragment))
+          ;; A module view is the module as it stands, authenticated as source by the
+          ;; checker; its fences are not whole Ethos documents (one may use a type another declares).
+          (when (and *enforce-ethos* (= lang "ethos") (not= ethos-kind :fragment)
+                     (not (and @in-module (not @in-article))))
             (check-ethos! (if code-file? *ethos-zero-real* *ethos-zero*)
                           (str/join "\n" lines)))
           (when (and @rulings @pending-close) (close-rulings true))

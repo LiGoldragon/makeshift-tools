@@ -192,6 +192,23 @@
     (is (seq (check (str "# B\n## psyche-belief › src/x.rs\n```rust\nx\n```\n" proposal) opts))
         "context repositories hold only authored modules")))
 
+(deftest a-module-view-with-cross-referencing-ethos-fences-is-authenticated-as-source
+  (let [body (str "A request.\n\n```ethos\nSendableRequest.[ Done.{ RequestId String } ]\n"
+                  "RequestId.String\n```\n\nThe delivered request.\n\n"
+                  "```ethos\nDeliveredRequest.[ Order.{ RequestId String } ]\n```\n")
+        read-module (fn [repo p]
+                      (same! "psyche-belief" repo) (same! "vision/flow-nexus.md" p)
+                      (str "---\ndescription: A fixture.\ndependencies: []\n---\n\n" body))
+        opts {:read-module read-module}
+        heading "## psyche-belief › vision/flow-nexus.md\n\n"
+        proposal "## Proposal 1: psyche-belief › vision/example.md\n+ A proposal.\n"]
+    (is (= [] (check (str "# A book\n\n" heading body "\n" proposal) opts))
+        "the second fence uses a type only the first declares")
+    (is (= "context-module-differs"
+           (:reason (first (check (str "# A book\n\n" heading (str/replace body "RequestId.String" "RequestId.Integer")
+                                       "\n" proposal) opts))))
+        "a view that differs from the module is refused")))
+
 (deftest removal-only-or-deleted-file-passes
   (is (= [] (reasons "# A book\n## Proposal 1: chronos › a.ethos\n- Old line.\n")))
   (is (= [] (reasons "# A book\n## Proposal 1: chronos › a.ethos, a deleted file\nIt goes.\n")))

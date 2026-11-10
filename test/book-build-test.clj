@@ -5,7 +5,7 @@
 ;; produced by the former Python builder with the tail TAIL, all but its figure,
 ;; which is checked by its parts.
 (ns book-build-test
-  (:require [clojure.test :refer [deftest is run-tests]]
+  (:require [clojure.test :refer [deftest is testing run-tests]]
             [clojure.string :as str]
             [clojure.java.shell]
             [babashka.fs :as fs]))
@@ -485,6 +485,29 @@
                                           "```datom\n+ Lock.{ 1 «name» }\n```\n") ""))]
       (is (str/includes? datom "class=\"language-datom\""))
       (is (str/includes? datom "class=\"code-add\"")))))
+
+;; A module view is the module as it stands, authenticated as source by book-check; its
+;; fences are not whole Ethos documents, so one may use a type another fence declares.
+(deftest a-module-view-fences-are-not-checked-as-whole-ethos-documents
+  (let [calls (atom [])
+        refuse-lone-use (fn [text] (swap! calls conj text)
+                          (when-not (str/includes? text "RequestId.String") "Rejected.Undeclared.RequestId"))
+        module-view (str "# B\n\n## psyche-belief \u203a vision/flow-nexus.md\n\n"
+                         "A request.\n\n```ethos\nSendableRequest.[ Done.{ RequestId String } ]\nRequestId.String\n```\n\n"
+                         "The delivered request.\n\n```ethos\nDeliveredRequest.[ Order.{ RequestId String } ]\n```\n")
+        build (fn [md] (binding [book-build/*enforce-ethos* true
+                                 book-build/*ethos-check* refuse-lone-use
+                                 book-build/*highlight* true]
+                         (book-build/build md "")))
+        html (build (str module-view "\n### Proposal 1: x \u00b7 psyche-belief \u203a vision/flow-nexus.md\n\n+ Added.\n"))]
+    (is (empty? @calls) "no fence of a module view reaches the whole-document checker")
+    (is (= 2 (count (re-seq #"<code class=\"language-ethos\">" html))) "the fences keep Ethos highlighting")
+    (is (str/includes? html "ts-"))
+    (testing "a proposed fence keeps its check"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected"
+            (build (str module-view "\n### Proposal 1: x \u00b7 psyche-belief \u203a vision/flow-nexus.md\n\n"
+                        "```ethos\nDeliveredRequest.[ Order.{ RequestId String } ]\n```\n"))))
+      (is (= 1 (count @calls))))))
 
 ;; A fence of bare declarations is a fragment of an implied Library.
 (deftest bare-declarations-are-checked-as-a-fragment-of-a-library
