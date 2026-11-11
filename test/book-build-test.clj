@@ -117,8 +117,11 @@
 (deftest fixture-records-and-figure
   (let [page (with-figures {"fig-1.svg" fixture-fig} #(book-build/build fixture-md "TAIL\n"))
         fig (re-find #"(?s)<div class=\"figure\"[^>]*>.*?</svg></div>" page)]
-    (is (= fixture-expected (str/replace page fig "<div class=\"figure\">FIGURE</div>")))
-    (is (str/includes? fig "id=\"DRAWN\"") "the figure is the supplied fig-1.svg")
+    (is (str/includes? page (str "<h1 class=\"book-title\">Fixture &amp; &lt;book&gt;</h1>\n" book-build/colour-key "\n"))
+        "the key follows the title")
+    (is (= fixture-expected (-> page (str/replace fig "<div class=\"figure\">FIGURE</div>")
+                                (str/replace (str book-build/colour-key "\n") ""))))
+    (is (str/includes? fig "id=\"f1-DRAWN\"") "the figure is the supplied fig-1.svg, its ids its own")
     (is (not (str/includes? page "+-----")) "the sketch is not drawn")))
 
 (deftest fixture-output-has-no-trailing-whitespace
@@ -218,8 +221,8 @@
     (is (not (re-find #"(?i)<script|alert|onload|onclick|evil|foreignObject|<\?xml" fig)))
     (is (not (re-find #"https?://[^\"]*evil" fig)))
     (is (str/includes? fig "xmlns=\"http://www.w3.org/2000/svg\"") "the namespace stays")
-    (is (str/includes? fig "<use href=\"#keep\"/>") "an internal reference stays")
-    (is (str/includes? fig "id=\"keep\""))))
+    (is (str/includes? fig "<use href=\"#f1-keep\"/>") "an internal reference stays, to the figure's own id")
+    (is (str/includes? fig "id=\"f1-keep\""))))
 
 (defn refusal
   "The message of the refusal, or nil when the build succeeds."
@@ -723,7 +726,9 @@
   (let [html (built (str head "::: shown\npsyche-belief › vision/book.md\nLibrary\n[]\n:::\n\n+ New.\n"))]
     (is (str/includes? html (str "<section class=\"shown\"><header><span class=\"mlabel\">as it stands</span>"
                                  "<code>psyche-belief › vision/book.md</code></header>")))
-    (is (str/includes? html "<code class=\"language-markdown\">Library\n[]</code>"))
+    (is (str/includes? html "</header><div class=\"markdown\"><p>Library []</p></div></section>")
+        "a Markdown module's excerpt is prose, rendered as text that wraps")
+    (is (not (re-find #"<section class=\"shown\">.*<pre" html)) "no code block for prose")
     (is (not (re-find #"shown[^>]*(?:add|del|move)|<(?:ins|del)>Library" html)))
     (is (str/includes? code ".shown{border:1px solid var(--shown-edge);border-left-width:5px"))
     (doseq [other ["var(--add-edge)" "var(--del-edge)" "var(--moved-edge)"]]
@@ -868,7 +873,7 @@
   (let [figures {"fig-1.svg" (faithful 1 "plain")
                  "fig-2.svg" (faithful 1 "context")
                  "fig-3.svg" (faithful 1 "added")}
-        html (with-figures figures #(built mermaid-margin-src))]
+        html (str/replace (with-figures figures #(built mermaid-margin-src)) book-build/colour-key "")]
     (is (= 3 (count (re-seq #"class=\"figure\"" html))) "a removed fence is not drawn")
     (is (apply < (map #(str/index-of html %) [">plain<" ">context<" ">added<" "r[removed]"]))
         "fig-N.svg follows source order across every margin")
@@ -960,6 +965,67 @@
                #(built "# B\n\n```mermaid\nflowchart LR\n    a[\"a\"] -- \"to\" --> b[\"b\"]\n```\n"))]
     (is (= 1 (count (re-seq #"class=\"figure\"" html))))
     (is (not (str/includes? html "flowchart LR")))))
+
+(def ^:private written-colour
+  ;; a colour a figure was drawn with, left in an attribute or a declaration
+  #"(?i)(?:fill|stroke|color|stop-color|flood-color)\s*(?:=\s*[\"']|:\s*)\s*(?:#[0-9a-f]{3,8}|rgba?\(|hsla?\(|black|white|gr[ae]y|red|blue|green|silver|navy)")
+
+(deftest every-figure-colour-is-the-page-theme
+  (doseq [f ["white-boxes.svg" "black-current-colour.svg"]
+          :let [el (book-build/illustration-el (slurp (str (fs/path fixtures-dir "figures" f))) "f1-")]]
+    (is (not (re-find written-colour el)) (str f ": no colour of its own is left"))
+    (is (re-find #"<svg [^>]*style=\"[^\"]*color:var\(--fg\)" el) (str f ": currentColor is the page text colour")))
+  (let [el (book-build/illustration-el (slurp (str (fs/path fixtures-dir "figures" "white-boxes.svg"))))]
+    (is (str/includes? el "<g stroke-width=\"1.5\" style=\"fill:var(--chip);stroke:var(--fg)\">") "white boxes take the surface, their borders the ink")
+    (is (str/includes? el "<path d=\"M0,0 L10,5 L0,10 z\" style=\"fill:var(--fg)\"/>") "the arrowhead is ink")
+    (is (str/includes? el "<g font-size=\"16\" text-anchor=\"middle\" style=\"fill:var(--fg)\">") "labels are ink"))
+  (let [svg (str "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">"
+                 "<style>rect{fill:#fafafa;stroke:rgb(40,40,40)} text.x{fill:hsl(0,0%,10%) !important}</style>"
+                 "<rect fill=\"black\" width=\"9\" height=\"9\"/><text fill=\"#ffffff\">on black</text>"
+                 "<rect fill=\"#e8f0ff\" stroke=\"#c33\" width=\"9\" height=\"9\"/><text style=\"fill:#777\">grey</text>"
+                 "<line stroke=\"none\" fill=\"url(#g)\"/><path fill=\"none\" stroke=\"currentColor\"/><text>unpainted</text></svg>")
+        el (book-build/illustration-el svg)]
+    (is (not (re-find written-colour el)) "no colour of its own is left")
+    (is (str/includes? el "rect{fill:var(--chip);stroke:var(--fg)}") "a style sheet's light fill is surface, its stroke ink")
+    (is (str/includes? el "text.x{fill:var(--fg) !important}") "a style sheet's text is ink")
+    (is (str/includes? el "<rect width=\"9\" height=\"9\" style=\"fill:var(--fg)\"/><text style=\"fill:var(--chip)\">on black</text>")
+        "a dark box is ink and the white text drawn on it is surface")
+    (is (str/includes? el "style=\"fill:var(--chip);stroke:var(--fg)\"") "a tinted box is surface, a red border ink")
+    (is (str/includes? el "<text style=\"fill:var(--fg)\">grey</text>") "grey text is ink")
+    (is (str/includes? el "<line stroke=\"none\" fill=\"url(#g)\"/>") "none and a paint server are kept")
+    (is (str/includes? el "<text>unpainted</text>") "unpainted text inherits the root's ink")
+    (is (re-find #"<svg [^>]*style=\"color:var\(--fg\);fill:var\(--fg\);" el) "the root's ink is the page text colour")))
+
+(deftest every-figure-on-a-page-has-its-own-ids
+  (let [svg "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 9 9\"><marker id=\"a\"/><line marker-end=\"url(#a)\"/></svg>"
+        src (str "# B\n\n```mermaid\nflowchart TB\n  a --> b\n```\n\n```mermaid\nflowchart TB\n  c --> d\n```\n")
+        html (with-figures {"fig-1.svg" svg "fig-2.svg" svg} #(book-build/build src ""))]
+    (is (str/includes? html "<marker id=\"f1-a\"/><line marker-end=\"url(#f1-a)\"/>"))
+    (is (str/includes? html "<marker id=\"f2-a\"/><line marker-end=\"url(#f2-a)\"/>"))))
+
+(deftest a-prose-excerpt-is-text-and-a-code-excerpt-is-code
+  (let [shown (fn [path body] (built (str head "::: shown\npsyche-belief › " path "\n" body "\n:::\n\n+ New.\n")))]
+    (is (str/includes? (shown "vision/a.md" "One line\nwrapped here.") "<div class=\"markdown\"><p>One line wrapped here.</p></div>"))
+    (is (str/includes? (shown "notes/a.txt" "One line\n  kept.") "<div class=\"textblock\">One line\n  kept.</div>"))
+    (is (str/includes? (shown "src/a.rs" "let a = 1;") "<pre><code class=\"language-rust\">let a = 1;</code></pre>"))))
+
+(deftest a-presentation-with-change-marks-opens-with-the-colour-key
+  (let [html (built (str head "+ New.\n"))]
+    (is (= 1 (count (re-seq #"class=\"key\"" html))))
+    (is (str/includes? html (str "<h1 class=\"book-title\">B</h1>\n" book-build/colour-key)) "the key follows the title"))
+  (let [html (built "Presentation.{ «B» Proposal }\n\n# B\n\nCreated by a test.\n\n### Proposal 1: T · psyche-belief › vision/book.md\n\n+ New.\n")]
+    (is (str/includes? html (str "<p class=\"book-subtitle\">Created by a test.</p>\n" book-build/colour-key)) "and the signature line"))
+  (let [html (built (str head "::: move proposed\nfrom: vision/old.md\nto: vision/new.md\n\nMoved.\n:::\n"))]
+    (is (= 1 (count (re-seq #"class=\"key\"" html))) "a moved passage's own build adds no second key"))
+  (is (not (str/includes? (book-build/build "# B\n\n## psyche-belief › vision/book.md\n\nAs it stands.\n" "") "class=\"key\""))
+      "a page that changes nothing has no key")
+  (is (not (str/includes? (book-build/build "+ New.\n" "") "class=\"key\"")) "a fragment without a title has no key")
+  (doseq [sw ["sw-add{background:var(--add-proposed-edge)}" "sw-add-landed{background:var(--add-landed-edge)}"
+              "sw-del{background:var(--del-proposed-edge)}" "sw-del-landed{background:var(--del-landed-edge)}"
+              "sw-move{background:var(--move-proposed-edge)}" "sw-move-landed{background:var(--move-landed-edge)}"
+              "sw-shown{background:var(--shown-edge)}" "sw-module{background:var(--accent)}"]]
+    (is (str/includes? code sw) (str "the swatch is the page colour: " sw)))
+  (is (= 3 (count (re-seq #"--add-proposed-edge:#" code))) "the proposed green holds in a review, whose marks are landed"))
 
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

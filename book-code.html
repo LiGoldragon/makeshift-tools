@@ -22,6 +22,8 @@
        A review (<meta name="book-kind" content="review"> in the page) shows every added and removed line in the dark shade
        (--add-landed-edge, --del-landed-edge); a proposal or an account shows the light shade.
        <p class="book-subtitle">Created by …</p>   the signature line under the title: the creating model and each helper's help
+       <aside class="key">…</aside>                 the key to the colours, after the title and signature line of a page that carries a change (the builder emits it)
+       <div class="figure"><svg>…</svg></div>       a figure: its ink var(--fg), its fills var(--chip), written by the builder, so it follows the theme
        <section class="rulings"><h2>Rulings</h2><ol>   (a single ruling may sit inside its proposal; <li value="N"> keeps its number)
          <li><p>Proposal 1:</p><ol class="choices"><li>land</li><li>amend</li></ol></li>
        </ol></section>
@@ -31,15 +33,15 @@
      Colour is the sign of a change and lives in the margin: <div class="add">/<div class="del"> and <tr class="row-add|row-del"> carry a green or red edge, their text in the page's colour.
      Code is highlighted at build time (tree-sitter, classes ts-*): <pre class="code-add|code-del"> is a fence wholly added or removed, one margin;
      <pre class="code-diff"> holds <span class="ln ln-add|ln-del"> lines, each signed in its gutter. Code never wraps midline; a line wider than the block
-     scrolls inside it (56 characters at 360 px, 61 at 390 px, 85 at desktop width). -->
+     scrolls inside it (56 characters at 360 px, 61 at 390 px, 85 at desktop width), a shade at the edge where code is hidden. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
 /* Layout: one reading column; each proposal is a sheet with its file chip on top, its change shown as stacked diff panels. */
 :root{
   --bg:#f6f7f4;--sheet:#ffffff;--fg:#1d2420;--muted:#66726b;--line:#dde2dc;--chip:#e9ede7;
-  --add-bg:#e3f5e6;--add-edge:#2f8a46;--add-fg:#14351f;
-  --del-bg:#fbe5e3;--del-edge:#c2372b;--del-fg:#5b1a14;
+  --add-bg:#e3f5e6;--add-proposed-edge:#2f8a46;--add-fg:#14351f;
+  --del-bg:#fbe5e3;--del-proposed-edge:#c2372b;--del-fg:#5b1a14;
   --moved-bg:#e4e9fb;--moved-edge:#3a5bc7;--moved-fg:#1c2b66;
   --move-proposed-edge:#6b7ed6;--move-landed-edge:#304aa8;
   --ctx-bg:#f1f3ef;--accent:#1c5f8a;
@@ -51,6 +53,7 @@
   --f-prose:"Literata",Georgia,"Times New Roman",serif;
   --f-label:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
   --f-code:"JetBrains Mono",ui-monospace,"DejaVu Sans Mono",monospace;
+  --add-edge:var(--add-proposed-edge);--del-edge:var(--del-proposed-edge);
 }
 .move{border-left:4px solid var(--move-edge);padding:4px 0 4px 12px;min-width:0}
 .move-proposed{--move-edge:var(--move-proposed-edge)}
@@ -59,8 +62,8 @@
 .move-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#121815;--sheet:#1a211d;--fg:#e4e9e5;--muted:#93a199;--line:#2c3631;--chip:#25302a;
-  --add-bg:#16301f;--add-edge:#5cc47a;--add-fg:#cdeed5;
-  --del-bg:#361a18;--del-edge:#f07a6e;--del-fg:#f6d0cb;
+  --add-bg:#16301f;--add-proposed-edge:#5cc47a;--add-fg:#cdeed5;
+  --del-bg:#361a18;--del-proposed-edge:#f07a6e;--del-fg:#f6d0cb;
   --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
   --move-proposed-edge:#9aaeff;--move-landed-edge:#7e95f5;
   --ctx-bg:#1e2622;--accent:#7cc0ee;
@@ -71,8 +74,8 @@
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#121815;--sheet:#1a211d;--fg:#e4e9e5;--muted:#93a199;--line:#2c3631;--chip:#25302a;
-  --add-bg:#16301f;--add-edge:#5cc47a;--add-fg:#cdeed5;
-  --del-bg:#361a18;--del-edge:#f07a6e;--del-fg:#f6d0cb;
+  --add-bg:#16301f;--add-proposed-edge:#5cc47a;--add-fg:#cdeed5;
+  --del-bg:#361a18;--del-proposed-edge:#f07a6e;--del-fg:#f6d0cb;
   --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
   --move-proposed-edge:#9aaeff;--move-landed-edge:#7e95f5;
   --ctx-bg:#1e2622;--accent:#7cc0ee;
@@ -147,7 +150,8 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .diff .moved>*{overflow-wrap:anywhere}
 .diff .moved :is(h3,h4,h5,h6){margin:0;color:inherit}
 .diff .del{border-left-color:var(--del-edge)}
-/* A proposed figure keeps its own colours; a surround alone marks it added or removed. */
+/* A figure's colours are the page's: the builder writes its ink as --fg and its fills as --chip, so it follows the theme.
+   A surround alone marks it added or removed. */
 .figmark{border:2px solid;border-left-width:8px;border-radius:6px;padding:4px;min-width:0}
 .fig-add{border-color:var(--add-edge)}
 .fig-del{border-color:var(--del-edge)}
@@ -185,6 +189,20 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .shown{border:1px solid var(--shown-edge);border-left-width:5px;border-radius:8px;background:var(--shown-bg);color:var(--shown-fg);margin:16px 0;padding:10px 12px;min-width:0}
 .shown>header{display:flex;align-items:center;gap:9px;margin:0 0 8px;font-family:var(--f-label)}
 .shown>header code{overflow-wrap:anywhere}.shown>pre{margin:0}
+.shown>.markdown,.shown>.textblock{overflow-wrap:anywhere}
+
+/* The key to the colours, under the title of a page that carries a change: a swatch per colour, proposed (light) beside landed (dark). */
+.key{border:1px solid var(--line);border-radius:8px;padding:8px 12px 10px;font-family:var(--f-label);font-size:.9rem;line-height:1.4;min-width:0}
+.key-label{color:var(--muted);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+.key ul{list-style:none;padding:0;margin:.4em 0 0;display:flex;flex-wrap:wrap;gap:.35em 1.1em}
+.key li{display:flex;align-items:center;gap:3px;margin:0}
+.key li>*{margin:0}.key li>.sw:last-of-type{margin-inline-end:5px}
+.sw{display:inline-block;width:.95em;height:.95em;border-radius:3px}
+.sw-add{background:var(--add-proposed-edge)}.sw-add-landed{background:var(--add-landed-edge)}
+.sw-del{background:var(--del-proposed-edge)}.sw-del-landed{background:var(--del-landed-edge)}
+.sw-move{background:var(--move-proposed-edge)}.sw-move-landed{background:var(--move-landed-edge)}
+.sw-shown{background:var(--shown-edge)}.sw-module{background:var(--accent)}
+.key-note{color:var(--muted);font-size:.85rem;margin-top:.4em}
 
 /* Rulings: one card per ruling, numbered choices. */
 .rulings{display:grid;gap:12px}
@@ -195,8 +213,14 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .choices>li{counter-increment:choice;display:block;position:relative;padding-inline-start:calc(1.8rem + 8px);min-width:0;margin:0}
 .choices>li::before{content:counter(choice);position:absolute;left:0;top:0;width:1.8rem;font-family:var(--f-label);font-weight:600;text-align:center;border:1.5px solid var(--accent);color:var(--accent);border-radius:6px;line-height:1.5}
 
-/* Code: never wraps; wide lines scroll inside their block. */
-pre:has(>code[class*="language-"]){background:var(--hl-bg);padding:12px 14px;border-radius:6px;overflow-x:auto;overflow-y:hidden;height:max-content;max-width:100%;min-width:0;margin:0}
+/* Code: never wraps; wide lines scroll inside their block, and a shade at the edge shows there is more:
+   the covers move with the code (local), the shades stay at the box's edges (scroll), so a shade shows only where code is hidden. */
+pre:has(>code[class*="language-"]){--scroll-shade:color-mix(in srgb,var(--fg) 45%,transparent);
+  background:linear-gradient(to right,var(--hl-bg) 40%,transparent) left/28px 100% no-repeat local,
+    linear-gradient(to left,var(--hl-bg) 40%,transparent) right/28px 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%,var(--scroll-shade),transparent) left/12px 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%,var(--scroll-shade),transparent) right/12px 100% no-repeat scroll,
+    var(--hl-bg);padding:12px 14px;border-radius:6px;overflow-x:auto;overflow-y:hidden;height:max-content;max-width:100%;min-width:0;margin:0}
 pre>code[class*="language-"]{background:none;padding:0;white-space:pre;font-family:var(--f-code);font-size:.82rem;line-height:1.5;display:block;tab-size:4;position:relative;isolation:isolate;min-width:max-content}
 pre>code[class*="language-"],pre>code[class*="language-"] *{white-space:pre!important}
 @media (max-width:540px){pre>code[class*="language-"]{font-size:12px}body{font-size:16px}}

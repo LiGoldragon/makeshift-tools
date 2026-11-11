@@ -9,7 +9,8 @@
 ;; blocks, and numbered rulings. An ASCII box-and-arrow diagram in an unlabelled
 ;; fence, and every unlabelled fence outside a proposal, boxed or not, is a
 ;; diagram; it is never drawn: the n-th diagram is shown as fig-n.svg from the
-;; --figures directory. Every Mermaid fence requires its ordered figure file;
+;; --figures directory, its colours replaced by the page theme's (ink the page
+;; text colour, fills the page surface) and its ids made its own. Every Mermaid fence requires its ordered figure file;
 ;; a missing or unreadable one stops the build and names that file. Other
 ;; diagram forms keep their existing optional-figure behavior. A failure to
 ;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
@@ -20,7 +21,9 @@
 ;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
 ;; (the default when absent), Review or Account: a Review shows its added and
 ;; removed lines in the dark shade. A paragraph opening "Created by" under the
-;; title is the signature line, shown as the subtitle. The page code (book-code.html) is
+;; title is the signature line, shown as the subtitle. A titled page that carries
+;; a change mark opens with the key to its colours. A ::: shown excerpt of a
+;; Markdown or plain-text module is prose that wraps; of any other, code. The page code (book-code.html) is
 ;; appended whole. ethos-zero (the one --ethos-zero-real names, else the pinned
 ;; main) only decides how an unlabelled module-view fence and an Ethos file are
 ;; tagged; its refusal never stops a build. --ethos-zero names the one that reads
@@ -424,14 +427,154 @@
                  (str/replace #"^<svg" (str "<svg viewBox=\"" vb "\" width=\"100%\" style=\"display:block;position:absolute;left:0;top:0;width:100%;height:100%\"")))]
     (str tag' (subs svg (count tag)))))
 
+;; ------------------------------------------------------------ figure colours
+;;
+;; A figure's colours are the page's, whatever the illustrator wrote. Figures
+;; are drawn for a white page, so what was drawn dark is ink and what was drawn
+;; light is paper: every stroke and every dark fill becomes the page text colour
+;; (--fg), every light fill the page surface (--chip), and both follow the
+;; reader's light or dark theme. Text is ink unless it was drawn near white, to
+;; sit on a dark fill. A shape painted nowhere, which SVG fills black, and
+;; currentColor take the ink from the root. none, url() paints and context-*
+;; are kept: they carry no colour of their own.
+
+(def ^:private named-colours
+  {"black" [0 0 0] "white" [255 255 255] "gray" [128 128 128] "grey" [128 128 128]
+   "silver" [192 192 192] "dimgray" [105 105 105] "dimgrey" [105 105 105]
+   "darkgray" [169 169 169] "darkgrey" [169 169 169] "lightgray" [211 211 211]
+   "lightgrey" [211 211 211] "gainsboro" [220 220 220] "whitesmoke" [245 245 245]
+   "snow" [255 250 250] "ivory" [255 255 240] "beige" [245 245 220] "linen" [250 240 230]
+   "aliceblue" [240 248 255] "azure" [240 255 255] "honeydew" [240 255 240]
+   "mintcream" [245 255 250] "ghostwhite" [248 248 255] "floralwhite" [255 250 240]
+   "seashell" [255 245 238] "lavender" [230 230 250] "lightyellow" [255 255 224]
+   "lightcyan" [224 255 255] "lightblue" [173 216 230] "lightgreen" [144 238 144]
+   "pink" [255 192 203] "yellow" [255 255 0] "orange" [255 165 0] "gold" [255 215 0]
+   "red" [255 0 0] "green" [0 128 0] "blue" [0 0 255] "navy" [0 0 128]
+   "purple" [128 0 128] "teal" [0 128 128] "maroon" [128 0 0] "olive" [128 128 0]
+   "steelblue" [70 130 180] "slategray" [112 128 144] "slategrey" [112 128 144]
+   "darkslategray" [47 79 79] "darkslategrey" [47 79 79]})
+
+(defn colour-rgb
+  "A written CSS colour as [r g b], 0-255; nil when it is not one this reads."
+  [s]
+  (let [s (str/lower-case (strip s))
+        hex #(Long/parseLong % 16)]
+    (cond
+      (re-matches #"#[0-9a-f]{3,4}" s) (mapv #(hex (str % %)) (take 3 (subs s 1)))
+      (re-matches #"#[0-9a-f]{6}(?:[0-9a-f]{2})?" s) (mapv #(hex (apply str %)) (take 3 (partition 2 (subs s 1))))
+      (re-matches #"rgba?\(.*\)" s)
+      (let [ns (re-seq #"[\d.]+%?" s)]
+        (when (<= 3 (count ns))
+          (mapv #(if (str/ends-with? % "%") (* 2.55 (Double/parseDouble (subs % 0 (dec (count %))))) (Double/parseDouble %))
+                (take 3 ns))))
+      (re-matches #"hsla?\(.*\)" s)
+      (let [[h sat l] (map #(Double/parseDouble (str/replace % "%" "")) (re-seq #"[\d.]+%?" s))
+            sat (/ sat 100) l (/ l 100)
+            c (* sat (- 1 (Math/abs (- (* 2 l) 1)))) x (* c (- 1 (Math/abs (- (mod (/ h 60) 2) 1)))) m (- l (/ c 2))
+            [r g b] (case (int (mod (quot h 60) 6)) 0 [c x 0] 1 [x c 0] 2 [0 c x] 3 [0 x c] 4 [x 0 c] [c 0 x])]
+        (mapv #(* 255 (+ % m)) [r g b]))
+      :else (named-colours s))))
+
+(defn lightness
+  "The perceived lightness of [r g b], CIE L* from 0 (black) to 100 (white)."
+  [rgb]
+  (let [lin #(let [c (/ % 255.0)] (if (<= c 0.04045) (/ c 12.92) (Math/pow (/ (+ c 0.055) 1.055) 2.4)))
+        [r g b] (map lin rgb)
+        y (+ (* 0.2126 r) (* 0.7152 g) (* 0.0722 b))]
+    (if (<= y (/ 216 24389.0)) (* y (/ 24389 27.0)) (- (* 116 (Math/cbrt y)) 16))))
+
+(def figure-ink "var(--fg)")
+(def figure-paper "var(--chip)")
+
+(def ^:private paint-props
+  #{"fill" "stroke" "color" "stop-color" "flood-color" "lighting-color" "background-color" "background"})
+
+(defn themed-paint
+  "The page colour a painted property takes, or nil to keep a value that carries
+  no colour (none, transparent, currentColor, url(), context-*, inherit, var())."
+  [prop value text?]
+  (let [v (str/lower-case (strip (or value "")))]
+    (when-not (or (#{"" "none" "transparent" "currentcolor" "inherit" "initial" "unset"
+                     "context-stroke" "context-fill"} v)
+                  (str/starts-with? v "url(") (str/starts-with? v "var("))
+      (if (#{"stroke" "color"} prop)
+        figure-ink
+        (let [l (some-> (colour-rgb v) lightness)]
+          (if (and l (>= l (if text? 85 50))) figure-paper figure-ink))))))
+
+(defn- themed-declarations
+  "CSS declarations whose painted properties take the page's colours."
+  [css text?]
+  (str/replace css #"(?i)(?<![\w-])(fill|stroke|color|stop-color|flood-color|lighting-color|background-color|background)(\s*:\s*)([^;}\"']+?)(\s*!important)?(?=\s*(?:;|}|$))"
+               (fn [[whole prop sep v imp]]
+                 (if-let [t (themed-paint (str/lower-case prop) v text?)] (str prop sep t imp) whole))))
+
+(def ^:private text-tags #{"text" "tspan" "textpath"})
+
+(defn theme-svg
+  "An SVG whose every colour is the page's: ink the page text colour, fills the
+  page surface, both following the reader's theme (see figure colours above)."
+  [svg]
+  (let [root? (volatile! true)
+        attr-re #"(?i)\s(fill|stroke|color|stop-color|flood-color|lighting-color)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"
+        style-re #"(?i)\sstyle\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"]
+    (-> svg
+        (str/replace #"(?is)(<style\b[^>]*>)(.*?)(</style\s*>)"
+                     (fn [[_ open css close]]
+                       (str open
+                            (str/replace css #"([^{}]*)\{([^{}]*)\}"
+                                         (fn [[_ sel decls]]
+                                           (str sel "{" (themed-declarations decls (boolean (re-find #"(?i)\btext|tspan|label" sel))) "}")))
+                            close)))
+        (str/replace #"<([A-Za-z][\w:.-]*)(\s[^<>]*?)?(\s*/?)>"
+                     (fn [[_ tag attrs end]]
+                       (let [attrs (or attrs "")
+                             text? (contains? text-tags (str/lower-case tag))
+                             root (and @root? (= "svg" (str/lower-case tag)))
+                             _ (when root (vreset! root? false))
+                             painted (for [[_ prop v1 v2] (re-seq attr-re attrs)
+                                           :let [prop (str/lower-case prop)
+                                                 t (themed-paint prop (or v1 v2) text?)]
+                                           :when t]
+                                       [prop t])
+                             [_ s1 s2] (re-find style-re attrs)
+                             style (some-> (or s1 s2) (themed-declarations text?))
+                             own-fill? (re-find #"(?i)\sfill\s*=" attrs)
+                             written (set (map first painted))
+                             decls (concat (when root
+                                             (remove #(written (first %))
+                                                     (cond-> [["color" figure-ink]] (not own-fill?) (conj ["fill" figure-ink]))))
+                                           painted)
+                             new-style (str/join ";" (remove str/blank? (concat (map (fn [[p t]] (str p ":" t)) decls) [style])))
+                             kept (-> attrs
+                                      (str/replace attr-re (fn [[whole prop v1 v2]]
+                                                             (if (themed-paint (str/lower-case prop) (or v1 v2) text?) "" whole)))
+                                      (str/replace style-re ""))]
+                         (str "<" tag kept
+                              (when-not (str/blank? new-style) (str " style=\"" (str/replace new-style "\"" "'") "\""))
+                              end ">")))))))
+
+(defn scope-svg-ids
+  "An SVG whose ids, and its references to them, carry a prefix, so two figures
+  on one page never share a marker."
+  [prefix svg]
+  (let [ids (set (map second (re-seq #"\sid\s*=\s*\"([^\"]+)\"" svg)))]
+    (if (empty? ids)
+      svg
+      (-> svg
+          (str/replace #"(\sid\s*=\s*\")([^\"]+)\"" (fn [[_ pre id]] (str pre prefix id "\"")))
+          (str/replace #"url\(\s*#([^)\s]+)\s*\)" (fn [[whole id]] (if (ids id) (str "url(#" prefix id ")") whole)))
+          (str/replace #"((?:xlink:)?href\s*=\s*\")#([^\"]+)\"" (fn [[whole pre id]] (if (ids id) (str pre "#" prefix id "\"") whole)))))))
+
 (defn illustration-el
   "The figure container of an illustrator's SVG, held to its aspect ratio by padding, which
-  a grid row cannot collapse."
-  [raw]
-  (let [svg (sanitize-svg raw)
+  a grid row cannot collapse; its colours are the page's, and with a prefix its ids are its own."
+  ([raw] (illustration-el raw nil))
+  ([raw prefix]
+  (let [svg (cond->> (theme-svg (sanitize-svg raw)) prefix (scope-svg-ids prefix))
         [w h] (map #(Double/parseDouble %) (take-last 2 (re-seq #"[\d.]+" (second (re-find #"viewBox=\"([^\"]*)\"" svg)))))]
     (str "<div class=\"figure\" style=\"position:relative;height:0;padding-bottom:" (num (* 100.0 (/ h w)))
-         "%;overflow:hidden\">" svg "</div>")))
+         "%;overflow:hidden\">" svg "</div>"))))
 
 (def ^:dynamic *figures-dir* nil)
 
@@ -1569,11 +1712,42 @@
        "<div class=\"comment-body\">" (markdown-html lines) "</div></aside>"))
 
 (defn shown-html
-  "A checked excerpt of the named source module as it stands."
+  "A checked excerpt of the named source module as it stands. Prose is text that
+  wraps: a Markdown module's excerpt is rendered, a plain-text module's keeps its
+  lines. Only a code module's excerpt is code, in its language."
   [repository path lines]
-  (str "<section class=\"shown\"><header><span class=\"mlabel\">as it stands</span>"
-       "<code>" (esc (str repository " › " path)) "</code></header>"
-       (code-html (file-language path) lines) "</section>"))
+  (let [lang (file-language path)
+        ext (str/lower-case (or (some-> path (str/split #"\.") rest last) ""))]
+    (str "<section class=\"shown\"><header><span class=\"mlabel\">as it stands</span>"
+         "<code>" (esc (str repository " › " path)) "</code></header>"
+         (cond (markdown-languages lang) (str "<div class=\"markdown\">" (markdown-html lines) "</div>")
+               (text-languages ext) (str "<div class=\"textblock\">" (esc (str/join "\n" lines)) "</div>")
+               :else (code-html lang lines))
+         "</section>")))
+
+(def colour-key
+  "The key to a page's colours: each mark of a change, with its proposed (light)
+  and landed (dark) shade where it has both, and the two views as it stands."
+  (str "<aside class=\"key\" aria-label=\"Key to the colours\"><div class=\"key-label\">Colours</div><ul>"
+       "<li><span class=\"sw sw-add\"></span><span class=\"sw sw-add-landed\"></span>added</li>"
+       "<li><span class=\"sw sw-del\"></span><span class=\"sw sw-del-landed\"></span>removed</li>"
+       "<li><span class=\"sw sw-move\"></span><span class=\"sw sw-move-landed\"></span>moved</li>"
+       "<li><span class=\"sw sw-shown\"></span>an excerpt, as it stands</li>"
+       "<li><span class=\"sw sw-module\"></span>a module, as it stands</li>"
+       "</ul><p class=\"key-note\">Light shade: proposed. Dark shade: landed.</p></aside>"))
+
+(def ^:private change-mark
+  #"<ins>|<del>|class=\"(?:add|del|moved|shown|code-add|code-del|code-diff|figmark fig-add|figmark fig-del|move move-[a-z]+|record [a-z]+|row-add|row-del)\"")
+
+(defn with-colour-key
+  "A page's parts with the colour key after its title and signature line, when
+  the page is a presentation (it has a title) that carries a change mark."
+  [parts]
+  (if (and (some #(str/starts-with? % "<h1 class=\"book-title\">") parts)
+           (some #(re-find change-mark %) parts))
+    (let [head (count (take-while #(re-find #"^<(?:meta|title|h1 class=\"book-title\"|p class=\"book-subtitle\")" %) parts))]
+      (vec (concat (take head parts) [colour-key] (drop head parts))))
+    parts))
 
 (defn build [src code]
   (let [nfig (or *shared-figure-counter* (volatile! 0))
@@ -1589,7 +1763,7 @@
                            f (when *figures-dir* (fs/path *figures-dir* name))]
                        (if (and f (fs/exists? f))
                          (let [svg (slurp (str f) :encoding "UTF-8")]
-                           (try (illustration-el svg)
+                           (try (illustration-el svg (str "f" n "-"))
                                 (catch clojure.lang.ExceptionInfo e
                                   (if required?
                                     (throw (ex-info (str "figure " name " unrendered: " (ex-message e))
@@ -1888,7 +2062,7 @@
     (close-record)
     (when @in-module (append! "</article>"))
     (when @in-article (append! "</article>"))
-    (str (str/join "\n" @out) "\n" code)))
+    (str (str/join "\n" (cond-> @out (not *move-context*) with-colour-key)) "\n" code)))
 
 (defn read-text
   "Read a UTF-8 file with newlines normalised to \\n."

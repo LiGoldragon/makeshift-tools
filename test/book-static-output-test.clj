@@ -52,12 +52,13 @@
         "an explicit comment container includes its own visibly labelled box")))
 
 (deftest whole-module-inline-proposal-marks
-  (let [html (book-build/build
+  (let [html (str/replace (book-build/build
               (str "# Book\n\n"
                    "## psyche-belief › vision/book.md\n\n"
                    "A line is [+added+] here.\n\n"
                    "A word is [-removed-] here.\n\n"
-                   "[~moved from vision/old.md: The passage appears here once.~]\n") "")]
+                   "[~moved from vision/old.md: The passage appears here once.~]\n") "")
+                          book-build/colour-key "")]
     (is (str/includes? html "<article class=\"module diff\">")
         "the module is the proposal and supplies the change context")
     (is (not (str/includes? html "class=\"pnum\"")) "the module proposal has no badge")

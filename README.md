@@ -41,7 +41,9 @@ Defaults: `--min-used-percent 95`, `--expiry-window-minutes 90`. Without
     bb test
 
 runs every `test/*-test.clj`. Fixtures are in `test/fixtures`. The phone
-rendering test (`test/book-phone-code-test.clj`) drives headless chromium: it
-uses `$CHROMIUM` or `chromium` on PATH, for example
+rendering test (`test/book-phone-code-test.clj`) and the theme test
+(`test/book-theme-render-test.clj`, a built book read in the dark and light
+settings) drive headless chromium through `test/cdp.clj`: they use
+`$CHROMIUM` or `chromium` on PATH, for example
 
     CHROMIUM=$(nix build nixpkgs#chromium --no-link --print-out-paths)/bin/chromium bb test

@@ -2,17 +2,13 @@
 ;; Run: bb test/book-phone-code-test.clj [BOOK-CODE.html]
 ;; Chromium is the CHROMIUM environment variable if set, else `chromium` on PATH.
 ;; Without one:  CHROMIUM=$(nix build nixpkgs#chromium --no-link --print-out-paths)/bin/chromium bb test/book-phone-code-test.clj
-;; The browser is driven over the Chrome DevTools Protocol on a WebSocket
-;; (java.net.http), as book-phone-code.test.mjs did from node.
+;; The browser is driven over the Chrome DevTools Protocol (test/cdp.clj).
 (ns book-phone-code-test
   (:require [babashka.fs :as fs]
             [babashka.process :as process]
             [cheshire.core :as json]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is run-tests]])
-  (:import (java.net URI)
-           (java.net.http HttpClient WebSocket$Listener)
-           (java.util.concurrent CompletableFuture TimeUnit)))
+            [clojure.test :refer [deftest is run-tests]]))
 
 (def root (str (fs/parent (fs/parent (fs/absolutize *file*)))))
 
@@ -60,73 +56,13 @@
           outsideHeadingDisplay: getComputedStyle(document.querySelector('#outside-heading')).display };
       })")
 
-;; ---- DevTools protocol over a WebSocket ----
+;; ---- DevTools protocol over a WebSocket: test/cdp.clj ----
 
-(defn connect
-  "Open a WebSocket to url. Returns {:send f :pending atom :events atom :socket ws}."
-  [url]
-  (let [pending (atom {}) events (atom {}) buffer (StringBuilder.)
-        opened (CompletableFuture.)
-        handle (fn [text]
-                 (let [message (json/parse-string text)]
-                   (if-let [id (get message "id")]
-                     (when-let [p (get @pending id)]
-                       (swap! pending dissoc id)
-                       (deliver p (if (contains? message "error")
-                                    {:error (get message "error")}
-                                    {:result (get message "result")})))
-                     (let [key (str (get message "sessionId") ":" (get message "method"))]
-                       (when-let [p (get @events key)]
-                         (swap! events dissoc key)
-                         (deliver p (get message "params")))))))
-        listener (reify WebSocket$Listener
-                   (onOpen [_ ws] (.request ws 1) (.complete opened true))
-                   (onText [_ ws data last?]
-                     (.append buffer (str data))
-                     (when last? (let [t (str buffer)] (.setLength buffer 0) (handle t)))
-                     (.request ws 1)
-                     nil)
-                   (onClose [_ ws status reason] nil)
-                   (onError [_ ws error] (.completeExceptionally opened error)))
-        socket (.join (.buildAsync (.newWebSocketBuilder (HttpClient/newHttpClient)) (URI/create url) listener))
-        _ (.get opened 10 TimeUnit/SECONDS)
-        counter (atom 0)]
-    {:socket socket :pending pending :events events
-     :request (fn [method params session-id]
-                (let [id (swap! counter inc)
-                      p (promise)]
-                  (swap! pending assoc id p)
-                  (.join (.sendText socket
-                                    (json/generate-string (cond-> {"id" id "method" method "params" params}
-                                                            session-id (assoc "sessionId" session-id)))
-                                    true))
-                  (let [r (deref p 30000 {:error "no reply in 30 seconds"})]
-                    (if (:error r)
-                      (throw (ex-info (json/generate-string (:error r)) {}))
-                      (:result r)))))}))
-
-(defn chromium-binary []
-  (or (System/getenv "CHROMIUM")
-      (some-> (fs/which "chromium") str)))
-
-(defn launch [profile config cache directory binary]
-  (process/process [binary "--headless" "--no-sandbox" "--disable-gpu" "--disable-dev-shm-usage"
-                    "--no-first-run" "--no-default-browser-check" "--disable-background-networking"
-                    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost"
-                    "--remote-debugging-address=127.0.0.1" "--remote-debugging-port=0"
-                    (str "--user-data-dir=" profile) "about:blank"]
-                   {:out :ignore :err :string
-                    :extra-env {"HOME" (str directory) "XDG_CONFIG_HOME" (str config) "XDG_CACHE_HOME" (str cache)}}))
-
-(defn endpoint [profile browser]
-  (let [file (fs/path profile "DevToolsActivePort")
-        deadline (+ (System/currentTimeMillis) 60000)]
-    (loop []
-      (let [[port route] (when (fs/exists? file) (str/split-lines (str/trim (slurp (str file)))))]
-        (cond (and port route) (str "ws://127.0.0.1:" port route)
-              (not (.isAlive ^Process (:proc browser))) (throw (ex-info (str "Chromium exited: " (:exit @browser)) {}))
-              (> (System/currentTimeMillis) deadline) (throw (ex-info "no DevToolsActivePort in 60 seconds" {}))
-              :else (do (Thread/sleep 50) (recur)))))))
+(load-file (str (fs/path root "test" "cdp.clj")))
+(def connect cdp/connect)
+(def chromium-binary cdp/chromium-binary)
+(def launch cdp/launch)
+(def endpoint cdp/endpoint)
 
 (defn run-measurements
   "Returns the vector of measurement maps, one per phone width."
