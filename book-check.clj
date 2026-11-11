@@ -110,6 +110,136 @@
        (some #(= needle (subvec haystack % (+ % (count needle))))
              (range (inc (- (count haystack) (count needle)))))))
 
+;; ---------------------------------------------------------- in place
+;;
+;; A proposal shown in place stands inside a module view, at the place its
+;; added lines land: a level-four heading, #### Proposal N: title · repo › path,
+;; naming the view's own module, then at most one ::: comment container, then
+;; its added lines: + lines, and fences whose every nonblank line carries +.
+;; It ends at the first other nonblank line, where the module resumes, or at the
+;; next in-place heading, or at the view's end. With every in-place proposal
+;; taken out, heading through the blank lines after its last added line, the
+;; view is the module as it stands, to the character.
+
+(def in-place-heading #"^#### (Proposal (\d+): (?:(.+) · )?([^\s›·]+) › ([^\s,›·]+))\s*\z")
+(def ^:private in-place-start #"^#### Proposal\b")
+
+(defn- added-line? [line]
+  (boolean (or (= line "+") (str/starts-with? line "+ "))))
+
+(defn- plain-fence-close-re [ch size]
+  (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote ch) "{" size ",}\\s*\\z")))
+
+(defn- fence-close-index
+  "The index of the line closing the fence opened at j, before end; nil when none does."
+  [lines j end ch size]
+  (let [close (plain-fence-close-re ch size)]
+    (first (filter #(re-find close (lines %)) (range (inc j) end)))))
+
+(defn in-place-proposal
+  "The in-place proposal whose heading is line h of the module view of
+  [repository path] ending before line e: {:heading h :end k :number :title
+  :comment lines :errors [[index reason]]}, k being the line where the module resumes."
+  [lines h e [repository path]]
+  (let [heading (re-matches in-place-heading (lines h))
+        [_ _ number title heading-repository heading-path] heading
+        errors (cond-> []
+                 (nil? heading) (conj [h "proposal-heading-without-location"])
+                 (and heading (not= [heading-repository heading-path] [repository path]))
+                 (conj [h "in-place-proposal-elsewhere"]))]
+    (loop [j (inc h) comment nil changed false errors errors]
+      (let [done (fn [k]
+                   {:heading h :end k :number number :title title :comment comment
+                    :errors (cond-> errors (not changed) (conj [h "no-change-in-proposal"]))})]
+        (if (>= j e)
+          (done e)
+          (let [l (lines j)
+                fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)]
+            (cond
+              (str/blank? l) (recur (inc j) comment changed errors)
+              (added-line? l) (recur (inc j) comment true errors)
+              (re-find in-place-start l) (done j)
+
+              (= l "::: comment")
+              (let [close (first (filter #(= ":::" (lines %)) (range (inc j) e)))
+                    body (if close (subvec lines (inc j) close) [])
+                    errors (cond-> errors
+                             (nil? close) (conj [j "unclosed-comment-container"])
+                             (and close (every? str/blank? body)) (conj [j "empty-comment-container"])
+                             comment (conj [j "second-comment-in-proposal"])
+                             changed (conj [j "comment-after-change"]))]
+                (if close
+                  (recur (inc close) (or comment body) changed errors)
+                  (done e)))
+
+              fence
+              (let [[_ opener language] fence
+                    close (fence-close-index lines j e (subs opener 0 1) (count opener))
+                    body (subvec lines (inc j) (or close e))
+                    nonblank (remove str/blank? body)]
+                (if (and (seq nonblank) (every? added-line? nonblank))
+                  (let [errors (cond-> errors
+                                 (nil? close) (conj [j "unclosed-code-fence"])
+                                 (= "" language) (conj [j "fence-language-required"])
+                                 (and (= "mermaid" (str/lower-case language))
+                                      (not (coherent-signed-mermaid? body)))
+                                 (conj [j "mixed-mermaid-change"]))]
+                    (if close (recur (inc close) comment true errors) (done e)))
+                  (done j)))
+
+              :else (done j))))))))
+
+(defn module-view-end
+  "The line after the module view whose heading is line i: the next proposal or
+  module heading, the to-the-living end mark, or the end of the source."
+  [lines i]
+  (loop [end (inc i) literal nil]
+    (if (>= end (count lines))
+      end
+      (let [text (lines end)]
+        (if literal
+          (recur (inc end)
+                 (if (re-find (fence-close-re (:char literal) (:size literal)) text) nil literal))
+          (if (or (re-find next-section text) (re-find #"^<!-- to-the-living:end -->\z" text))
+            end
+            (let [open (re-find #"^ {0,3}(`{3,}|~{3,})" text)]
+              (recur (inc end)
+                     (when open {:char (subs (second open) 0 1) :size (count (second open))})))))))))
+
+(defn in-place-proposals
+  "The in-place proposals of the module view of location, whose lines are
+  [start, end); a heading inside the module's own fences is the module's."
+  [lines start end location]
+  (loop [j start fence nil out []]
+    (if (>= j end)
+      out
+      (let [l (lines j)]
+        (cond
+          fence (recur (inc j) (when-not (re-find (plain-fence-close-re (:char fence) (:size fence)) l) fence) out)
+          (re-find in-place-start l) (let [p (in-place-proposal lines j end location)]
+                                       (recur (:end p) nil (conj out p)))
+          :else (let [open (re-find #"^ {0,3}(`{3,}|~{3,})" l)]
+                  (recur (inc j) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out)))))))
+
+(defn source-in-place-proposals
+  "Every in-place proposal of a source, keyed by the index of its heading line."
+  [source]
+  (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))]
+    (loop [i 0 fence nil out {}]
+      (if (>= i (count lines))
+        out
+        (let [l (lines i)
+              view (when-not fence (re-matches #"## ([^\s›·]+) › ([^\s,›·]+)\s*" l))]
+          (cond
+            fence (recur (inc i) (when-not (re-find (fence-close-re (:char fence) (:size fence)) l) fence) out)
+            (and view (valid-location? (nth view 1) (nth view 2)))
+            (let [end (module-view-end lines i)]
+              (recur end nil (into out (map (juxt :heading identity)
+                                            (in-place-proposals lines (inc i) end [(nth view 1) (nth view 2)])))))
+            :else
+            (let [open (re-find (re-pattern (str "^" sign-prefix " {0,3}(`{3,}|~{3,})")) l)]
+              (recur (inc i) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out))))))))
+
 (defn check-book
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
   (fn [repository path]) -> file text; it throws when the module is unavailable."
@@ -187,19 +317,13 @@
                  (when (str/blank? line) (flush-plain!)))
          handle-module-view!
          (fn [i number heading-text [_ repo path]]
-           (let [end (loop [end (inc i) literal nil]
-                       (if (>= end (count lines))
-                         end
-                         (let [text (lines end)]
-                           (if literal
-                             (recur (inc end)
-                                    (if (re-find (fence-close-re (:char literal) (:size literal)) text) nil literal))
-                             (if (or (re-find next-section text) (re-find #"^<!-- to-the-living:end -->\z" text))
-                               end
-                               (let [open (re-find #"^ {0,3}(`{3,}|~{3,})" text)]
-                                 (recur (inc end)
-                                        (when open {:char (subs (second open) 0 1) :size (count (second open))}))))))))
-                 raw (str/join "\n" (subvec lines (inc i) end))
+           (let [end (module-view-end lines i)
+                 in-place (in-place-proposals lines (inc i) end [repo path])
+                 _ (doseq [p in-place [index reason] (:errors p)] (err! (inc index) reason))
+                 _ (swap! st update :proposals + (count in-place))
+                 ;; the module as it stands: the view with each in-place proposal taken out
+                 taken (set (mapcat #(range (:heading %) (:end %)) in-place))
+                 raw (str/join "\n" (keep #(when-not (taken %) (lines %)) (range (inc i) end)))
                  shown (str/trim raw)
                  markdown (str/ends-with? path ".md")
                  ;; A markdown module may sit in a markdown or text fence; any other file is the
@@ -357,6 +481,9 @@
                    (let [level (count (nth heading 1)) text (nth heading 2)]
                      (when (and (section) (<= level (:level (section)))) (finish!))
                      (cond
+                       (and (= level 4) (re-find #"^Proposal\b" text))
+                       (do (finish!) (err! number "in-place-proposal-outside-module-view"))
+
                        (re-find #"(?i)^Proposal\b" text)
                        (do (finish!)
                            (if (re-find located text)

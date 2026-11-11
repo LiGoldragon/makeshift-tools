@@ -332,5 +332,47 @@
   (is (= []
          (reasons "### Proposal 1: Code · repo › x.md\n+ Added.\n\n```text\nplain text\n```\n"))))
 
+;; A proposal in place: inside a module view, at the place its added lines land.
+(def in-place-module
+  "---\ndescription: A fixture.\n---\n\n## The rule\n\nFirst line.\n\nSecond line.\n\n- a bullet\n")
+(def in-place-opts
+  {:read-module (fn [repo file] (same! "psyche-belief" repo) (same! "vision/rule.md" file) in-place-module)})
+(defn in-place-book [& view]
+  (str "# A book\n\n## psyche-belief › vision/rule.md\n\n" (apply str view)))
+(def in-place-p1
+  (str "#### Proposal 1: Added · psyche-belief › vision/rule.md\n\n::: comment\nWhy.\n:::\n\n"
+       "+ Added line.\n\n```mermaid\n+ flowchart TB\n+     a --> b\n```\n\n"))
+
+(deftest a-proposal-stands-in-place-inside-its-module-view
+  (testing "the view without its in-place proposals is the module as it stands"
+    (is (= [] (check (in-place-book "## The rule\n\nFirst line.\n\n" in-place-p1 "Second line.\n\n- a bullet\n") in-place-opts)))
+    (is (= [] (check (in-place-book "## The rule\n\nFirst line.\n\nSecond line.\n\n- a bullet\n\n" in-place-p1) in-place-opts))
+        "at the module's end")
+    (is (= [] (check (in-place-book "## The rule\n\n" in-place-p1
+                                    "#### Proposal 2: psyche-belief › vision/rule.md\n\n+ Another.\n\n"
+                                    "First line.\n\nSecond line.\n\n- a bullet\n") in-place-opts))
+        "two proposals at one place, the second without a comment"))
+  (testing "the unmarked lines are authenticated"
+    (is (= ["context-module-differs"]
+           (reasons (in-place-book "## The rule\n\nFirst line.\n\n" in-place-p1 "Second line, changed.\n\n- a bullet\n") in-place-opts)))
+    (is (= ["context-module-differs"]
+           (reasons (in-place-book "## The rule\n\nFirst line.\n" in-place-p1 "Second line.\n\n- a bullet\n") in-place-opts))
+        "the heading stands after a blank line, as a paragraph boundary"))
+  (testing "its form"
+    (is (= ["in-place-proposal-elsewhere"]
+           (reasons (in-place-book "## The rule\n\n#### Proposal 1: X · psyche-belief › vision/other.md\n\n+ A.\n\n"
+                                   "First line.\n\nSecond line.\n\n- a bullet\n") in-place-opts)))
+    (is (= ["no-change-in-proposal"]
+           (reasons (in-place-book "## The rule\n\n#### Proposal 1: X · psyche-belief › vision/rule.md\n\n::: comment\nWhy.\n:::\n\n"
+                                   "First line.\n\nSecond line.\n\n- a bullet\n") in-place-opts)))
+    (is (= ["comment-after-change"]
+           (reasons (in-place-book "## The rule\n\n#### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ A.\n\n::: comment\nWhy.\n:::\n\n"
+                                   "First line.\n\nSecond line.\n\n- a bullet\n") in-place-opts)))
+    (is (= ["mixed-mermaid-change"]
+           (reasons (in-place-book "## The rule\n\n#### Proposal 1: X · psyche-belief › vision/rule.md\n\n```mermaid\n+ flowchart TB\n\n+     a --> b\n```\n\n"
+                                   "First line.\n\nSecond line.\n\n- a bullet\n") in-place-opts)))
+    (is (some #{"in-place-proposal-outside-module-view"}
+              (reasons "# A book\n\n#### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ A.\n")))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

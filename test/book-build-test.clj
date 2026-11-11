@@ -1027,5 +1027,22 @@
     (is (str/includes? code sw) (str "the swatch is the page colour: " sw)))
   (is (= 3 (count (re-seq #"--add-proposed-edge:#" code))) "the proposed green holds in a review, whose marks are landed"))
 
+;; A proposal in place: its heading, comment and added lines inside the module's sheet,
+;; between the module lines around the place it lands.
+(deftest a-proposal-in-place-stands-inside-the-module-sheet
+  (let [md (str "# B\n\n## psyche-belief \u203a vision/rule.md\n\nFirst line.\n\n"
+                "#### Proposal 1: Added \u00b7 psyche-belief \u203a vision/rule.md\n\n::: comment\nWhy.\n:::\n\n"
+                "+ Added line.\n\nSecond line.\n\n"
+                "#### Proposal 2: Last \u00b7 psyche-belief \u203a vision/rule.md\n\n+ At the end.\n")
+        html (book-build/build md "")
+        at #(str/index-of html %)]
+    (is (= 1 (count (re-seq #"<article class=\"module diff\">" html))) "one module sheet")
+    (is (str/includes? html "<section class=\"proposal in-place\"><header><span class=\"pnum\">1</span><h3>Added</h3></header>"))
+    (is (< (at "First line.") (at "pnum\">1<") (at "comment-label") (at "class=\"add\"><p>Added line.") (at "Second line.")
+           (at "pnum\">2<") (at "At the end.") (at "</article>"))
+        "the proposal sits between the module lines it lands among, and the last one inside the sheet")
+    (is (= 2 (count (re-seq #"</section>" html))) "each proposal in place is closed")
+    (is (not (str/includes? html "<article class=\"proposal\">")) "no proposal sheet of its own")))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -23,7 +23,10 @@
 ;; removed lines in the dark shade. A paragraph opening "Created by" under the
 ;; title is the signature line, shown as the subtitle. A titled page that carries
 ;; a change mark opens with the key to its colours. A ::: shown excerpt of a
-;; Markdown or plain-text module is prose that wraps; of any other, code. The page code (book-code.html) is
+;; Markdown or plain-text module is prose that wraps; of any other, code. A
+;; #### Proposal heading inside a module view is a proposal in place: its heading,
+;; comment and added lines stand inside the module's sheet where they land, as
+;; book-check reads them. The page code (book-code.html) is
 ;; appended whole. ethos-zero (the one --ethos-zero-real names, else the pinned
 ;; main) only decides how an unlabelled module-view fence and an Ethos file are
 ;; tagged; its refusal never stops a build. --ethos-zero names the one that reads
@@ -39,6 +42,8 @@
 (def label-font "JetBrains Mono, ui-monospace, DejaVu Sans Mono, monospace")
 (def langs {"js" "javascript"})
 (def script-dir (str (fs/parent (fs/absolutize *file*))))
+;; The checker's reading of a source's in-place proposals is the builder's too.
+(load-file (str (fs/path script-dir "book-check.clj")))
 
 ;; ------------------------------------------------------------- text helpers
 
@@ -1252,10 +1257,21 @@
         shown-open-re #"^::: shown(?:\s+.*)?$"
         shown-location-re #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)$"
         container-open-re #"^::: (?:comment|move|shown)(?:\s+.*)?$"
-        flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))]
-    (loop [i 0 out [] para [] proposal nil]
+        flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))
+        ;; A proposal in place opens at its heading and closes where its module resumes.
+        in-place (book-check/source-in-place-proposals src)
+        in-place-ends (set (map :end (vals in-place)))
+        close-in-place (fn [i out para proposal]
+                         (if (in-place-ends i)
+                           [(-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-close])) [] nil]
+                           [out para proposal]))]
+    (loop [i 0 out* [] para* [] proposal* nil]
       (if (>= i n)
-        (cond-> out (seq para) (into (flush para proposal)))
+        (first (close-in-place n (cond-> out* (seq para*) (into (flush para* proposal*))) [] nil))
+        (let [[out para proposal] (close-in-place i out* para* proposal*)]
+        (if-let [{:keys [number] :as opened} (in-place i)]
+          (recur (inc i) (-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-open opened]))
+                 [] (str "Proposal " number))
         (let [l (lines i)
               before proposal
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
@@ -1350,7 +1366,7 @@
               (re-find proposal-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] proposal)
               (re-find skip l) (recur (inc i) out para proposal)
-              :else (recur (inc i) out (conj para l) proposal)))))))))))
+              :else (recur (inc i) out (conj para l) proposal)))))))))))))
 
 (defn parse-list [lines]
   (reduce (fn [items l]
@@ -1813,6 +1829,18 @@
                         (when (not= "" diff) (emit diff))))]
     (doseq [[i b] (map-indexed vector bs)]
       (cond
+        ;; a proposal in place: its heading, comment and added lines where they land
+        (= :in-place-open (first b))
+        (let [{:keys [number title]} (second b)]
+          (append! (str "<section class=\"proposal in-place\"><header><span class=\"pnum\">" number "</span>"
+                        "<h3>" (inline (or title (str "Proposal " number))) "</h3></header>"))
+          (vreset! in-article true))
+
+        (= :in-place-close (first b))
+        (do (close-record)
+            (append! "</section>")
+            (vreset! in-article false))
+
         (= :comment (first b))
         (emit (comment-html (second b)))
 
