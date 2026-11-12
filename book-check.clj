@@ -611,6 +611,29 @@
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))
 
+(defn check-built-page
+  "Built HTML -> typed structural errors. Document chrome belongs to the page,
+  never to an authenticated module article. A module's own level-one heading is
+  rendered as module structure rather than as another page head."
+  [html]
+  (loop [lines (map-indexed vector (str/split-lines html))
+         in-module false
+         errors []]
+    (if-let [[index line] (first lines)]
+      (let [opened (str/includes? line "<article class=\"module diff\">")
+            here (or in-module opened)
+            bad (when here
+                  (cond
+                    (str/includes? line "<meta ") "meta"
+                    (str/includes? line "<title>") "title"
+                    (str/includes? line "<h1 class=\"book-title\">") "h1.book-title"))
+            closed (and here (str/includes? line "</article>"))]
+        (recur (next lines) (and here (not closed))
+               (cond-> errors bad (conj {:line (inc index)
+                                         :reason "book-heading-inside-module-view"
+                                         :element bad}))))
+      errors)))
+
 (defn main [args]
   (cond
     (or (not= 1 (count args)) (not (fs/absolute? (first args))))

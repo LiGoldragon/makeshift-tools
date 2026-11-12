@@ -1044,6 +1044,23 @@
     (is (= 2 (count (re-seq #"</section>" html))) "each proposal in place is closed")
     (is (not (str/includes? html "<article class=\"proposal\">")) "no proposal sheet of its own")))
 
+(deftest a-module-title-remains-a-module-title
+  (let [html (book-build/build
+              (str "Presentation.{ «The book» Proposal }\n\n# The book\n\n"
+                   "## repo › rule.md\n\n# The module\n\n"
+                   "#### Proposal 1: Add · repo › rule.md\n\n+ Added.\n")
+              "")
+        module-at (str/index-of html "<article class=\"module diff\">")
+        module-end (str/index-of html "</article>" module-at)
+        module-html (subs html module-at (+ module-end (count "</article>")))]
+    (is (str/includes? module-html "<h3 class=\"module-title\">The module</h3>")
+        "an authenticated level-one module heading remains visible as module structure")
+    (is (not (re-find #"<(?:meta|title|h1 class=\"book-title\")" module-html))
+        "document chrome occurs only outside module views")
+    (is (= [{:line 2 :reason "book-heading-inside-module-view" :element "h1.book-title"}]
+           (book-check/check-built-page
+            "<article class=\"module diff\">\n<h1 class=\"book-title\">Stray</h1>\n</article>")))))
+
 (deftest an-in-place-proposal-renders-every-change-form-across-module-views
   (let [md (str "# B\n\n## repo › old.md\n\n## Old\n\n"
                 "#### Proposal 7: Remove · repo › old.md\n\n- Removed line.\n-\n"

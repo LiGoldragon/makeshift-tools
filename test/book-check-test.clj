@@ -162,6 +162,21 @@
               (reasons "# repo › x.md\n\n## Proposal 1: repo › x.md\n+ Add a line.\n"))
         "a level-one module path is not a book title")))
 
+(deftest built-page-headings-stay-in-their-context
+  (is (= [] (book-check/check-built-page
+             (str "<h1 class=\"book-title\">Book</h1>\n"
+                  "<article class=\"module diff\">\n"
+                  "<h3 class=\"module-title\">The module</h3>\n"
+                  "</article>")))
+      "a module's authenticated level-one heading is legitimate module structure")
+  (is (= [{:line 3 :reason "book-heading-inside-module-view" :element "h1.book-title"}]
+         (book-check/check-built-page
+          (str "<h1 class=\"book-title\">Book</h1>\n"
+               "<article class=\"module diff\">\n"
+               "<h1 class=\"book-title\">Stray</h1>\n"
+               "</article>")))
+      "a document head inside a module is refused at its exact line"))
+
 (deftest markdown-in-a-plain-code-block
   (let [proposal "## Proposal 1: psyche-belief › vision/example.md\n+ A proposal.\n"
         md "## Rule\n\nText.\n"]

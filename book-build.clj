@@ -1970,6 +1970,10 @@
               text (join-lines lines)
               _ (when-let [m (re-find #"^File: `?([^`\s,]+)" text)] (vreset! target (m 1)))]
           (cond
+            (and @in-module (str/starts-with? first-line "# "))
+            (append! (str "<h3 class=\"module-title\">"
+                          (inline (strip (subs first-line 2))) "</h3>"))
+
             (str/starts-with? first-line "# ")
             (let [title (strip (subs first-line 2))]
               (when-not *move-context*
@@ -2091,7 +2095,12 @@
     (close-record)
     (when @in-module (append! "</article>"))
     (when @in-article (append! "</article>"))
-    (str (str/join "\n" (cond-> @out (not *move-context*) with-colour-key)) "\n" code)))
+    (let [page (str (str/join "\n" (cond-> @out (not *move-context*) with-colour-key)) "\n" code)
+          errors (book-check/check-built-page page)]
+      (when (seq errors)
+        (throw (ex-info (str "built page check failed: " (pr-str errors))
+                        {:kind :built-page-invalid :errors errors})))
+      page)))
 
 (defn read-text
   "Read a UTF-8 file with newlines normalised to \\n."
