@@ -25,6 +25,34 @@ or a change-marked line after that heading is refused (`heading-after-questions`
 `move-in-questions`, `code-fence-in-questions`, `change-in-questions`).
 book-build renders it as a heading and prose outside every sheet.
 
+A Review shows its added and removed lines in the dark shade, the shade of
+landed changes; a Proposal shows the light shade, the shade of proposed
+changes. A Review that holds both declares each proposed part with the line
+`::: proposed`, the first nonblank line under that proposal's heading (before
+its `::: comment`). It is one line with no closing `:::`, in the words of
+`::: move proposed`, and takes the same light shade. A proposal without it stays
+dark. It stands under a `### Proposal` heading or an in-place `#### Proposal`
+heading:
+
+    ### Proposal 2: Part title · psyche-belief › vision/lojix.md
+
+    ::: proposed
+
+    ::: comment
+    Why.
+    :::
+
+    - Old.
+    + New.
+
+In a Proposal or Account book the marker is refused (`proposed-outside-review`),
+as it is outside a proposal (`proposed-outside-proposal`), anywhere but first
+under the heading (`proposed-not-first-in-proposal`), with text after it
+(`malformed-proposed-marker`), or in `## Questions` (`proposed-in-questions`).
+book-build gives the proposal's sheet the class `proposal proposed`
+(`proposal in-place proposed` in place), which sets the light shade for its
+margins; the marker draws nothing itself.
+
 **codex-usage** prints Codex usage left, its reset time and the available usage
 resets, from `codex app-server` with the `~/.codex` login. Read-only.
 `--json` prints the raw reply. `codex-app-server.clj` is the namespace it shares

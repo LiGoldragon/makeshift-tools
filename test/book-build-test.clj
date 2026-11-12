@@ -1130,5 +1130,29 @@
         (is (str/includes? html "</section>\n</article>\n<h2>Questions</h2>"))
         (is (not (re-find #"class=\"(?:diff|add|del|ctx|move)" (section html))))))))
 
+(deftest a-review-proposal-declared-proposed-shows-the-light-shade
+  (let [src (str "Presentation.{ «A review» Review }\n\n# A review\n\nCreated by Opus, helped by Sonnet (the checking).\n\n"
+                 "### Proposal 1: Landed · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n\n"
+                 "### Proposal 2: Proposed · psyche-belief › vision/book.md\n\n::: proposed\n\n::: comment\nWhy.\n:::\n\n- Older.\n+ Newer.\n")
+        html (built src)
+        landed (subs html (str/index-of html "<article class=\"proposal\">") (str/index-of html "<article class=\"proposal proposed\">"))]
+    (is (str/includes? html "<meta name=\"book-kind\" content=\"review\">") "the page stays a review, dark by default")
+    (is (= 1 (count (re-seq #"<article class=\"proposal\">" html))) "the unmarked part stays landed")
+    (is (= 1 (count (re-seq #"<article class=\"proposal proposed\">" html))) "the marked part carries the class")
+    (is (not (str/includes? landed "proposed")) "the landed part is not marked")
+    (is (str/includes? html "<h2>Proposed · psyche-belief › vision/book.md</h2></header>\n<aside class=\"comment\"") "the marker draws nothing of its own")
+    (is (not (str/includes? html "::: proposed")))
+    (is (str/includes? code ".proposal.proposed{--add-edge:var(--add-proposed-edge);--del-edge:var(--del-proposed-edge)}")
+        "the class takes the light shade, over the review's dark default on the root")))
+
+(deftest a-proposal-in-place-of-a-review-declared-proposed-carries-the-class
+  (let [md (str "Presentation.{ «B» Review }\n\n# B\n\n## psyche-belief \u203a vision/rule.md\n\nFirst line.\n\n"
+                "#### Proposal 1: Landed \u00b7 psyche-belief \u203a vision/rule.md\n\n+ Added line.\n\nSecond line.\n\n"
+                "#### Proposal 2: Proposed \u00b7 psyche-belief \u203a vision/rule.md\n\n::: proposed\n\n+ At the end.\n")
+        html (built md)]
+    (is (str/includes? html "<section class=\"proposal in-place\"><header><span class=\"pnum\">1</span>"))
+    (is (str/includes? html "<section class=\"proposal in-place proposed\"><header><span class=\"pnum\">2</span>"))
+    (is (not (str/includes? html "::: proposed")))))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

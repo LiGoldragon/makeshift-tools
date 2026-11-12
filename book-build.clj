@@ -1277,6 +1277,10 @@
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
                              (and (empty? para) (str/starts-with? l "## ")) nil
                              :else proposal)]
+          (if (= l "::: proposed")
+            (do (when-not proposal
+                  (throw (ex-info (str "proposed marker outside proposal at source line " (inc i)) {})))
+                (recur (inc i) (conj (cond-> out (seq para) (into (flush para proposal))) [:proposed]) [] proposal))
           (if (re-find shown-open-re l)
             (let [line-no (inc i)
                   _ (when-not (= l "::: shown")
@@ -1369,7 +1373,7 @@
               (= "## Questions" l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] nil)
               (re-find skip l) (recur (inc i) out para proposal)
-              :else (recur (inc i) out (conj para l) proposal)))))))))))))
+              :else (recur (inc i) out (conj para l) proposal))))))))))))))
 
 (defn parse-list [lines]
   (reduce (fn [items l]
@@ -1467,9 +1471,11 @@
 
 (defn proposal-header
   "The opening of a proposal's sheet. With no File line under it, its title
-  says where it lands, and is shown as the target chip in the header."
-  [n title where?]
-  (str "<article class=\"proposal\"><header><span class=\"pnum\">" n "</span>"
+  says where it lands, and is shown as the target chip in the header. A
+  proposal that declared itself proposed carries the class proposed: its
+  change margins show in the light shade."
+  [n title where? proposed?]
+  (str "<article class=\"proposal" (when proposed? " proposed") "\"><header><span class=\"pnum\">" n "</span>"
        (if where?
          (str "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace title "`" "")) "</code></h2>")
          (str "<h2>" (inline title) "</h2>"))
@@ -1775,7 +1781,9 @@
         datom-title (presentation-title src)
         kind (presentation-kind src)
         bs (vec (blocks src))
-        file-next? (fn [i] (let [[kind ls] (get bs (inc i))]
+        ;; the block after block i, past its `::: proposed` marker when it has one
+        proposed-next? (fn [i] (= [:proposed] (get bs (inc i))))
+        file-next? (fn [i] (let [[kind ls] (get bs (if (proposed-next? i) (+ i 2) (inc i)))]
                              (and (= :para kind) (str/starts-with? (first ls) "File: "))))
         render-fig (fn [lines required?]
                      (let [n (vswap! nfig inc)
@@ -1874,7 +1882,7 @@
                 (vreset! heading-where nil)
                 (when @in-article (append! "</article>"))
                 (if-let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)]
-                  (append! (proposal-header (m 1) (m 2) false))
+                  (append! (proposal-header (m 1) (m 2) false (proposed-next? i)))
                   (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
                 (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text))))
 
@@ -1887,7 +1895,7 @@
               (vreset! heading-where (when-not (file-next? i) (str/replace (strip where) "`" "")))
               (when @in-module (append! "</article>") (vreset! in-module false))
               (when @in-article (append! "</article>"))
-              (append! (proposal-header n (strip where) (not (file-next? i))))
+              (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i)))
               (vreset! in-article true))
 
             (re-find #"(?U)^## \S+ › .+$" first-line)
@@ -1985,9 +1993,13 @@
         ;; a proposal in place: its heading, comment and added lines where they land
         (= :in-place-open (first b))
         (let [{:keys [number title]} (second b)]
-          (append! (str "<section class=\"proposal in-place\"><header><span class=\"pnum\">" number "</span>"
+          (append! (str "<section class=\"proposal in-place" (when (proposed-next? i) " proposed") "\"><header><span class=\"pnum\">" number "</span>"
                         "<h3>" (inline (or title (str "Proposal " number))) "</h3></header>"))
           (vreset! in-article true))
+
+        ;; the marker itself draws nothing: its proposal's heading took the class
+        (= :proposed (first b))
+        nil
 
         (= :in-place-close (first b))
         (do (close-record)

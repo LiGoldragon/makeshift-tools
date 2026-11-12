@@ -149,20 +149,25 @@
   "The in-place proposal whose heading is line h of the module view of
   [repository path] ending before line e: {:heading h :end k :number :title
   :comment lines :current lines :errors [[index reason]]}, k being the line
-  where the module resumes and :current the lines this edit contributes to the
-  module as it stands."
+  where the module resumes, :proposed the index of its `::: proposed` line or
+  nil, and :current the lines this edit contributes to the module as it stands."
   [lines h e [repository path]]
   (let [heading (re-matches in-place-heading (lines h))
         [_ _ number title heading-repository heading-path to-repository to-path] heading
         locations (cond-> [] heading-repository (conj [heading-repository heading-path])
                           to-repository (conj [to-repository to-path]))
+        ;; A proposal in place declares itself proposed with `::: proposed`, the
+        ;; first nonblank line under its heading: the index of that line, or nil.
+        proposed (first (filter #(not (str/blank? (lines %))) (range (inc h) e)))
+        proposed (when (and proposed (= "::: proposed" (lines proposed))) proposed)
+        start (if proposed (inc proposed) (inc h))
         errors (cond-> []
                  (nil? heading) (conj [h "proposal-heading-without-location"])
                  (and heading (not (some #{[repository path]} locations)))
                  (conj [h "in-place-proposal-elsewhere"]))]
-    (loop [j (inc h) comment nil changed false current [] move nil errors errors]
+    (loop [j start comment nil changed false current [] move nil errors errors]
       (let [done (fn [k]
-                   {:heading h :end k :number number :title title :comment comment
+                   {:heading h :end k :number number :title title :comment comment :proposed proposed
                     :locations locations :current current :move move
                     :errors (cond-> errors
                               (not changed) (conj [h "no-change-in-proposal"])
@@ -378,6 +383,8 @@
            (let [end (module-view-end lines i)
                  in-place (in-place-proposals lines (inc i) end [repo path])
                  _ (doseq [p in-place [index reason] (:errors p)] (err! (inc index) reason))
+                 _ (doseq [p in-place :when (and (:proposed p) (not= "Review" (:kind @st)))]
+                     (err! (inc (:proposed p)) "proposed-outside-review"))
                  _ (swap! st update :proposals + (count in-place))
                  ;; The module as it stands: unsigned view lines, with each edit
                  ;; replaced by the current lines it carries (its removals, or a
@@ -425,6 +432,7 @@
                (re-find #"^::: comment(?:\s|$)" line) (err! number "comment-in-questions")
                (re-find #"^::: shown(?:\s|$)" line) (err! number "shown-in-questions")
                (re-find #"^::: move(?:\s|$)" line) (err! number "move-in-questions")
+               (re-find #"^::: proposed(?:\s|$)" line) (err! number "proposed-in-questions")
                (or (change? line) (added-line? line) (removed-line? line))
                (err! number "change-in-questions")
                (re-find #"^ {0,3}(?:`{3,}|~{3,})" line)
@@ -502,6 +510,8 @@
                  malformed-shown? (re-find #"^::: shown(?:\s|$)" line)
                  move-open (re-matches #"::: move (proposed|landed)" line)
                  malformed-move? (re-find #"^::: move(?:\s|$)" line)
+                 proposed-open? (= line "::: proposed")
+                 malformed-proposed? (re-find #"^::: proposed(?:\s|$)" line)
                  opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*)")) line)
                  opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
              (cond
@@ -533,6 +543,18 @@
 
                malformed-move?
                (do (flush-plain!) (err! number "malformed-move-container"))
+
+               ;; `::: proposed`: the first nonblank line under a proposal heading of a
+               ;; Review, one line with no closing; the proposal's marks show in the light shade.
+               proposed-open?
+               (do (flush-plain!)
+                   (cond (not (section)) (err! number "proposed-outside-proposal")
+                         (not= "Review" (:kind @st)) (err! number "proposed-outside-review")
+                         (not (every? str/blank? (subvec lines (:line (section)) i)))
+                         (err! number "proposed-not-first-in-proposal")))
+
+               malformed-proposed?
+               (do (flush-plain!) (err! number "malformed-proposed-marker"))
 
                (= line ":::")
                (do (flush-plain!) (err! number "unexpected-container-close"))

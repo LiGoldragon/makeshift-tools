@@ -480,5 +480,42 @@
       (is (= 1 exit))
       (is (str/includes? err "heading-after-questions")))))
 
+(def ^:private review-head "Presentation.{ «T» Review }\n\n# T\n\n")
+(def ^:private marked "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n::: proposed\n\n::: comment\nWhy.\n:::\n\n- Old.\n+ New.\n")
+
+(deftest a-review-proposal-declares-itself-proposed
+  (testing "the first nonblank line under the heading of a proposal of a Review"
+    (is (= [] (check (str review-head marked))))
+    (is (= [] (check (str review-head "### Proposal 1: Landed · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n\n" marked)))
+        "landed and proposed parts in one review")
+    (is (= [] (check (str review-head "### Proposal 1: Replace · psyche-belief › vision/book.md\n::: proposed\n- Old.\n+ New.\n")))
+        "with no comment and no blank line"))
+  (testing "refused where it is not a Review's proposal heading's first line"
+    (is (= ["proposed-outside-review"] (reasons (str "# T\n\n" marked))) "a Proposal page")
+    (is (= ["proposed-outside-review"] (reasons (str "Presentation.{ «T» Proposal }\n\n# T\n\n" marked))))
+    (is (= ["proposed-outside-review"] (reasons (str "Presentation.{ «T» Account }\n\n# T\n\nCreated by Fable.\n\n" marked))))
+    (is (= ["missing-proposal" "proposed-outside-proposal"] (reasons (str review-head "::: proposed\n"))))
+    (is (= ["proposed-not-first-in-proposal"]
+           (reasons (str review-head "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n::: comment\nWhy.\n:::\n\n::: proposed\n\n- Old.\n+ New.\n"))))
+    (is (= ["proposed-not-first-in-proposal"]
+           (reasons (str review-head "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n::: proposed\n+ New.\n"))))
+    (is (= ["proposed-not-first-in-proposal"]
+           (reasons (str review-head "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n::: proposed\n::: proposed\n- Old.\n+ New.\n"))) "twice")
+    (is (= ["malformed-proposed-marker"]
+           (reasons (str review-head "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n::: proposed now\n- Old.\n+ New.\n")))))
+  (testing "a Proposal book's Questions refuse it too"
+    (is (= ["proposed-in-questions"]
+           (reasons (str "# T\n\n" "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n" "\n## Questions\n\n::: proposed\n")))))
+  (testing "in place, the marker is the first nonblank line under the in-place heading"
+    (let [view (fn [kind marker]
+                 (str "Presentation.{ «T»" kind " }\n\n# T\n\n## psyche-belief › vision/rule.md\n\n## The rule\n\nFirst line.\n\n"
+                      "#### Proposal 1: Added · psyche-belief › vision/rule.md\n\n" marker
+                      "::: comment\nWhy.\n:::\n\n+ Added line.\n\nSecond line.\n\n- a bullet\n"))
+          module in-place-opts]
+      (is (= [] (check (view " Review" "::: proposed\n\n") module)))
+      (is (= [] (check (view " Review" "") module)) "unmarked is landed")
+      (is (= ["proposed-outside-review"] (reasons (view "" "::: proposed\n\n") module)))
+      (is (= ["proposed-outside-review"] (reasons (view " Proposal" "::: proposed\n\n") module))))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
