@@ -1827,7 +1827,147 @@
                               diff (if (str/ends-with? diff "</div>") (subs diff 0 (- (count diff) 6)) diff)]
                           (emit diff)
                           (close-record))
-                        (when (not= "" diff) (emit diff))))]
+                        (when (not= "" diff) (emit diff))))
+        render-prose
+        (fn render-prose [i lines]
+          ;; A heading that opens a block of module text is the heading alone; the rest of the block is a block of its own.
+          (let [first-line (first lines)]
+            (if (and @in-module (next lines)
+                     (re-find #"^#{1,3} " first-line)
+                     (not (re-find #"^#{2,3} Proposal " first-line))
+                     (not (re-find #"(?U)^## \S+ › .+$" first-line)))
+              (do (render-prose i [first-line])
+                  (render-prose i (vec (rest lines))))
+          (let [_ (vreset! module-first false)
+              first-line (first lines)
+              subtitle? (and @after-title (str/starts-with? (join-lines lines) "Created by"))
+              _ (vreset! after-title false)
+              text (join-lines lines)
+              _ (when-let [m (re-find #"^File: `?([^`\s,]+)" text)] (vreset! target (m 1)))]
+          (cond
+            (and @in-module (str/starts-with? first-line "# "))
+            (append! (str "<h3 class=\"module-title\">"
+                          (inline (strip (subs first-line 2))) "</h3>"))
+
+            (str/starts-with? first-line "# ")
+            (let [title (strip (subs first-line 2))]
+              (when-not *move-context*
+                (append! "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
+                (append! (str "<title>" (esc (or datom-title title)) "</title>"))
+                (when (not= "Proposal" kind)
+                  (append! (str "<meta name=\"book-kind\" content=\"" (str/lower-case kind) "\">")))
+                (vreset! after-title true))
+              (append! (str "<h1 class=\"book-title\">" (esc title) "</h1>")))
+
+            (and @in-module (str/starts-with? first-line "### ") (not (str/starts-with? first-line "### Proposal ")))
+            (append! (str "<h4>" (inline (strip (subs first-line 4))) "</h4>"))
+
+            (str/starts-with? first-line "### ")
+            (do (close-rulings false)
+                (when @in-module (append! "</article>") (vreset! in-module false))
+                (close-record)
+                (vreset! glue false)
+                (vreset! target nil)
+                (vreset! heading-where nil)
+                (when @in-article (append! "</article>"))
+                (if-let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)]
+                  (append! (proposal-header (m 1) (m 2) false))
+                  (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
+                (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text))))
+
+            (re-find #"(?U)^## Proposal (\d+): (.*)$" text)
+            (let [[_ n where] (re-find #"(?U)^## Proposal (\d+): (.*)$" text)]
+              (close-rulings false)
+              (close-record)
+              (vreset! glue false)
+              (vreset! target nil)
+              (vreset! heading-where (when-not (file-next? i) (str/replace (strip where) "`" "")))
+              (when @in-module (append! "</article>") (vreset! in-module false))
+              (when @in-article (append! "</article>"))
+              (append! (proposal-header n (strip where) (not (file-next? i))))
+              (vreset! in-article true))
+
+            (re-find #"(?U)^## \S+ › .+$" first-line)
+            (do (close-rulings false)
+                (close-record)
+                (vreset! glue false)
+                (when @in-article (append! "</article>") (vreset! in-article false))
+                (when @in-module (append! "</article>"))
+                (append! (module-header (strip (subs first-line 3))))
+                (vreset! module-md (str/ends-with? (module-path-text (subs first-line 3)) ".md"))
+                (vreset! module-file (last (str/split (module-path-text (subs first-line 3)) #" › " 2)))
+                (vreset! module-first true)
+                (vreset! in-module true))
+
+            (and @in-module (str/starts-with? first-line "## "))
+            (do (close-rulings false)
+                (close-record)
+                (vreset! glue false)
+                (append! (str "<h3>" (inline (strip (subs first-line 3))) "</h3>")))
+
+            (str/starts-with? first-line "## ")
+            (do (close-rulings false)
+                (close-record)
+                (vreset! glue false)
+                (when @in-article (append! "</article>") (vreset! in-article false))
+                (append! (str "<h2>" (inline (strip (subs first-line 3))) "</h2>")))
+
+            ;; a part heading inside a proposal (a moved line's two modules) is a heading
+            (and @in-article (re-find #"^#{4,6} " first-line))
+            (let [[_ hs t] (re-find #"^(#{4,6}) (.*)$" first-line)
+                  t (strip (str/replace t "`" ""))
+                  h (str "h" (count hs))]
+              (close-record)
+              (vreset! heading-where t)
+              (emit (str "<" h " class=\"part\"><code>" (esc t) "</code></" h ">")))
+
+            ;; A module-change page carries its short reason as ordinary prose.
+            ;; `Why:` is source notation for that reason, not a label in this
+            ;; page form, so neither the label nor a comment node is emitted.
+            (and @in-module (str/starts-with? text "Why:"))
+            (emit (str "<p>" (inline (strip (subs text 4))) "</p>"))
+
+            (str/starts-with? first-line "File: `")
+            (do (when (and @rulings @pending-close) (close-rulings true))
+                (emit (file-line lines)))
+
+            ;; a File line naming its target in words
+            (and @in-article (str/starts-with? first-line "File: "))
+            (do (when (and @rulings @pending-close) (close-rulings true))
+                (emit (str "<p class=\"target\"><code>" (esc (strip (subs text 6))) "</code></p>")))
+
+            ;; inside a proposal a signed line is shown only as a change
+            (some #(table-at? (vec lines) %) (range (count lines)))
+            (emit (apply str (map body-html (split-chunk lines))))
+
+            ;; a bullet list outside a proposal; inside one, a leading - is a removal line
+            (and (not @in-article) (re-find #"^[-*] " first-line))
+            (emit (apply str (map body-html (split-chunk lines))))
+
+            :else
+            (if-let [m (do (when (str/starts-with? text "Ruling:") (close-record))
+                           (re-find #"^\*\*(Destroy|Archive)\*\*(?U)\s*(.*)$" text))]
+              (do (close-record)
+                  (emit (cond-> (str "<div class=\"record " (str/lower-case (m 1)) "\">")
+                          (not= "" (m 2)) (str "<p>" (inline (m 2)) "</p>")))
+                  (vreset! record-open true))
+              (if-let [items (seq (parse-list lines))]
+                (let [start (ffirst items)
+                      attr (cond-> (str " start=\"" start "\"")
+                             (> start 1) (str " style=\"counter-reset:choice " (dec start) "\""))]
+                  (emit (str "<ol class=\"choices\"" attr ">"
+                             (apply str (map (fn [[_ t]] (str "<li>" (inline t) "</li>")) items))
+                             "</ol>"))
+                  (vreset! pending-close (not (str/ends-with? (rstrip (second (last items))) ":"))))
+                (if (str/starts-with? text "Ruling, one number")
+                  (do (close-rulings false)
+                      (let [n (some #(second (re-find #"<span class=\"pnum\">(\d+)</span>" %)) (rseq @out))]
+                        (append! (str "<section class=\"rulings\"><ol><li" (when n (str " value=\"" n "\"")) "><p>" (inline text) "</p>")))
+                      (vreset! rulings true)
+                      (vreset! pending-close false))
+                  (emit (str (if subtitle? "<p class=\"book-subtitle\">" "<p>") (inline text) "</p>")))))))
+            )))
+        ]
     (doseq [[i b] (map-indexed vector bs)]
       (cond
         ;; a proposal in place: its heading, comment and added lines where they land
@@ -1962,135 +2102,7 @@
                           lang)]
               (emit (or (signed-code-html shown lines) (code-html shown lines))))))
         :else
-        (let [lines (second b)
-              _ (vreset! module-first false)
-              first-line (first lines)
-              subtitle? (and @after-title (str/starts-with? (join-lines lines) "Created by"))
-              _ (vreset! after-title false)
-              text (join-lines lines)
-              _ (when-let [m (re-find #"^File: `?([^`\s,]+)" text)] (vreset! target (m 1)))]
-          (cond
-            (and @in-module (str/starts-with? first-line "# "))
-            (append! (str "<h3 class=\"module-title\">"
-                          (inline (strip (subs first-line 2))) "</h3>"))
-
-            (str/starts-with? first-line "# ")
-            (let [title (strip (subs first-line 2))]
-              (when-not *move-context*
-                (append! "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
-                (append! (str "<title>" (esc (or datom-title title)) "</title>"))
-                (when (not= "Proposal" kind)
-                  (append! (str "<meta name=\"book-kind\" content=\"" (str/lower-case kind) "\">")))
-                (vreset! after-title true))
-              (append! (str "<h1 class=\"book-title\">" (esc title) "</h1>")))
-
-            (and @in-module (str/starts-with? first-line "### ") (not (str/starts-with? first-line "### Proposal ")))
-            (append! (str "<h4>" (inline (strip (subs first-line 4))) "</h4>"))
-
-            (str/starts-with? first-line "### ")
-            (do (close-rulings false)
-                (when @in-module (append! "</article>") (vreset! in-module false))
-                (close-record)
-                (vreset! glue false)
-                (vreset! target nil)
-                (vreset! heading-where nil)
-                (when @in-article (append! "</article>"))
-                (if-let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)]
-                  (append! (proposal-header (m 1) (m 2) false))
-                  (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
-                (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text))))
-
-            (re-find #"(?U)^## Proposal (\d+): (.*)$" text)
-            (let [[_ n where] (re-find #"(?U)^## Proposal (\d+): (.*)$" text)]
-              (close-rulings false)
-              (close-record)
-              (vreset! glue false)
-              (vreset! target nil)
-              (vreset! heading-where (when-not (file-next? i) (str/replace (strip where) "`" "")))
-              (when @in-module (append! "</article>") (vreset! in-module false))
-              (when @in-article (append! "</article>"))
-              (append! (proposal-header n (strip where) (not (file-next? i))))
-              (vreset! in-article true))
-
-            (re-find #"(?U)^## \S+ › .+$" first-line)
-            (do (close-rulings false)
-                (close-record)
-                (vreset! glue false)
-                (when @in-article (append! "</article>") (vreset! in-article false))
-                (when @in-module (append! "</article>"))
-                (append! (module-header (strip (subs first-line 3))))
-                (vreset! module-md (str/ends-with? (module-path-text (subs first-line 3)) ".md"))
-                (vreset! module-file (last (str/split (module-path-text (subs first-line 3)) #" › " 2)))
-                (vreset! module-first true)
-                (vreset! in-module true))
-
-            (and @in-module (str/starts-with? first-line "## "))
-            (do (close-rulings false)
-                (close-record)
-                (vreset! glue false)
-                (append! (str "<h3>" (inline (strip (subs first-line 3))) "</h3>")))
-
-            (str/starts-with? first-line "## ")
-            (do (close-rulings false)
-                (close-record)
-                (vreset! glue false)
-                (when @in-article (append! "</article>") (vreset! in-article false))
-                (append! (str "<h2>" (inline (strip (subs first-line 3))) "</h2>")))
-
-            ;; a part heading inside a proposal (a moved line's two modules) is a heading
-            (and @in-article (re-find #"^#{4,6} " first-line))
-            (let [[_ hs t] (re-find #"^(#{4,6}) (.*)$" first-line)
-                  t (strip (str/replace t "`" ""))
-                  h (str "h" (count hs))]
-              (close-record)
-              (vreset! heading-where t)
-              (emit (str "<" h " class=\"part\"><code>" (esc t) "</code></" h ">")))
-
-            ;; A module-change page carries its short reason as ordinary prose.
-            ;; `Why:` is source notation for that reason, not a label in this
-            ;; page form, so neither the label nor a comment node is emitted.
-            (and @in-module (str/starts-with? text "Why:"))
-            (emit (str "<p>" (inline (strip (subs text 4))) "</p>"))
-
-            (str/starts-with? first-line "File: `")
-            (do (when (and @rulings @pending-close) (close-rulings true))
-                (emit (file-line lines)))
-
-            ;; a File line naming its target in words
-            (and @in-article (str/starts-with? first-line "File: "))
-            (do (when (and @rulings @pending-close) (close-rulings true))
-                (emit (str "<p class=\"target\"><code>" (esc (strip (subs text 6))) "</code></p>")))
-
-            ;; inside a proposal a signed line is shown only as a change
-            (some #(table-at? (vec lines) %) (range (count lines)))
-            (emit (apply str (map body-html (split-chunk lines))))
-
-            ;; a bullet list outside a proposal; inside one, a leading - is a removal line
-            (and (not @in-article) (re-find #"^[-*] " first-line))
-            (emit (apply str (map body-html (split-chunk lines))))
-
-            :else
-            (if-let [m (do (when (str/starts-with? text "Ruling:") (close-record))
-                           (re-find #"^\*\*(Destroy|Archive)\*\*(?U)\s*(.*)$" text))]
-              (do (close-record)
-                  (emit (cond-> (str "<div class=\"record " (str/lower-case (m 1)) "\">")
-                          (not= "" (m 2)) (str "<p>" (inline (m 2)) "</p>")))
-                  (vreset! record-open true))
-              (if-let [items (seq (parse-list lines))]
-                (let [start (ffirst items)
-                      attr (cond-> (str " start=\"" start "\"")
-                             (> start 1) (str " style=\"counter-reset:choice " (dec start) "\""))]
-                  (emit (str "<ol class=\"choices\"" attr ">"
-                             (apply str (map (fn [[_ t]] (str "<li>" (inline t) "</li>")) items))
-                             "</ol>"))
-                  (vreset! pending-close (not (str/ends-with? (rstrip (second (last items))) ":"))))
-                (if (str/starts-with? text "Ruling, one number")
-                  (do (close-rulings false)
-                      (let [n (some #(second (re-find #"<span class=\"pnum\">(\d+)</span>" %)) (rseq @out))]
-                        (append! (str "<section class=\"rulings\"><ol><li" (when n (str " value=\"" n "\"")) "><p>" (inline text) "</p>")))
-                      (vreset! rulings true)
-                      (vreset! pending-close false))
-                  (emit (str (if subtitle? "<p class=\"book-subtitle\">" "<p>") (inline text) "</p>")))))))))
+        (render-prose i (second b))))
     (close-rulings false)
     (close-record)
     (when @in-module (append! "</article>"))

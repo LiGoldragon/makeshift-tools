@@ -1104,5 +1104,12 @@
         "a proposal at the start of a module still renders its removal margin")
     (is (str/includes? html "<h2>From repo › old.md → To repo › new.md</h2>"))))
 
+(deftest a-heading-opening-a-block-in-a-module-view-keeps-the-lines-below-it
+  (let [html (book-build/build (str "# B\n\n## psyche-belief \u203a vision/x.md\n\n"
+                                    "## The vocabulary\nA metaflow is members.\nIt has routes.\n") "")]
+    (is (str/includes? html "<h3>The vocabulary</h3>"))
+    (is (str/includes? html "<p>A metaflow is members. It has routes.</p>")
+        "the lines below the heading render as their own block")))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))
