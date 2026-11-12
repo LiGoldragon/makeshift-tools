@@ -113,19 +113,28 @@
 ;; ---------------------------------------------------------- in place
 ;;
 ;; A proposal shown in place stands inside a module view, at the place its
-;; added lines land: a level-four heading, #### Proposal N: title · repo › path,
-;; naming the view's own module, then at most one ::: comment container, then
-;; its added lines: + lines, and fences whose every nonblank line carries +.
-;; It ends at the first other nonblank line, where the module resumes, or at the
-;; next in-place heading, or at the view's end. With every in-place proposal
-;; taken out, heading through the blank lines after its last added line, the
-;; view is the module as it stands, to the character.
+;; edit lands. Its level-four heading names the view's module; a move names
+;; the module it leaves and the module it enters. Signed lines are the edit:
+;; removals reconstruct the current module and additions do not. Thus the
+;; surrounding unsigned text plus every removed line is the module as it
+;; stands, to the character. A move container reconstructs its body only in
+;; the module named by from and is rendered once.
 
-(def in-place-heading #"^#### (Proposal (\d+): (?:(.+) · )?([^\s›·]+) › ([^\s,›·]+))\s*\z")
+(def in-place-heading
+  #"^#### (Proposal (\d+): (?:(.+) · )?([^\s›·]+) › ([^\s,›·]+)(?:, and ([^\s›·]+) › ([^\s,›·]+))?)\s*\z")
 (def ^:private in-place-start #"^#### Proposal\b")
 
 (defn- added-line? [line]
   (boolean (or (= line "+") (str/starts-with? line "+ "))))
+
+(defn- removed-line? [line]
+  (boolean (or (= line "-") (str/starts-with? line "- "))))
+
+(defn- context-line? [line]
+  (str/starts-with? line "  "))
+
+(defn- unsigned-change-line [line]
+  (if (= 1 (count line)) "" (subs line 2)))
 
 (defn- plain-fence-close-re [ch size]
   (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote ch) "{" size ",}\\s*\\z")))
@@ -139,25 +148,35 @@
 (defn in-place-proposal
   "The in-place proposal whose heading is line h of the module view of
   [repository path] ending before line e: {:heading h :end k :number :title
-  :comment lines :errors [[index reason]]}, k being the line where the module resumes."
+  :comment lines :current lines :errors [[index reason]]}, k being the line
+  where the module resumes and :current the lines this edit contributes to the
+  module as it stands."
   [lines h e [repository path]]
   (let [heading (re-matches in-place-heading (lines h))
-        [_ _ number title heading-repository heading-path] heading
+        [_ _ number title heading-repository heading-path to-repository to-path] heading
+        locations (cond-> [] heading-repository (conj [heading-repository heading-path])
+                          to-repository (conj [to-repository to-path]))
         errors (cond-> []
                  (nil? heading) (conj [h "proposal-heading-without-location"])
-                 (and heading (not= [heading-repository heading-path] [repository path]))
+                 (and heading (not (some #{[repository path]} locations)))
                  (conj [h "in-place-proposal-elsewhere"]))]
-    (loop [j (inc h) comment nil changed false errors errors]
+    (loop [j (inc h) comment nil changed false current [] move nil errors errors]
       (let [done (fn [k]
                    {:heading h :end k :number number :title title :comment comment
-                    :errors (cond-> errors (not changed) (conj [h "no-change-in-proposal"]))})]
+                    :locations locations :current current :move move
+                    :errors (cond-> errors
+                              (not changed) (conj [h "no-change-in-proposal"])
+                              (and (= 2 (count locations)) (nil? move))
+                              (conj [h "move-container-required"]))})]
         (if (>= j e)
           (done e)
           (let [l (lines j)
                 fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)]
             (cond
-              (str/blank? l) (recur (inc j) comment changed errors)
-              (added-line? l) (recur (inc j) comment true errors)
+              (str/blank? l) (recur (inc j) comment changed current move errors)
+              (added-line? l) (recur (inc j) comment true current move errors)
+              (removed-line? l) (recur (inc j) comment true (conj current (unsigned-change-line l)) move errors)
+              (context-line? l) (recur (inc j) comment changed (conj current (subs l 2)) move errors)
               (re-find in-place-start l) (done j)
 
               (= l "::: comment")
@@ -169,22 +188,51 @@
                              comment (conj [j "second-comment-in-proposal"])
                              changed (conj [j "comment-after-change"]))]
                 (if close
-                  (recur (inc close) (or comment body) changed errors)
+                  (recur (inc close) (or comment body) changed current move errors)
+                  (done e)))
+
+              (= l "::: move proposed")
+              (let [close (first (filter #(= ":::" (lines %)) (range (inc j) e)))
+                    body (if close (subvec lines (inc j) close) [])
+                    from (some->> (first body) (re-matches #"from: ([^,]+ › [^,]+)(?:,.*)?") second)
+                    to (some->> (second body) (re-matches #"to: ([^,]+ › [^,]+)(?:,.*)?") second)
+                    content (if (and (>= (count body) 4) (= "" (nth body 2))) (subvec body 3) [])
+                    from-location (some-> from (str/split #" › " 2) vec)
+                    to-location (some-> to (str/split #" › " 2) vec)
+                    valid? (and close from to (seq content)
+                                (= locations [from-location to-location])
+                                (= [repository path] from-location))
+                    errors (cond-> errors
+                             (nil? close) (conj [j "unclosed-move-container"])
+                             (not valid?) (conj [j "malformed-in-place-move"])
+                             move (conj [j "second-move-in-proposal"]))]
+                (if close
+                  (recur (inc close) comment true
+                         (if valid? (into current content) current)
+                         (or move [from to]) errors)
                   (done e)))
 
               fence
               (let [[_ opener language] fence
                     close (fence-close-index lines j e (subs opener 0 1) (count opener))
                     body (subvec lines (inc j) (or close e))
-                    nonblank (remove str/blank? body)]
-                (if (and (seq nonblank) (every? added-line? nonblank))
+                    nonblank (remove str/blank? body)
+                    change-lines? (and (seq nonblank)
+                                       (every? #(or (added-line? %) (removed-line? %) (context-line? %)) nonblank)
+                                       (some #(or (added-line? %) (removed-line? %)) nonblank))]
+                (if change-lines?
                   (let [errors (cond-> errors
                                  (nil? close) (conj [j "unclosed-code-fence"])
                                  (= "" language) (conj [j "fence-language-required"])
                                  (and (= "mermaid" (str/lower-case language))
                                       (not (coherent-signed-mermaid? body)))
-                                 (conj [j "mixed-mermaid-change"]))]
-                    (if close (recur (inc close) comment true errors) (done e)))
+                                 (conj [j "mixed-mermaid-change"]))
+                        kept (keep #(when (or (removed-line? %) (context-line? %))
+                                      (unsigned-change-line %)) body)
+                        current' (if (seq kept)
+                                   (into current (concat [(str opener language)] kept [opener]))
+                                   current)]
+                    (if close (recur (inc close) comment true current' move errors) (done e)))
                   (done j)))
 
               :else (done j))))))))
@@ -321,9 +369,17 @@
                  in-place (in-place-proposals lines (inc i) end [repo path])
                  _ (doseq [p in-place [index reason] (:errors p)] (err! (inc index) reason))
                  _ (swap! st update :proposals + (count in-place))
-                 ;; the module as it stands: the view with each in-place proposal taken out
-                 taken (set (mapcat #(range (:heading %) (:end %)) in-place))
-                 raw (str/join "\n" (keep #(when-not (taken %) (lines %)) (range (inc i) end)))
+                 ;; The module as it stands: unsigned view lines, with each edit
+                 ;; replaced by the current lines it carries (its removals, or a
+                 ;; moved passage at the source).
+                 by-heading (into {} (map (juxt :heading identity) in-place))
+                 raw-lines (loop [j (inc i) out []]
+                             (if (>= j end)
+                               out
+                               (if-let [p (by-heading j)]
+                                 (recur (:end p) (into out (:current p)))
+                                 (recur (inc j) (conj out (lines j))))))
+                 raw (str/join "\n" raw-lines)
                  shown (str/trim raw)
                  markdown (str/ends-with? path ".md")
                  ;; A markdown module may sit in a markdown or text fence; any other file is the

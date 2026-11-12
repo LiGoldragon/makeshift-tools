@@ -1044,5 +1044,27 @@
     (is (= 2 (count (re-seq #"</section>" html))) "each proposal in place is closed")
     (is (not (str/includes? html "<article class=\"proposal\">")) "no proposal sheet of its own")))
 
+(deftest an-in-place-proposal-renders-every-change-form-across-module-views
+  (let [md (str "# B\n\n## repo › old.md\n\n## Old\n\n"
+                "#### Proposal 7: Remove · repo › old.md\n\n- Removed line.\n-\n"
+                "#### Proposal 7: Replace · repo › old.md\n\n"
+                "- The old words stay.\n-\n+ The new words stay.\n+\n"
+                "#### Proposal 7: Move · repo › old.md, and repo › new.md\n\n"
+                "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved line.\n:::\n\n"
+                "## repo › new.md\n\n## New\n\n"
+                "#### Proposal 7: Add · repo › new.md\n\n+ Added line.\n")
+        html (book-build/build md "")]
+    (is (= 2 (count (re-seq #"<article class=\"module diff\">" html)))
+        "one numbered proposal can span two whole module views")
+    (is (str/includes? html "<div class=\"del\"><p>Removed line.</p></div>")
+        "a removed line has the red removal margin")
+    (is (str/includes? html "<p>The <del>old</del><ins>new</ins> words stay.</p>")
+        "a replacement is one line and marks only its changed words")
+    (is (= 1 (count (re-seq #"class=\"move move-proposed\"" html)))
+        "a moved line is shown once in the third colour")
+    (is (str/includes? html "<h2>From repo › old.md → To repo › new.md</h2>")
+        "the move names the module it leaves and the module it enters")
+    (is (str/includes? html "<div class=\"add\"><p>Added line.</p></div>"))))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

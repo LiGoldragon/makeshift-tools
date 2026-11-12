@@ -374,5 +374,24 @@
     (is (some #{"in-place-proposal-outside-module-view"}
               (reasons "# A book\n\n#### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ A.\n")))))
 
+(deftest in-place-removal-replacement-move-and-many-module-views
+  (let [modules {"old.md" "## Old\n\nThe old words stay.\n\nMoved line.\n"
+                 "new.md" "## New\n"}
+        opts {:read-module (fn [repo path]
+                             (same! "repo" repo)
+                             (get modules path))}
+        source (str "# B\n\n## repo › old.md\n\n## Old\n\n"
+                    "#### Proposal 7: Replace · repo › old.md\n\n"
+                    "- The old words stay.\n-\n+ The new words stay.\n+\n"
+                    "#### Proposal 7: Move · repo › old.md, and repo › new.md\n\n"
+                    "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved line.\n:::\n\n"
+                    "## repo › new.md\n\n## New\n\n"
+                    "#### Proposal 7: Add · repo › new.md\n\n+ Added at the destination.\n")]
+    (is (= [] (check source opts))
+        "one proposal number can carry edits in two authenticated module views")
+    (is (some #{"malformed-in-place-move"}
+              (reasons (str/replace source "to: repo › new.md" "to: repo › elsewhere.md") opts))
+        "a move heading, source view and from/to locations must agree")))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
