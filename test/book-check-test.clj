@@ -426,5 +426,59 @@
                                     "- The route definition leaves.\n\n:::") opts))
         "a blank before the move says it was a whole source line")))
 
+;; The closing Questions section of a Proposal book: plain prose after the last proposal, to the end.
+(def with-comment-proposal
+  (str located "::: comment\nWhy it is proposed.\n:::\n\n- Old.\n+ New.\n"))
+(def questions "\n## Questions\n\n1. Is it so?\n2. Or else?\n")
+
+(deftest a-questions-section-closes-a-proposal-book
+  (testing "accepted after a proposal that has a comment, with no second-comment error"
+    (is (= [] (check (str with-comment-proposal questions))))
+    (is (= [] (check (str with-comment-proposal "## Questions\nIs it so?\n"))) "no blank line before the heading, prose only")
+    (is (= [] (check (str with-comment-proposal "\n## Proposal 2: Replace again · psyche-belief › vision/book.md\n\n- Old.\n+ Newer.\n"
+                          questions)))
+        "after the last of several proposals"))
+  (testing "after a proposal in place"
+    (is (= [] (check (in-place-book "## The rule\n\nFirst line.\n\n" in-place-p1 "Second line.\n\n- a bullet\n\n## Questions\n\n1. Is it so?\n")
+                     in-place-opts))))
+  (testing "a book without the section stays as it is"
+    (is (= [] (check with-comment-proposal))))
+  (testing "heading and place"
+    (is (= ["missing-proposal" "questions-without-proposal"]
+           (reasons "# A book\n\n## Questions\n\n1. Is it so?\n"))
+        "a Questions section follows a proposal")
+    (is (some #{"heading-outside-proposal-without-module"}
+              (reasons (str with-comment-proposal "\n### Questions\n\n1. Is it so?\n")))
+        "only the exact level-two heading is the section")
+    (is (some #{"heading-outside-proposal-without-module"}
+              (reasons (str with-comment-proposal "\n## Questions for you\n\n1. Is it so?\n")))))
+  (testing "nothing else follows or sits in it"
+    (let [refused (fn [more] (reasons (str with-comment-proposal questions more)))]
+      (is (= ["heading-after-questions"] (refused "\n## Another\n")))
+      (is (= ["heading-after-questions"] (refused "\n### Another\n")))
+      (is (= ["heading-after-questions"] (refused "\n## Questions\n\n1. Again?\n")))
+      (is (= "proposal-after-questions"
+             (first (refused "\n### Proposal 3: Late · psyche-belief › vision/book.md\n\n- Old.\n+ Late.\n")))
+          "a proposal after it names its own error first")
+      (is (= ["comment-in-questions"] (refused "\n::: comment\nWhy.\n:::\n")))
+      (is (= ["shown-in-questions"] (refused "\n::: shown\npsyche-belief › vision/book.md\nText.\n:::\n")))
+      (is (= ["move-in-questions"] (refused "\n::: move proposed\nfrom: a › b.md\nto: c › d.md\n\nText.\n:::\n")))
+      (is (= ["change-in-questions"] (refused "\n+ An added line.\n")))
+      (is (= ["change-in-questions"] (refused "\n- A removed line.\n")))
+      (is (= ["change-in-questions"] (refused "\n+\n")))
+      (is (= ["code-fence-in-questions"] (refused "\n```text\ncode\n```\n")))))
+  (testing "Review and Account books keep their own forms"
+    (is (some #{"heading-outside-proposal-without-module"}
+              (reasons (str "Presentation.{ «A review» Review }\n\n# A review\n\n" (subs with-comment-proposal 0) questions))))
+    (is (= [] (check (str "Presentation.{ «An account» Account }\n\n# An account\n\n## Questions\n\nProse.\n"))))))
+
+(deftest executable-checks-the-questions-form
+  (let [file (str (fs/create-temp-file {:suffix ".md"}))]
+    (spit file (str "# A book\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n::: comment\nWhy.\n:::\n\n- Old.\n+ New.\n"
+                    "\n## Questions\n\n1. Is it so?\n\n## Another\n"))
+    (let [{:keys [exit err]} (sh "bb" program file)]
+      (is (= 1 exit))
+      (is (str/includes? err "heading-after-questions")))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -1365,6 +1365,9 @@
               ;; the paragraph before it belongs to what came before
               (re-find proposal-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] proposal)
+              ;; the Questions section is prose of its own, never a proposal's
+              (= "## Questions" l)
+              (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] nil)
               (re-find skip l) (recur (inc i) out para proposal)
               :else (recur (inc i) out (conj para l) proposal)))))))))))))
 
@@ -1898,6 +1901,15 @@
                 (vreset! module-file (last (str/split (module-path-text (subs first-line 3)) #" › " 2)))
                 (vreset! module-first true)
                 (vreset! in-module true))
+
+            ;; the closing Questions section: ordinary prose under its heading, outside every sheet
+            (= "## Questions" first-line)
+            (do (close-rulings false)
+                (close-record)
+                (vreset! glue false)
+                (when @in-article (append! "</article>") (vreset! in-article false))
+                (when @in-module (append! "</article>") (vreset! in-module false))
+                (append! "<h2>Questions</h2>"))
 
             (and @in-module (str/starts-with? first-line "## "))
             (do (close-rulings false)

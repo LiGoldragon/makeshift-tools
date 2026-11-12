@@ -56,7 +56,7 @@
 (def module-location #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)\z")
 ;; The renderer recognizes module views only as level-two headings, and
 ;; proposal headings only at levels two and three.
-(def next-section #"^ {0,3}(?:##\s+(?:Proposal\b|[A-Za-z0-9][A-Za-z0-9_.-]* › [^\s,›·]+\s*\z)|###\s+Proposal\b)")
+(def next-section #"^ {0,3}(?:##\s+(?:Proposal\b|Questions\s*\z|[A-Za-z0-9][A-Za-z0-9_.-]* › [^\s,›·]+\s*\z)|###\s+Proposal\b)")
 
 (defn read-context-module
   "A file of one of the living's repositories as origin main has it; a context
@@ -411,6 +411,29 @@
          (cond
            (contains? shown i) nil
 
+           ;; The Questions section is plain prose to the end of the source.
+           (:questions @st)
+           (let [heading (re-find #"^ {0,3}#{1,6}\s+(.+?)\s*#*\s*\z" line)
+                 fence (:fence (:questions @st))]
+             (cond
+               ;; a refused fence is refused once, at its opener
+               fence (when (re-find (fence-close-re (:char fence) (:size fence)) line)
+                       (swap! st assoc-in [:questions :fence] nil))
+               (and heading (re-find #"(?i)^Proposal\b" (second heading)))
+               (err! number "proposal-after-questions")
+               heading (err! number "heading-after-questions")
+               (re-find #"^::: comment(?:\s|$)" line) (err! number "comment-in-questions")
+               (re-find #"^::: shown(?:\s|$)" line) (err! number "shown-in-questions")
+               (re-find #"^::: move(?:\s|$)" line) (err! number "move-in-questions")
+               (or (change? line) (added-line? line) (removed-line? line))
+               (err! number "change-in-questions")
+               (re-find #"^ {0,3}(?:`{3,}|~{3,})" line)
+               (let [[_ opener] (re-find #"^ {0,3}(`{3,}|~{3,})" line)]
+                 (err! number "code-fence-in-questions")
+                 (swap! st assoc-in [:questions :fence]
+                        {:char (subs opener 0 1) :size (count opener)}))
+               (re-find #"^ {0,3}>" line) (err! number "quote-block-in-book")))
+
            container
            (cond
              (= line ":::")
@@ -549,6 +572,14 @@
                      (cond
                        (and (= level 4) (re-find #"^Proposal\b" text))
                        (do (finish!) (err! number "in-place-proposal-outside-module-view"))
+
+                       ;; The closing Questions section: after the last proposal, to the end.
+                       (and (= line "## Questions") (= "Proposal" (:kind @st)))
+                       (do (finish!)
+                           (cond
+                             (:questions @st) (err! number "heading-after-questions")
+                             (zero? (:proposals @st)) (err! number "questions-without-proposal"))
+                           (swap! st update :questions #(or % {:line number})))
 
                        (re-find #"(?i)^Proposal\b" text)
                        (do (finish!)

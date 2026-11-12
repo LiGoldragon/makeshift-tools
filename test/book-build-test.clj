@@ -1111,5 +1111,24 @@
     (is (str/includes? html "<p>A metaflow is members. It has routes.</p>")
         "the lines below the heading render as their own block")))
 
+(deftest a-questions-section-is-prose-under-its-heading
+  (let [section (fn [html] (subs html (str/index-of html "<h2>Questions</h2>")))
+        proposal "# B\n\n### Proposal 1: Added \u00b7 psyche-belief \u203a vision/rule.md\n\n+ Added line.\n"]
+    (testing "after a proposal sheet"
+      (let [html (book-build/build (str proposal "\n## Questions\n\n1. Is it so?\n2. Or else?\n") "")]
+        (is (str/includes? html "</article>\n<h2>Questions</h2>") "outside the proposal sheet")
+        (is (str/includes? (section html) "<ol class=\"choices\" start=\"1\"><li>Is it so?</li><li>Or else?</li></ol>"))
+        (is (not (re-find #"class=\"(?:diff|add|del|ctx|move)" (section html))) "no change margin")))
+    (testing "the heading needs no blank line before it, and prose stays prose"
+      (let [html (book-build/build (str proposal "## Questions\n\nIs it so?\n\nOr else?\n") "")]
+        (is (str/includes? html "</article>\n<h2>Questions</h2>\n<p>Is it so?</p>\n<p>Or else?</p>"))
+        (is (not (str/includes? html "<h4>Questions</h4>")))))
+    (testing "after a proposal in place, outside the module sheet"
+      (let [html (book-build/build (str "# B\n\n## psyche-belief \u203a vision/x.md\n\nFirst line.\n\n"
+                                        "#### Proposal 1: Added \u00b7 psyche-belief \u203a vision/x.md\n\n+ Added.\n\n"
+                                        "## Questions\n\n1. One?\n") "")]
+        (is (str/includes? html "</section>\n</article>\n<h2>Questions</h2>"))
+        (is (not (re-find #"class=\"(?:diff|add|del|ctx|move)" (section html))))))))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

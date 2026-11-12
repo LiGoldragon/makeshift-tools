@@ -17,6 +17,14 @@ source text and returns a vector of `{:line n :reason "..."}`.
 
     bb book-check.clj /abs/SOURCE.md
 
+A Proposal book may close with a section headed exactly `## Questions`, after
+the last proposal: plain prose, typically a numbered list, to the end of the
+source. A heading, a proposal, a comment, shown or move container, a code fence
+or a change-marked line after that heading is refused (`heading-after-questions`,
+`proposal-after-questions`, `comment-in-questions`, `shown-in-questions`,
+`move-in-questions`, `code-fence-in-questions`, `change-in-questions`).
+book-build renders it as a heading and prose outside every sheet.
+
 **codex-usage** prints Codex usage left, its reset time and the available usage
 resets, from `codex app-server` with the `~/.codex` login. Read-only.
 `--json` prints the raw reply. `codex-app-server.clj` is the namespace it shares
