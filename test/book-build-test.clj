@@ -1066,5 +1066,26 @@
         "the move names the module it leaves and the module it enters")
     (is (str/includes? html "<div class=\"add\"><p>Added line.</p></div>"))))
 
+(deftest a-partial-current-line-move-is-once-and-inside-the-module
+  (let [moved "Field reaches Psyche through Mind."
+        md (str "# B\n\n## repo › old.md\n\n"
+                "#### Proposal 6: Routes · repo › old.md, and repo › new.md\n\n"
+                "- ## Routes\n-\n- The route definition leaves.\n"
+                "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+                moved "\n:::\n-\nAfter.\n\n"
+                "## repo › new.md\n\n## Destination\n")
+        html (book-build/build md "")
+        module-open (str/index-of html "<article class=\"module diff\">")
+        proposal-open (str/index-of html "<section class=\"proposal in-place\">")
+        moved-at (str/index-of html moved)
+        module-close (str/index-of html "</article>" module-open)]
+    (is (= 1 (count (re-seq (re-pattern (java.util.regex.Pattern/quote moved)) html)))
+        "the moved text is absent from unchanged context and appears once")
+    (is (< module-open proposal-open moved-at module-close)
+        "the move is inside its whole source module view")
+    (is (str/includes? html "<div class=\"del\"><h4>Routes</h4></div>")
+        "a proposal at the start of a module still renders its removal margin")
+    (is (str/includes? html "<h2>From repo › old.md → To repo › new.md</h2>"))))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

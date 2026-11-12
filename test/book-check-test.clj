@@ -393,5 +393,23 @@
               (reasons (str/replace source "to: repo › new.md" "to: repo › elsewhere.md") opts))
         "a move heading, source view and from/to locations must agree")))
 
+(deftest an-in-place-move-can-leave-the-end-of-a-current-line
+  (let [module (str "## Routes\n\n"
+                    "The route definition leaves. Field reaches Psyche through Mind.\n\n"
+                    "After.\n")
+        opts {:read-module (fn [_ _] module)}
+        source (str "# B\n\n## repo › old.md\n\n"
+                    "#### Proposal 6: Routes · repo › old.md, and repo › new.md\n\n"
+                    "- ## Routes\n-\n- The route definition leaves.\n"
+                    "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+                    "Field reaches Psyche through Mind.\n:::\n"
+                    "-\nAfter.\n")]
+    (is (= [] (check source opts))
+        "adjacency says the moved text followed the removed text on one current source line")
+    (is (some #{"context-module-differs"}
+              (reasons (str/replace source "- The route definition leaves.\n:::"
+                                    "- The route definition leaves.\n\n:::") opts))
+        "a blank before the move says it was a whole source line")))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

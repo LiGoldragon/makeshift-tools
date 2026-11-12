@@ -1417,7 +1417,8 @@
              (every? #(and (signed-line? %) (= \- (first %))) lines))
     (let [stripped (mapv #(if (< (count %) 2) "" (subs % 2)) lines)]
       (when (or (= lang "mermaid")
-                (re-find #"^(flowchart|graph)\b" (strip (first (remove blank? stripped)))))
+                (when-let [first-source (first (remove blank? stripped))]
+                  (re-find #"^(flowchart|graph)\b" (strip first-source))))
         stripped))))
 
 (def ^:private target-langs
@@ -1859,7 +1860,7 @@
         (= :fence (first b))
         (let [[_ raw-lang lines per-line] b
               md? (boolean (markdown-languages raw-lang))
-              module-sheet? (and @module-md @module-first (not (:bare (meta b)))
+              module-sheet? (and @module-md @module-first (not @in-article) (not (:bare (meta b)))
                                  (or md? (= raw-lang "text")))
               _ (vreset! module-first false)
               ;; A module view of a code file holds the file as it stands, in its language.

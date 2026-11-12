@@ -202,13 +202,23 @@
                     valid? (and close from to (seq content)
                                 (= locations [from-location to-location])
                                 (= [repository path] from-location))
+                    ;; A move container immediately after a nonblank removal is
+                    ;; the remainder of that current source line. A blank line
+                    ;; before the container makes it a whole line of its own.
+                    joins-previous? (and (> j h)
+                                         (removed-line? (lines (dec j)))
+                                         (not (str/blank? (unsigned-change-line (lines (dec j))))))
                     errors (cond-> errors
                              (nil? close) (conj [j "unclosed-move-container"])
                              (not valid?) (conj [j "malformed-in-place-move"])
                              move (conj [j "second-move-in-proposal"]))]
                 (if close
                   (recur (inc close) comment true
-                         (if valid? (into current content) current)
+                         (if (and valid? joins-previous? (seq current))
+                           (into (conj (pop current)
+                                       (str (peek current) " " (first content)))
+                                 (rest content))
+                           (if valid? (into current content) current))
                          (or move [from to]) errors)
                   (done e)))
 
