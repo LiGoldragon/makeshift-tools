@@ -54,6 +54,9 @@
                (not-any? #(or (= % ".") (= % "..")) (str/split relative-path #"/" -1)))))))
 
 (def module-location #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)\z")
+;; The closing Questions section of a Proposal, Review or Account page opens at
+;; this heading and runs, plain prose, to the end of the source.
+(def questions-heading #"^## Questions\s*\z")
 ;; The renderer recognizes module views only as level-two headings, and
 ;; proposal headings only at levels two and three.
 (def next-section #"^ {0,3}(?:##\s+(?:Proposal\b|Questions\s*\z|[A-Za-z0-9][A-Za-z0-9_.-]* › [^\s,›·]+\s*\z)|###\s+Proposal\b)")
@@ -595,12 +598,15 @@
                        (and (= level 4) (re-find #"^Proposal\b" text))
                        (do (finish!) (err! number "in-place-proposal-outside-module-view"))
 
-                       ;; The closing Questions section: after the last proposal, to the end.
-                       (and (= line "## Questions") (= "Proposal" (:kind @st)))
+                       ;; The closing Questions section of every kind of page: after the
+                       ;; last proposal or module view, to the end. An Account may close
+                       ;; its own prose with it, proposals or none.
+                       (re-find questions-heading line)
                        (do (finish!)
                            (cond
                              (:questions @st) (err! number "heading-after-questions")
-                             (zero? (:proposals @st)) (err! number "questions-without-proposal"))
+                             (and (zero? (:proposals @st)) (not= "Account" (:kind @st)))
+                             (err! number "questions-without-proposal"))
                            (swap! st update :questions #(or % {:line number})))
 
                        (re-find #"(?i)^Proposal\b" text)

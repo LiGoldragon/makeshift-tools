@@ -1241,6 +1241,8 @@
         (cond-> [] (seq head) (conj [:para head]) true (conj [:fence "text" change :per-line]))))))
 
 (def ^:private proposal-heading #"(?U)^#{2,3} (Proposal \d+): ")
+;; The closing Questions section of a Proposal, Review or Account page.
+(def ^:private questions-heading #"^## Questions\s*\z")
 
 (defn blocks
   "Split the source into blocks: [:fence lang lines] (a change written outside
@@ -1370,7 +1372,7 @@
               (re-find proposal-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] proposal)
               ;; the Questions section is prose of its own, never a proposal's
-              (= "## Questions" l)
+              (re-find questions-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] nil)
               (re-find skip l) (recur (inc i) out para proposal)
               :else (recur (inc i) out (conj para l) proposal))))))))))))))
@@ -1911,7 +1913,7 @@
                 (vreset! in-module true))
 
             ;; the closing Questions section: ordinary prose under its heading, outside every sheet
-            (= "## Questions" first-line)
+            (re-find questions-heading first-line)
             (do (close-rulings false)
                 (close-record)
                 (vreset! glue false)

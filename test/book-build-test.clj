@@ -1130,6 +1130,30 @@
         (is (str/includes? html "</section>\n</article>\n<h2>Questions</h2>"))
         (is (not (re-find #"class=\"(?:diff|add|del|ctx|move)" (section html))))))))
 
+(deftest a-questions-section-closes-every-kind-of-page
+  (doseq [kind ["Proposal" "Review" "Account"]]
+    (let [head (str "Presentation.{ \u00abT\u00bb " kind " }\n\n# T\n\nCreated by Fable.\n\n")
+          build (fn [body] (book-build/build (str head body "## Questions\n\n1. Is it so?\n2. Or else?\n") ""))
+          section (fn [html] (subs html (str/index-of html "<h2>Questions</h2>")))
+          closes (fn [html] (str/includes? (section html) "<h2>Questions</h2>\n<ol class=\"choices\" start=\"1\"><li>Is it so?</li><li>Or else?</li></ol>"))
+          plain (fn [html] (not (re-find #"class=\"(?:diff|add|del|ctx|move)" (section html))))]
+      (testing (str "a " kind " page, after a proposal sheet")
+        (let [html (build "### Proposal 1: Added \u00b7 psyche-belief \u203a vision/rule.md\n\n+ Added line.\n")]
+          (is (str/includes? html "</article>\n<h2>Questions</h2>"))
+          (is (closes html))
+          (is (plain html))))
+      (testing (str "a " kind " page, after a proposal in place")
+        (let [html (build (str "## psyche-belief \u203a vision/x.md\n\nFirst line.\n\n"
+                               "#### Proposal 1: Added \u00b7 psyche-belief \u203a vision/x.md\n\n+ Added.\n\n"))]
+          (is (str/includes? html "</section>\n</article>\n<h2>Questions</h2>"))
+          (is (closes html))
+          (is (plain html))))))
+  (testing "an Account's own prose, then the section"
+    (let [html (book-build/build (str "Presentation.{ \u00abT\u00bb Account }\n\n# T\n\n## What happened\n\nThe build went green.\n\n"
+                                      "## Questions  \n\n1. Is it so?\n") "")]
+      (is (str/includes? html "<p>The build went green.</p>\n<h2>Questions</h2>\n<ol class=\"choices\" start=\"1\"><li>Is it so?</li></ol>")
+          "the heading may carry trailing spaces"))))
+
 (deftest a-review-proposal-declared-proposed-shows-the-light-shade
   (let [src (str "Presentation.{ «A review» Review }\n\n# A review\n\nCreated by Opus, helped by Sonnet (the checking).\n\n"
                  "### Proposal 1: Landed · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n\n"

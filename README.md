@@ -17,9 +17,11 @@ source text and returns a vector of `{:line n :reason "..."}`.
 
     bb book-check.clj /abs/SOURCE.md
 
-A Proposal book may close with a section headed exactly `## Questions`, after
-the last proposal: plain prose, typically a numbered list, to the end of the
-source. A heading, a proposal, a comment, shown or move container, a code fence
+A Proposal, Review or Account book may close with a section headed
+`## Questions`, after the last proposal or module view, in the in-place form or
+the heading form: plain prose, typically a numbered list, to the end of the
+source. A Proposal or Review asks its questions after at least one proposal
+(`questions-without-proposal`); an Account may close its own prose with them. A heading, a proposal, a comment, shown or move container, a code fence
 or a change-marked line after that heading is refused (`heading-after-questions`,
 `proposal-after-questions`, `comment-in-questions`, `shown-in-questions`,
 `move-in-questions`, `code-fence-in-questions`, `change-in-questions`).

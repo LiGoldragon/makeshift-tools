@@ -467,10 +467,39 @@
       (is (= ["change-in-questions"] (refused "\n- A removed line.\n")))
       (is (= ["change-in-questions"] (refused "\n+\n")))
       (is (= ["code-fence-in-questions"] (refused "\n```text\ncode\n```\n")))))
-  (testing "Review and Account books keep their own forms"
-    (is (some #{"heading-outside-proposal-without-module"}
-              (reasons (str "Presentation.{ «A review» Review }\n\n# A review\n\n" (subs with-comment-proposal 0) questions))))
-    (is (= [] (check (str "Presentation.{ «An account» Account }\n\n# An account\n\n## Questions\n\nProse.\n"))))))
+  (testing "the heading may carry trailing spaces"
+    (is (= [] (check (str with-comment-proposal "\n## Questions  \n\n1. Is it so?\n"))))))
+
+;; Every kind of page may close with the section: Proposal, Review and Account, in either form.
+(def ^:private head (fn [kind] (str "Presentation.{ «T» " kind " }\n\n# T\n\nCreated by Fable.\n\n")))
+
+(deftest a-questions-section-closes-every-kind-of-page
+  (doseq [kind ["Proposal" "Review" "Account"]]
+    (testing (str "a " kind " page")
+      (is (= [] (check (str (head kind) with-comment-proposal questions))) "after a proposal")
+      (is (= [] (check (str (head kind) "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"
+                            "## Questions\nIs it so?\n")))
+          "with no blank line before the heading")
+      (is (= [] (check (str (head kind) "## psyche-belief › vision/rule.md\n\n## The rule\n\nFirst line.\n\n"
+                            in-place-p1 "Second line.\n\n- a bullet\n" questions)
+                       in-place-opts))
+          "after a proposal in place, closing its module view")
+      (is (= ["heading-after-questions"]
+             (reasons (str (head kind) with-comment-proposal questions "\n## Another\n")))
+          "it runs to the end of the source")
+      (is (= ["change-in-questions"]
+             (reasons (str (head kind) with-comment-proposal questions "\n+ An added line.\n")))
+          "it holds plain prose")))
+  (testing "a Review proposal declared proposed, then the section"
+    (is (= [] (check (str (head "Review") "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n::: proposed\n\n- Old.\n+ New.\n"
+                          questions)))))
+  (testing "an Account closes its own prose with it, proposals or none"
+    (is (= [] (check (str "Presentation.{ «An account» Account }\n\n# An account\n\n## Questions\n\nProse.\n"))))
+    (is (= [] (check (str (head "Account") "## What happened\n\nThe build went green.\n" questions))))
+    (is (= ["heading-after-questions"]
+           (reasons (str (head "Account") "## What happened\n\nProse.\n" questions "\n## Later\n\nMore.\n")))))
+  (testing "a Proposal or Review page asks its questions of a proposal"
+    (is (= ["missing-proposal" "questions-without-proposal"] (reasons (str (head "Review") questions))))))
 
 (deftest executable-checks-the-questions-form
   (let [file (str (fs/create-temp-file {:suffix ".md"}))]
