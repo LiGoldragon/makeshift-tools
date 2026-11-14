@@ -9,6 +9,8 @@
            <div class="ctx">…</div>                  unchanged context (muted)
            <del>…</del> / <ins>…</ins>               removed words (red highlight, never struck through) / added words (green), inline in one text
          </div>
+         <section class="move move-proposed|move-landed"> a passage moved, read once under the third colour's margin; an edit made on
+                                                     its way is its <del>/<ins> words, in the move's shade
        </article>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
        A deleted module shown whole, under the red del margin, with a Destroy or Archive mark (drawn by the class):
@@ -59,6 +61,9 @@
 .move{border-left:4px solid var(--move-edge);padding:4px 0 4px 12px;min-width:0}
 .move-proposed{--move-edge:var(--move-proposed-edge)}
 .move-landed{--move-edge:var(--move-landed-edge)}
+/* An edit made on a move's way, its changed words marked inside it, takes the move's shade: proposed light, landed dark. */
+.move-proposed{--add-edge:var(--add-proposed-edge);--del-edge:var(--del-proposed-edge)}
+.move-landed{--add-edge:var(--add-landed-edge);--del-edge:var(--del-landed-edge)}
 .move>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
 .move-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -140,10 +145,10 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .ctx>*+*{padding-top:.6em}
 .ctx{background:transparent;color:var(--fg)}
 .ctx::before{content:"";}
-.diff del,pre del{color:var(--del-edge);background:var(--hl-del);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
-.diff ins,pre ins{color:var(--add-edge);background:var(--hl-add);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
-.diff del *,pre del *{color:inherit;text-decoration:inherit}
-.diff ins *,pre ins *{color:inherit;text-decoration:none}
+.diff del,pre del,.move del{color:var(--del-edge);background:var(--hl-del);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
+.diff ins,pre ins,.move ins{color:var(--add-edge);background:var(--hl-add);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
+.diff del *,pre del *,.move del *{color:inherit;text-decoration:inherit}
+.diff ins *,pre ins *,.move ins *{color:inherit;text-decoration:none}
 /* Fallback for publishers that emit prose panels instead of inline marks. */
 .diff .del,.diff .add{color:var(--fg);background:transparent;text-decoration:none}
 .del>*,.add>*{overflow-wrap:anywhere}

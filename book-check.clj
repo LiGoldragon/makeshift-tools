@@ -113,6 +113,77 @@
        (some #(= needle (subvec haystack % (+ % (count needle))))
              (range (inc (- (count haystack) (count needle)))))))
 
+;; ---------------------------------------------------------- word marks
+;;
+;; A moved passage edited on its way is written once, inside its move
+;; container, its changed words marked in place: [-removed words-] and
+;; [+added words+]. A mark opens and closes on one line, holds a word, and
+;; holds no other mark; a code span stands in a mark as one word. Lines in a
+;; code fence carry no marks.
+
+(def ^:private word-mark-token #"\[-|\[\+|-\]|\+\]")
+
+(defn- code-spans-held
+  "The line with each code span written over as one opaque word of its length."
+  [line]
+  (str/replace line #"`[^`]+`" #(apply str (repeat (count %) "x"))))
+
+(defn word-mark-errors
+  "The faults in one line's word marks, as reasons; empty when every mark is sound."
+  [line]
+  (let [held (code-spans-held line)
+        m (re-matcher word-mark-token held)]
+    (loop [open nil errors []]
+      (if (.find m)
+        (let [token (.group m)]
+          (cond
+            (#{"[-" "[+"} token)
+            (let [mark {:closer (str (subs token 1) "]") :from (.end m)}]
+              (cond
+                (nil? open) (recur mark errors)
+                ;; the open mark closes after this one: this one is inside it
+                (str/index-of held (:closer open) (.end m)) (recur open (conj errors "nested-word-mark"))
+                :else (recur mark (conj errors "unclosed-word-mark"))))
+            (and open (= token (:closer open)))
+            (recur nil (cond-> errors
+                         (str/blank? (subs held (:from open) (.start m)))
+                         (conj "empty-word-mark")))
+            :else (recur open errors)))
+        (cond-> errors open (conj "unclosed-word-mark"))))))
+
+(defn move-body-word-mark-errors
+  "[[index reason]] for the word marks of a move body, its fenced lines left aside."
+  [body]
+  (loop [k 0 fence nil out []]
+    (if (>= k (count body))
+      out
+      (let [line (body k)
+            opener (second (re-find #"^ {0,3}(`{3,}|~{3,})" line))]
+        (cond
+          fence (recur (inc k) (when-not (re-find (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote (subs fence 0 1))
+                                                                    "{" (count fence) ",}\\s*\\z")) line)
+                                 fence) out)
+          opener (recur (inc k) opener out)
+          :else (recur (inc k) nil (into out (map (fn [r] [k r]) (distinct (word-mark-errors line))))))))))
+
+(defn moved-source-line
+  "A moved line as its source module holds it: removed words kept, added words
+  left out, and the space an added word stood between written once."
+  [line]
+  (let [m (re-matcher #"\[-(.+?)-\]|\[\+(.+?)\+\]" (code-spans-held line))
+        sb (StringBuilder.)]
+    (loop [pos 0]
+      (if (.find m)
+        (do (.append sb (subs line pos (.start m)))
+            (.append sb (if (.group m 1) (subs line (.start m 1) (.end m 1)) "\u0000"))
+            (recur (.end m)))
+        (.append sb (subs line pos))))
+    (-> (str sb)
+      (str/replace #" \u0000+ " " ")
+      (str/replace #"^\u0000+ | \u0000+$" "")
+      (str/replace #" \u0000+(?=[^\p{L}\p{N}\s`*\[(])" "")
+      (str/replace "\u0000" ""))))
+
 ;; ---------------------------------------------------------- in place
 ;;
 ;; A proposal shown in place stands inside a module view, at the place its
@@ -204,7 +275,9 @@
                     body (if close (subvec lines (inc j) close) [])
                     from (some->> (first body) (re-matches #"from: ([^,]+ › [^,]+)(?:,.*)?") second)
                     to (some->> (second body) (re-matches #"to: ([^,]+ › [^,]+)(?:,.*)?") second)
-                    content (if (and (>= (count body) 4) (= "" (nth body 2))) (subvec body 3) [])
+                    ;; the passage as its source module holds it, any edit made on its way undone
+                    content (if (and (>= (count body) 4) (= "" (nth body 2)))
+                              (mapv moved-source-line (subvec body 3)) [])
                     from-location (some-> from (str/split #" › " 2) vec)
                     to-location (some-> to (str/split #" › " 2) vec)
                     valid? (and close from to (seq content)
@@ -219,7 +292,9 @@
                     errors (cond-> errors
                              (nil? close) (conj [j "unclosed-move-container"])
                              (not valid?) (conj [j "malformed-in-place-move"])
-                             move (conj [j "second-move-in-proposal"]))]
+                             move (conj [j "second-move-in-proposal"]))
+                    errors (into errors (map (fn [[k reason]] [(+ j 1 k) reason]))
+                                 (move-body-word-mark-errors body))]
                 (if close
                   (recur (inc close) comment true
                          (if (and valid? joins-previous? (seq current))
@@ -451,6 +526,9 @@
              (do (when (and (= :comment (:kind container)) (not (:content container)))
                    (err! (:line container) "empty-comment-container"))
                  (when (= :shown (:kind container)) (check-shown! container))
+                 (when (= :move (:kind container))
+                   (doseq [[k reason] (move-body-word-mark-errors (vec (:lines container)))]
+                     (err! (+ (:line container) 1 k) reason)))
                  (swap! st assoc :container nil))
              (re-find #"^::: (?:comment|move|shown)(?:\s|$)" line)
              (err! number "nested-container")

@@ -712,6 +712,23 @@
     (is (str/includes? html "<section class=\"move move-proposed\">"))
     (is (= 1 (count (re-seq #"The passage moves as one\." html))))))
 
+(deftest a-moved-passage-shows-its-edit-inside-the-move
+  (let [move (fn [state] (str head "::: move " state "\nfrom: vision/old.md\nto: vision/new.md\n\n"
+                              "## The [-layers-][+ladder+]\n\n"
+                              "A rule names [-`vision:complex:1`-][+`vision:flow-nexus:1`+], read once.\n:::\n"))
+        proposed (built (move "proposed"))
+        landed (built (move "landed"))]
+    (is (str/includes? proposed "<section class=\"move move-proposed\">"))
+    (is (str/includes? proposed "The <del>layers</del><ins>ladder</ins>"))
+    (is (str/includes? proposed "names <del><code>vision:complex:1</code></del><ins><code>vision:flow-nexus:1</code></ins>, read once.")
+        "a code span is one word of a mark")
+    (is (= 1 (count (re-seq #"read once" proposed))) "the passage is read once")
+    (is (str/includes? landed "<section class=\"move move-landed\">"))
+    (is (str/includes? landed "<del>layers</del><ins>ladder</ins>"))
+    (is (str/includes? code ".move-landed{--add-edge:var(--add-landed-edge);--del-edge:var(--del-landed-edge)}")
+        "a landed move's words take the dark shade")
+    (is (str/includes? code ".move del{") "the words of a move's edit are marked as a replaced line's are")))
+
 (deftest the-comment-has-its-own-colour-light-and-dark
   (let [vars (re-seq #"--comment-(?:bg|edge|fg):(#[0-9a-f]{6})" code)
         colours (set (map second vars))]

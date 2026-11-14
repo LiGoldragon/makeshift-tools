@@ -81,9 +81,11 @@
 
 (deftest move-state-theme-contract
   (let [css (slurp (str (fs/path tools-dir "book-code.html")))
-        move-rules (map second (re-seq #"(?s)\.move(?![A-Za-z0-9_-])[^\{]*\{([^}]*)\}" css))
+        ;; the move's own rules; the words of an edit inside a move are marked as a replaced line's are
+        move-re #"(?s)\.move(?![A-Za-z0-9_-])(?! (?:del|ins)\b)[^\{]*\{([^}]*)\}"
+        move-rules (map second (re-seq move-re css))
         regression-css (str/replace css "padding:4px 0 4px 12px" "padding:4px 0 4px 12px;background:#fff;color:red")
-        regression-rules (map second (re-seq #"(?s)\.move(?![A-Za-z0-9_-])[^\{]*\{([^}]*)\}" regression-css))]
+        regression-rules (map second (re-seq move-re regression-css))]
     (is (seq move-rules) "move declarations are present")
     (is (str/includes? css ".move{border-left:4px solid var(--move-edge)") "move is a single left margin border")
     (is (str/includes? css ".move-proposed{--move-edge:var(--move-proposed-edge)}") "proposed move edge")

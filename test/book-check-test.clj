@@ -426,6 +426,42 @@
                                     "- The route definition leaves.\n\n:::") opts))
         "a blank before the move says it was a whole source line")))
 
+;; A moved passage edited on its way: written once, its changed words marked in place.
+(def edited-move
+  (str "### Proposal 1: Move · repo › old.md, and repo › new.md\n\n"
+       "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+       "A rule moves with its [-whole-][+one+] subject, [+read once,+] and names [-`vision:complex:1`-][+`vision:flow-nexus:1`+].\n"
+       ":::\n"))
+
+(deftest a-move-carries-its-edit-in-word-marks
+  (is (= [] (check edited-move)) "removed and added words inside a proposed move")
+  (is (= [] (check (str/replace edited-move "::: move proposed" "::: move landed"))) "and inside a landed one")
+  (is (= [] (check (str "### Proposal 1: Move · repo › old.md, and repo › new.md\n\n"
+                        "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nUnchanged.\n:::\n")))
+      "a move with no edit")
+  (is (= [] (check (str/replace edited-move "A rule moves" "```clojure\n(get [-1 0] 0)\n```\n\nA rule moves")))
+      "a fenced line in a move carries no marks")
+  (is (= [] (check (str/replace edited-move "A rule moves" "Code `[-x` is code. A rule moves")))
+      "a code span carries no marks")
+  (is (= ["unclosed-word-mark"] (reasons (str/replace edited-move "`+]." "`."))))
+  (is (= ["nested-word-mark"] (reasons (str/replace edited-move "[+read once,+]" "[+read once,")))
+      "a mark left open before another closes after it")
+  (is (= ["empty-word-mark"] (reasons (str/replace edited-move "[-whole-]" "[- -]"))))
+  (is (= ["nested-word-mark"] (reasons (str/replace edited-move "[-whole-]" "[-whole [+all+]-]"))))
+  (is (= [7] (mapv :line (check (str/replace edited-move "`+]." "`.")))) "the line of the fault"))
+
+(deftest an-in-place-move-is-the-source-text-with-its-edit-undone
+  (let [module "## Rules\n\nA rule moves with its whole subject, and stays.\n"
+        opts {:read-module (fn [_ _] module)}
+        source (str "# B\n\n## repo › old.md\n\n## Rules\n\n"
+                    "#### Proposal 1: Move · repo › old.md, and repo › new.md\n\n"
+                    "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+                    "A rule moves with its [-whole-][+one+] subject, [+read once,+] and [+still +]stays.\n:::\n")]
+    (is (= [] (check source opts)) "removed words kept and added words left out are the module as it stands")
+    (is (some #{"context-module-differs"} (reasons (str/replace source "[-whole-]" "[+whole+]") opts))
+        "a word the module holds is not marked added")
+    (is (some #{"unclosed-word-mark"} (reasons (str/replace source "[+still +]" "[+still ") opts)))))
+
 ;; The closing Questions section of a Proposal book: plain prose after the last proposal, to the end.
 (def with-comment-proposal
   (str located "::: comment\nWhy it is proposed.\n:::\n\n- Old.\n+ New.\n"))

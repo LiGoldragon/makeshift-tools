@@ -15,7 +15,10 @@
 ;; diagram forms keep their existing optional-figure behavior. A failure to
 ;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
 ;; **Destroy** or **Archive** wraps the deleted module that follows, shown
-;; whole, in a record panel under the red margin with that mark. Inside a proposal,
+;; whole, in a record panel under the red margin with that mark. A ::: move
+;; container shows its passage once under the third colour's margin; an edit made
+;; on its way is marked in place, [-removed words-] and [+added words+], shown as a
+;; replaced line's changed words are, in the move's shade. Inside a proposal,
 ;; a ::: comment container is the author's reason, in its own box, before the
 ;; module text it explains. Each alternative is its own proposal. The first line may be a
 ;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
@@ -70,26 +73,24 @@
 
 (defn inline
   "Escape text; render proposal marks, `code`, links and **bold**. Proposal
-  marks are [+added+], [-removed-], and [~moved from <module>: text~]."
+  marks are [+added+], [-removed-], and [~moved from <module>: text~]; a
+  mark may hold a code span, which stands in it as one word."
   [text]
-  (let [m (re-matcher #"`([^`]+)`" text)
-        sb (StringBuilder.)
+  (let [spans (mapv second (re-seq #"`([^`]+)`" text))
+        counter (volatile! -1)
+        ;; each code span is held apart as a placeholder while the marks are read
+        held (str/replace text #"`([^`]+)`" (fn [_] (str "\uE000" (vswap! counter inc) "\uE001")))]
+    (-> (esc held)
         ;; the url is escaped by esc; the pattern excludes quotes, so it stays inside href
-        esc (fn [t] (-> (esc t)
-                        (str/replace #"\[([^\]]+)\]\((https?://[^\s)\"']+)\)"
-                                     (fn [[_ label url]] (str "<a href=\"" url "\">" label "</a>")))
-                        (str/replace #"\*\*(?=\S)(.+?)(?<=\S)\*\*" "<strong>$1</strong>")
-                        (str/replace #"\[~moved from ([^:\]]+):\s*(.+?)~\]"
-                                     "<span class=\"moved\"><span class=\"moved-origin\">from $1:</span> $2</span>")
-                        (str/replace #"\[-(.+?)-\]" "<del>$1</del>")
-                        (str/replace #"\[\+(.+?)\+\]" "<ins>$1</ins>")))]
-    (loop [pos 0]
-      (if (.find m)
-        (do (.append sb (esc (subs text pos (.start m))))
-            (.append sb (str "<code>" (esc (.group m 1)) "</code>"))
-            (recur (.end m)))
-        (do (.append sb (esc (subs text pos)))
-            (str sb))))))
+        (str/replace #"\[([^\]]+)\]\((https?://[^\s)\"'\uE000]+)\)"
+                     (fn [[_ label url]] (str "<a href=\"" url "\">" label "</a>")))
+        (str/replace #"\*\*(?=\S)(.+?)(?<=\S)\*\*" "<strong>$1</strong>")
+        (str/replace #"\[~moved from ([^:\]]+):\s*(.+?)~\]"
+                     "<span class=\"moved\"><span class=\"moved-origin\">from $1:</span> $2</span>")
+        (str/replace #"\[-(.+?)-\]" "<del>$1</del>")
+        (str/replace #"\[\+(.+?)\+\]" "<ins>$1</ins>")
+        (str/replace #"\uE000(\d+)\uE001"
+                     (fn [[_ i]] (str "<code>" (esc (spans (parse-long i))) "</code>"))))))
 
 (defn join-lines [lines]
   (str/join " " (keep #(let [t (strip %)] (when (not= "" t) t)) lines)))
