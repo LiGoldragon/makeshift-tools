@@ -729,6 +729,26 @@
         "a landed move's words take the dark shade")
     (is (str/includes? code ".move del{") "the words of a move's edit are marked as a replaced line's are")))
 
+(deftest a-moved-passage-carries-added-lines-under-the-addition-margin
+  (let [move (fn [state] (str head "::: move " state "\nfrom: vision/old.md\nto: vision/new.md\n\n"
+                              "## The [-layers-][+ladder+]\n\nA rule stays.\n\n"
+                              "+ ## A new heading\n\n+ An added line, read once.\n\nThe tail stays.\n"
+                              "```text\n+ not added\n```\n:::\n"))
+        proposed (built (move "proposed"))
+        landed (built (move "landed"))]
+    (doseq [[html state] [[proposed "proposed"] [landed "landed"]]]
+      (is (str/includes? html (str "<section class=\"move move-" state "\">")) state)
+      (is (str/includes? html "<div class=\"add\"><h2>A new heading</h2>\n<p>An added line, read once.</p>\n</div>")
+          "the added heading and line sit under the addition margin")
+      (is (= 1 (count (re-seq #"An added line, read once" html))) "read once")
+      (is (< (str/index-of html "A rule stays.") (str/index-of html "A new heading") (str/index-of html "The tail stays."))
+          "in order")
+      (is (str/includes? html "<p>A rule stays.</p>") "the rest keeps the move margin, outside the addition")
+      (is (str/includes? html "+ not added") "a plus line in a code fence is code"))
+    (is (str/includes? code ".move-landed{--add-edge:var(--add-landed-edge)") "landed: the dark shade")
+    (is (str/includes? code ".move-proposed{--add-edge:var(--add-proposed-edge)") "proposed: the light shade")
+    (is (str/includes? code ".move>.add{border-left:4px solid var(--add-edge)") "the addition margin replaces the move's")))
+
 (deftest the-comment-has-its-own-colour-light-and-dark
   (let [vars (re-seq #"--comment-(?:bg|edge|fg):(#[0-9a-f]{6})" code)
         colours (set (map second vars))]

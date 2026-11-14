@@ -462,6 +462,37 @@
         "a word the module holds is not marked added")
     (is (some #{"unclosed-word-mark"} (reasons (str/replace source "[+still +]" "[+still ") opts)))))
 
+;; A line added to a moved passage, a heading among them.
+(def added-move
+  (str "### Proposal 1: Move · repo › old.md, and repo › new.md\n\n"
+       "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+       "## Rules\n\nA rule moves.\n\n+ ## Added heading\n\n+ An added line.\n\nThe tail.\n"
+       ":::\n"))
+
+(deftest a-move-carries-added-lines
+  (is (= [] (check added-move)) "an added heading and an added line, proposed")
+  (is (= [] (check (str/replace added-move "::: move proposed" "::: move landed"))) "and landed")
+  (is (= [] (check (str/replace added-move "A rule moves.\n" "A rule moves.\n\n```text\n+ code\n```\n")))
+      "a plus line in a code fence is code")
+  (is (= ["empty-added-move-line"] (reasons (str/replace added-move "+ ## Added heading\n\n+ An added line." "+ ")))
+      "an added line with nothing after it")
+  (is (= ["empty-added-move-line"] (reasons (str/replace added-move "+ ## Added heading\n\n+ An added line." "+")))
+      "a bare plus alone")
+  (is (= [] (check (str/replace added-move "+ ## Added heading\n\n+ An added line." "+ First.\n+\n+ Second.")))
+      "a bare plus is a blank line inside an addition"))
+
+(deftest an-in-place-move-leaves-its-added-lines-out-of-the-comparison
+  (let [module "## Rules\n\nA rule moves.\n\nThe tail.\n"
+        opts {:read-module (fn [_ _] module)}
+        source (str "# B\n\n## repo › old.md\n\n## Rules\n\n"
+                    "#### Proposal 1: Move · repo › old.md, and repo › new.md\n\n"
+                    "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+                    "A rule moves.\n\n+ ## Added heading\n\n+ An added line.\n\nThe tail.\n:::\n")]
+    (is (= [] (check source opts)) "the module as it stands, the added lines left out")
+    (is (some #{"context-module-differs"} (reasons (str/replace source "The tail." "The end.") opts))
+        "the passage still has to match")
+    (is (some #{"empty-added-move-line"} (reasons (str/replace source "+ ## Added heading\n\n+ An added line." "+") opts)))))
+
 ;; The closing Questions section of a Proposal book: plain prose after the last proposal, to the end.
 (def with-comment-proposal
   (str located "::: comment\nWhy it is proposed.\n:::\n\n- Old.\n+ New.\n"))

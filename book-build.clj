@@ -585,6 +585,45 @@
 (def ^:dynamic *figures-dir* nil)
 
 (def ^:dynamic *shared-figure-counter* nil)
+
+(defn move-segments
+  "A move body as runs, in order: [:passage lines] and [:added lines], an added
+  line being `+` or `+ text` outside a code fence, its sign taken off. Blank
+  lines between two added lines belong to the run; the rest stay with the passage."
+  [body]
+  (let [body (vec body)
+        fence-open-re #"(?U)^(`{3,}|~{3,})(\w*)\s*$"
+        added? (fn [l] (or (= l "+") (str/starts-with? l "+ ")))
+        marks (loop [k 0 fence nil out []]
+                (if (>= k (count body))
+                  out
+                  (let [l (body k)
+                        fo (second (re-find fence-open-re l))]
+                    (cond
+                      fence (recur (inc k)
+                                   (when-not (re-matches (re-pattern (str "^" (if (= \` (first fence)) "`" "~") "{" (count fence) ",}\\s*$")) l) fence)
+                                   (conj out :passage))
+                      fo (recur (inc k) fo (conj out :passage))
+                      (added? l) (recur (inc k) nil (conj out :added))
+                      :else (recur (inc k) nil (conj out :passage))))))]
+    (loop [k 0 out []]
+      (if (>= k (count body))
+        out
+        (let [m (marks k)
+              end (loop [j k]
+                    (cond
+                      (and (< j (count body)) (= m (marks j))) (recur (inc j))
+                      ;; a blank line (or lines) bridging two added lines stays inside the run
+                      (and (= :added m)
+                           (let [nb (first (filter #(not (blank? (body %))) (range j (count body))))]
+                             (and nb (= :added (marks nb)) (every? #(blank? (body %)) (range j nb)))))
+                      (recur (inc (first (filter #(not (blank? (body %))) (range j (count body))))))
+                      :else j))
+              lines (subvec body k end)]
+          (recur end (conj out [m (if (= :added m)
+                                    (mapv #(if (= % "+") "" (subs % (min 2 (count %)))) lines)
+                                    lines)])))))))
+
 (def ^:dynamic *move-context* false)
 
 (def ^:dynamic *module-fig* nil)
@@ -2018,8 +2057,16 @@
 
         (= :move (first b))
         (let [[_ state from to body] b
+              ;; the passage is built in order: its added lines, a heading among them,
+              ;; under the addition margin in place of the move's own
               inner (binding [*shared-figure-counter* nfig *move-context* true]
-                      (build (str/join "\n" body) ""))]
+                      (str/join "\n"
+                                (for [[kind lines] (move-segments body)
+                                      :let [html (build (str/join "\n" lines) "")]
+                                      :when (not (blank? html))]
+                                  (if (= :added kind)
+                                    (str "<div class=\"add\">" html "</div>")
+                                    html))))]
           (emit (str "<section class=\"move move-" state "\"><header><h2>From "
                      (esc from) " → To " (esc to) "</h2><span class=\"move-state\">"
                      (str/capitalize state) "</span></header>" inner "</section>")))

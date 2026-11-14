@@ -64,6 +64,9 @@
 /* An edit made on a move's way, its changed words marked inside it, takes the move's shade: proposed light, landed dark. */
 .move-proposed{--add-edge:var(--add-proposed-edge);--del-edge:var(--del-proposed-edge)}
 .move-landed{--add-edge:var(--add-landed-edge);--del-edge:var(--del-landed-edge)}
+/* A line added to a moved passage, a heading among them, takes the addition margin in place of the move's own, in the move's shade. */
+.move>.add{border-left:4px solid var(--add-edge);margin-left:-16px;padding:0 0 0 12px;min-width:0}
+.move>.add>*{overflow-wrap:anywhere}
 .move>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
 .move-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){

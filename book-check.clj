@@ -210,6 +210,57 @@
 (defn- unsigned-change-line [line]
   (if (= 1 (count line)) "" (subs line 2)))
 
+;; A line added to a moved passage, a heading among them, is written inside
+;; its move container as an added line, "+ text" (a bare "+" is a blank line of
+;; the addition). It is not in the source module, so an in-place move leaves it
+;; out of its comparison. A "+ " line inside a code fence of the passage is code.
+
+(defn move-added-indices
+  "The indices of a move body's added lines: unfenced lines of the form `+` or `+ text`."
+  [body]
+  (loop [k 0 fence nil out #{}]
+    (if (>= k (count body))
+      out
+      (let [line (body k)
+            opener (second (re-find #"^ {0,3}(`{3,}|~{3,})" line))]
+        (cond
+          fence (recur (inc k)
+                       (when-not (re-find (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote (subs fence 0 1))
+                                                           "{" (count fence) ",}\\s*\\z")) line)
+                         fence)
+                       out)
+          opener (recur (inc k) opener out)
+          (or (= line "+") (str/starts-with? line "+ ")) (recur (inc k) nil (conj out k))
+          :else (recur (inc k) nil out))))))
+
+(defn move-added-line-errors
+  "[[index reason]] for each run of added lines of a move body that says nothing."
+  [body]
+  (let [added (move-added-indices body)]
+    (loop [k 0 out []]
+      (cond
+        (>= k (count body)) out
+        (added k)
+        (let [end (first (remove added (iterate inc k)))
+              run (subvec body k end)]
+          (recur end (cond-> out
+                       (every? #(str/blank? (subs % (min 2 (count %)))) run)
+                       (conj [k "empty-added-move-line"]))))
+        :else (recur (inc k) out)))))
+
+(defn move-passage-lines
+  "A move body without its added lines: the passage as its source module holds it.
+  The blank lines an addition stood between are written once."
+  [body]
+  (let [added (move-added-indices body)]
+    (loop [k 0 out [] gap false]
+      (cond
+        (>= k (count body))
+        (if (and gap (seq out) (str/blank? (peek out))) (pop out) out)
+        (added k) (recur (inc k) out true)
+        (and gap (str/blank? (body k)) (or (empty? out) (str/blank? (peek out)))) (recur (inc k) out gap)
+        :else (recur (inc k) (conj out (body k)) (and gap (str/blank? (body k))))))))
+
 (defn- plain-fence-close-re [ch size]
   (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote ch) "{" size ",}\\s*\\z")))
 
@@ -277,7 +328,7 @@
                     to (some->> (second body) (re-matches #"to: ([^,]+ › [^,]+)(?:,.*)?") second)
                     ;; the passage as its source module holds it, any edit made on its way undone
                     content (if (and (>= (count body) 4) (= "" (nth body 2)))
-                              (mapv moved-source-line (subvec body 3)) [])
+                              (mapv moved-source-line (move-passage-lines (subvec body 3))) [])
                     from-location (some-> from (str/split #" › " 2) vec)
                     to-location (some-> to (str/split #" › " 2) vec)
                     valid? (and close from to (seq content)
@@ -294,7 +345,8 @@
                              (not valid?) (conj [j "malformed-in-place-move"])
                              move (conj [j "second-move-in-proposal"]))
                     errors (into errors (map (fn [[k reason]] [(+ j 1 k) reason]))
-                                 (move-body-word-mark-errors body))]
+                                 (concat (move-body-word-mark-errors body)
+                                         (move-added-line-errors body)))]
                 (if close
                   (recur (inc close) comment true
                          (if (and valid? joins-previous? (seq current))
@@ -527,7 +579,8 @@
                    (err! (:line container) "empty-comment-container"))
                  (when (= :shown (:kind container)) (check-shown! container))
                  (when (= :move (:kind container))
-                   (doseq [[k reason] (move-body-word-mark-errors (vec (:lines container)))]
+                   (doseq [[k reason] (concat (move-body-word-mark-errors (vec (:lines container)))
+                                              (move-added-line-errors (vec (:lines container))))]
                      (err! (+ (:line container) 1 k) reason)))
                  (swap! st assoc :container nil))
              (re-find #"^::: (?:comment|move|shown)(?:\s|$)" line)
