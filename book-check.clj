@@ -576,6 +576,7 @@
            (let [read (description-sides (vec lines))
                  {:keys [repository path] :as s} (section)]
              (doseq [r (:errors read)] (err! line r))
+             (when s (set-section! #(assoc % :described true)))
              (when (and s (empty? (:errors read)))
                (cond
                  (:signed read) (mark-changed!)
@@ -591,6 +592,9 @@
                    (let [s (section)]
                      (when (and s (not (:changed s)) (not (:deleted s)))
                        (err! (:line s) "no-change-in-proposal"))
+                     ;; a new Markdown module shows its description
+                     (when (and s (:new-markdown s) (not (:described s)))
+                       (err! (:line s) "new-module-without-description"))
                      (swap! st assoc :section nil)))
          body! (fn [line number]
                  ;; The location lives in the heading; a File: line in the body is the retired form.
@@ -638,6 +642,7 @@
                  head-proposal-read (when-let [d (:description (by-heading head))]
                                       (when (empty? (:errors d)) d))
                  view-description (or head-read head-proposal-read)
+                 described (or head-open (boolean (:description (by-heading head))))
                  placed (into (if head-open #{head} #{})
                               (keep #(some-> % :description :line) in-place))
                  markdown (str/ends-with? path ".md")
@@ -667,6 +672,10 @@
                  shown (if literal (nth literal 2) shown)]
              (try
                (let [file (str/replace (read-module repo path) "\r\n" "\n")]
+                 ;; a Markdown module that has a description shows it at the head of its view
+                 (when (and markdown (not described) (module-description file)
+                            (not (re-find #"\A---\n" shown)))
+                   (err! number "module-view-without-description"))
                  (when (and view-description
                             (not= (:current view-description) (module-description file)))
                    (err! (inc (:line view-description)) "module-description-differs"))
@@ -904,6 +913,9 @@
                                (swap! st #(-> % (update :proposals inc)
                                               (assoc :section {:line number :level level :changed false
                                                                :deleted (str/ends-with? text ", a deleted file")
+                                                               ;; the new file is the heading's last location
+                                                               :new-markdown (and (str/ends-with? text ", a new file")
+                                                                                  (boolean (re-find #"\.md, a new file\z" text)))
                                                                :repository (nth location 1 nil)
                                                                :path (nth location 2 nil)
                                                                :comment false}))))

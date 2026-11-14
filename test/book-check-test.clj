@@ -26,7 +26,7 @@
   (is (= [] (check "### Proposal 2: The Library · signal-chronos › ethos/library.ethos, a new file\n+ Added.\n")))
   (is (= [] (check "## Proposal 3: chronos › ethos/memory.ethos, a new file\n+ Added.\n")))
   (is (= [] (check "### Proposal 4: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md\n+ Moved.\n")))
-  (is (= [] (check "### Proposal 5: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, a new file\n+ Moved.\n")))
+  (is (= [] (check "### Proposal 5: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, a new file\n::: description\n+ What the new module is about.\n:::\n\n+ Moved.\n")))
   (is (= [] (check "### Proposal 6: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, a deleted file\n+ Moved.\n"))))
 
 (deftest proposal-heading-location-pair-is-exact
@@ -137,7 +137,7 @@
         read-module (fn [repo file]
                       (same! "field-belief" repo) (same! "compensation/example.md" file)
                       (str "---\ndescription: A fixture.\ndependencies: []\n---\n\n" body))
-        heading "## field-belief › compensation/example.md\n\n"
+        heading (str "## field-belief › compensation/example.md\n\n" "::: description\nA fixture.\n:::\n\n")
         proposal "## Proposal 1: psyche-belief › vision/example.md\n+ A proposal.\n"
         opts {:read-module read-module}]
     (is (= [] (check (str "# A book\n" heading body "\n" proposal) opts)))
@@ -215,7 +215,7 @@
                       (same! "psyche-belief" repo) (same! "vision/flow-nexus.md" p)
                       (str "---\ndescription: A fixture.\ndependencies: []\n---\n\n" body))
         opts {:read-module read-module}
-        heading "## psyche-belief › vision/flow-nexus.md\n\n"
+        heading (str "## psyche-belief › vision/flow-nexus.md\n\n" "::: description\nA fixture.\n:::\n\n")
         proposal "## Proposal 1: psyche-belief › vision/example.md\n+ A proposal.\n"]
     (is (= [] (check (str "# A book\n\n" heading body "\n" proposal) opts))
         "the second fence uses a type only the first declares")
@@ -352,8 +352,10 @@
   "---\ndescription: A fixture.\n---\n\n## The rule\n\nFirst line.\n\nSecond line.\n\n- a bullet\n")
 (def in-place-opts
   {:read-module (fn [repo file] (same! "psyche-belief" repo) (same! "vision/rule.md" file) in-place-module)})
-(defn in-place-book [& view]
+(defn bare-in-place-book [& view]
   (str "# A book\n\n## psyche-belief › vision/rule.md\n\n" (apply str view)))
+(defn in-place-book [& view]
+  (apply bare-in-place-book "::: description\nA fixture.\n:::\n\n" view))
 (def in-place-p1
   (str "#### Proposal 1: Added · psyche-belief › vision/rule.md\n\n::: comment\nWhy.\n:::\n\n"
        "+ Added line.\n\n```mermaid\n+ flowchart TB\n+     a --> b\n```\n\n"))
@@ -547,7 +549,7 @@
       (is (= [] (check (str (head kind) "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"
                             "## Questions\nIs it so?\n")))
           "with no blank line before the heading")
-      (is (= [] (check (str (head kind) "## psyche-belief › vision/rule.md\n\n## The rule\n\nFirst line.\n\n"
+      (is (= [] (check (str (head kind) "## psyche-belief › vision/rule.md\n\n::: description\nA fixture.\n:::\n\n## The rule\n\nFirst line.\n\n"
                             in-place-p1 "Second line.\n\n- a bullet\n" questions)
                        in-place-opts))
           "after a proposal in place, closing its module view")
@@ -604,7 +606,7 @@
            (reasons (str "# T\n\n" "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n" "\n## Questions\n\n::: proposed\n")))))
   (testing "in place, the marker is the first nonblank line under the in-place heading"
     (let [view (fn [kind marker]
-                 (str "Presentation.{ «T»" kind " }\n\n# T\n\n## psyche-belief › vision/rule.md\n\n## The rule\n\nFirst line.\n\n"
+                 (str "Presentation.{ «T»" kind " }\n\n# T\n\n## psyche-belief › vision/rule.md\n\n::: description\nA fixture.\n:::\n\n## The rule\n\nFirst line.\n\n"
                       "#### Proposal 1: Added · psyche-belief › vision/rule.md\n\n" marker
                       "::: comment\nWhy.\n:::\n\n+ Added line.\n\nSecond line.\n\n- a bullet\n"))
           module in-place-opts]
@@ -618,7 +620,7 @@
 (def description-body "## The rule\n\nFirst line.\n\nSecond line.\n\n- a bullet\n")
 (def description-proposal "### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ Added.\n")
 (defn description-view [& view]
-  (str (apply in-place-book view) "\n" description-proposal))
+  (str (apply bare-in-place-book view) "\n" description-proposal))
 (defn description-proposal-book [& body]
   (str "# A book\n\n### Proposal 1: Describe · psyche-belief › vision/rule.md\n\n" (apply str body)))
 
@@ -627,7 +629,10 @@
     (is (= [] (check (description-view "::: description\nA fixture.\n:::\n\n" description-body) in-place-opts)))
     (is (= [] (check (description-view "::: description\nA\nfixture.\n:::\n\n" description-body) in-place-opts))
         "hard-wrapped, it is one text")
-    (is (= [] (check (description-view description-body) in-place-opts)) "a view without it is still the module")
+    (is (= ["module-view-without-description"] (reasons (description-view description-body) in-place-opts))
+        "a module that has a description shows it")
+    (is (= [] (check (description-view description-body) {:read-module (fn [_ _] description-body)}))
+        "a module with no description has none to show")
     (is (= ["module-description-differs"]
            (reasons (description-view "::: description\nAnother fixture.\n:::\n\n" description-body) in-place-opts)))
     (is (= ["module-description-differs"]
@@ -652,7 +657,7 @@
   (is (= ["description-as-front-matter" "description-as-front-matter"]
          (reasons (description-proposal-book "- description: Old.\n+ description: New.\n"))))
   (is (= ["description-as-front-matter"]
-         (reasons (str "# A book\n\n## psyche-belief › vision/rule.md\n\n## The rule\n\n"
+         (reasons (str "# A book\n\n## psyche-belief › vision/rule.md\n\n::: description\nA fixture.\n:::\n\n## The rule\n\n"
                        "#### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ description: New.\n\n"
                        "First line.\n\nSecond line.\n\n- a bullet\n")
                   in-place-opts))
@@ -673,6 +678,13 @@
     (is (= [] (check (str "# A book\n\n### Proposal 1: New · psyche-belief › vision/new/0.md, a new file\n\n"
                           "::: description\n+ What the new module is about.\n:::\n\n+ ## A rule\n\n+ The rule.\n")
                      {:read-module throwing}))))
+  (testing "a new Markdown module without a description is refused"
+    (is (= ["new-module-without-description"]
+           (reasons "# A book\n\n### Proposal 1: New · psyche-belief › vision/new/0.md, a new file\n\n+ ## A rule\n\n+ The rule.\n")))
+    (is (= ["new-module-without-description"]
+           (reasons "### Proposal 1: Move · psyche-belief › vision/old.md, and psyche-belief › vision/new.md, a new file\n+ Moved.\n")))
+    (is (= [] (check "# A book\n\n### Proposal 1: New · psyche-belief › ethos/new.ethos, a new file\n\n+ Added.\n"))
+        "a module that is not Markdown has no front matter"))
   (testing "as it stands, it is the module's"
     (is (= [] (check (description-proposal-book "::: description\nA fixture.\n:::\n\n+ Added.\n") in-place-opts)))
     (is (= ["module-description-differs"]
