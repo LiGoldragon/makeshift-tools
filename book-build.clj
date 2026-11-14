@@ -1776,6 +1776,28 @@
       (and (seq nonblank) (every? #(str/starts-with? % " ") nonblank)) :context-only
       :else :whole)))
 
+(defn ethos-fragment-kept-text
+  "The text a marked Ethos fragment leaves in the source: minus lines kept, plus
+  lines dropped, markers and the two-space context indent stripped."
+  [lines]
+  (str/join "\n"
+            (for [l lines
+                  :when (not (str/starts-with? l "+"))]
+              (cond (= l "-") ""
+                    (str/starts-with? l "- ") (subs l 2)
+                    (str/starts-with? l "  ") (subs l 2)
+                    :else l))))
+
+(defn ethos-fragment-whole-text
+  "The kept text of a marked Ethos fragment whose source starts with a root head,
+  else nil: only such a fragment is a whole document losing lines, to be checked
+  as one."
+  [lines]
+  (let [kept (ethos-fragment-kept-text lines)
+        head (some-> (first (split-ethos-declarations (strip-ethos-comments kept)))
+                     (str/split #"[^A-Za-z0-9_]" 2) first)]
+    (when (ethos-roots head) kept)))
+
 (defn guess-code-language
   "An unlabelled fence's language read from its text: \"ethos\" when it opens
   with a root word or declares Name.{ } / Name.[ ] with Vector<>, \"datom\" when
@@ -2142,14 +2164,18 @@
               lang (cond md? "text"
                          (and code-file? (= raw-lang "text")) (file-language @module-file)
                          :else raw-lang)
-              ethos-kind (when (and (= lang "ethos") @in-article (not code-file?))
-                           (ethos-fence-kind lines))]
+              ethos-kind (when (and (= lang "ethos") (or @in-article *move-context*) (not code-file?))
+                           (ethos-fence-kind lines))
+              ;; a fragment whose source starts with a root head is a whole document losing lines
+              fragment-whole (when (= ethos-kind :fragment) (ethos-fragment-whole-text lines))]
           ;; A module view is the module as it stands, authenticated as source by the
           ;; checker; its fences are not whole Ethos documents (one may use a type another declares).
           (when (and *enforce-ethos* (= lang "ethos") (not= ethos-kind :fragment)
                      (not (and @in-module (not @in-article))))
             (check-ethos! (if code-file? *ethos-zero-real* *ethos-zero*)
                           (str/join "\n" lines)))
+          (when (and *enforce-ethos* fragment-whole)
+            (check-ethos! *ethos-zero* fragment-whole))
           (when (and @rulings @pending-close) (close-rulings true))
           (cond
             ;; a removed Mermaid fence is its source, as any removed code block: nothing is drawn

@@ -464,11 +464,15 @@
                                            body "\n```\n") "")))
         fragment "  Library\n  []\n- [ Old.Integer ]\n+ [ New.Integer ]\n\n  []\n  []"]
     (let [html (render fragment)]
-      (is (empty? @calls) "a marked fragment never reaches the whole-document checker")
+      (is (= ["Library\n[]\n[ Old.Integer ]\n\n[]\n[]"] @calls)
+          "a root-headed fragment is checked as the source it leaves: minus lines kept, plus lines dropped")
       (is (str/includes? html "class=\"language-ethos\""))
       (is (str/includes? html "ts-keyword") "the stripped sides are highlighted as Ethos")
       (is (str/includes? html "ln-del"))
       (is (str/includes? html "ln-add")))
+    (reset! calls [])
+    (render "  [ Kept.Integer ]\n- [ Old.Integer ]\n+ [ New.Integer ]")
+    (is (empty? @calls) "a fragment with no root head never reaches the whole-document checker")
     (reset! calls [])
     (render accepted-ethos)
     (is (= [accepted-ethos] @calls) "a root at column zero remains a whole Ethos document")
@@ -488,6 +492,37 @@
                                           "```datom\n+ Lock.{ 1 «name» }\n```\n") ""))]
       (is (str/includes? datom "class=\"language-datom\""))
       (is (str/includes? datom "class=\"code-add\"")))))
+
+;; A fragment whose source starts with a root head is a whole document losing lines.
+(deftest root-headed-ethos-fragment-is-checked-as-the-source-it-leaves
+  (let [calls (atom [])
+        check (fn [text] (swap! calls conj text) (when (str/includes? text "Broken") "Rejected.Broken"))
+        build (fn [md] (binding [book-build/*enforce-ethos* true book-build/*ethos-check* check]
+                         (book-build/build md "")))
+        fence "```ethos
+  Library
+  []
+- [ Old.Integer ]
+  [ Kept.Integer ]
++ [ New.Integer ]
+  []
+  []
+```
+"
+        kept "Library\n[]\n[ Old.Integer ]\n[ Kept.Integer ]\n[]\n[]"]
+    (testing "in a proposal, accepted"
+      (build (str "### Proposal 1: Ethos · repo › x.ethos\n\n" fence))
+      (is (= [kept] @calls)))
+    (reset! calls [])
+    (testing "inside a move, accepted"
+      (build (str "### Proposal 1: Move · repo › a.md\n\n::: move proposed\nfrom: repo › a.ethos\nto: repo › b.ethos\n\n" fence ":::\n"))
+      (is (= [kept] @calls)))
+    (testing "whose kept text is not valid Ethos, refused by name"
+      (doseq [md [(str "### Proposal 1: Ethos · repo › x.ethos\n\n"
+                       "```ethos\n  Library\n  Broken\n- [ Old.Integer ]\n```\n")
+                  (str "### Proposal 1: Move · repo › a.md\n\n::: move proposed\nfrom: repo › a.ethos\nto: repo › b.ethos\n\n"
+                       "```ethos\n  Library\n  Broken\n- [ Old.Integer ]\n```\n:::\n")]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected: Rejected.Broken" (build md)))))))
 
 ;; A module view is the module as it stands, authenticated as source by book-check; its
 ;; fences are not whole Ethos documents, so one may use a type another fence declares.
