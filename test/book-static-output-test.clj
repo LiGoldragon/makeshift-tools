@@ -79,6 +79,13 @@
     (is (str/includes? css "text-decoration:none") "removed words are never struck through")
     (is (str/includes? css "font:17px/1.6 var(--f-prose)") "module prose keeps ordinary body type")))
 
+(deftest description-theme-contract
+  (let [css (slurp (str (fs/path tools-dir "book-code.html")))
+        rules (map second (re-seq #"(?s)\.description[^\{]*\{([^}]*)\}" css))]
+    (is (seq rules) "the description block has its own rules")
+    (is (every? #(not (re-find #"#[0-9a-fA-F]{3,8}|rgb" %)) rules)
+        "its colours are the page's variables, so it follows the light and the dark")))
+
 (deftest move-state-theme-contract
   (let [css (slurp (str (fs/path tools-dir "book-code.html")))
         ;; the move's own rules; the words of an edit inside a move are marked as a replaced line's are

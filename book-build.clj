@@ -18,7 +18,10 @@
 ;; whole, in a record panel under the red margin with that mark. A ::: move
 ;; container shows its passage once under the third colour's margin; an edit made
 ;; on its way is marked in place, [-removed words-] and [+added words+], shown as a
-;; replaced line's changed words are, in the move's shade. Inside a proposal,
+;; replaced line's changed words are, in the move's shade. A ::: description
+;; container is a module's description, shown as a labelled block at the head
+;; of its module view or proposal: as it stands, or changed, its removed and
+;; added text each marking its own changed words. Inside a proposal,
 ;; a ::: comment container is the author's reason, in its own box, before the
 ;; module text it explains. Each alternative is its own proposal. The first line may be a
 ;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
@@ -821,6 +824,42 @@
                      (when (seq y) (str "<ins>" (fmt (str/join y)) "</ins>"))))))
        str/join))
 
+(defn marked-side
+  "One side of a replaced text, read whole: its unchanged tokens plain and only
+  its own changed words marked, in <del> on the removed side (:del) and in <ins>
+  on the added side (:add)."
+  [old new fmt side]
+  (let [[open close] (if (= :del side) ["<del>" "</del>"] ["<ins>" "</ins>"])]
+    (->> (word-diff (tokens old) (tokens new))
+         chunks
+         fold-chunks
+         (map (fn [[kind x y]]
+                (if (= kind :same)
+                  (fmt (str/join x))
+                  (let [words (if (= :del side) x y)]
+                    (when (seq words) (str open (fmt (str/join words)) close))))))
+         str/join)))
+
+(defn description-html
+  "A module's description, as a labelled block of its own: as it stands, its
+  text; changed, its removed text under the red margin and its added text under
+  the green, each marking only its own changed words; new, its text under the
+  green margin."
+  [lines]
+  (let [{:keys [current added signed]} (book-check/description-sides (vec lines))
+        p #(str "<p>" % "</p>")
+        side #(str "<div class=\"" %1 "\">" (p %2) "</div>")]
+    (str "<section class=\"description\"><div class=\"description-label\">Description</div>"
+         (if-not signed
+           (p (inline current))
+           (str "<div class=\"diff\">"
+                (cond (and current added) (str (side "del" (marked-side current added inline :del))
+                                               (side "add" (marked-side current added inline :add)))
+                      added (side "add" (inline added))
+                      :else (side "del" (inline current)))
+                "</div>"))
+         "</section>")))
+
 (defn- fm-card
   "Front matter lines as a small labelled card: no YAML syntax, one term per key."
   [lines]
@@ -1298,7 +1337,8 @@
         comment-open-re #"^::: comment(?:\s+.*)?$"
         shown-open-re #"^::: shown(?:\s+.*)?$"
         shown-location-re #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)$"
-        container-open-re #"^::: (?:comment|move|shown)(?:\s+.*)?$"
+        description-open-re #"^::: description(?:\s+.*)?$"
+        container-open-re #"^::: (?:comment|move|shown|description)(?:\s+.*)?$"
         flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))
         ;; A proposal in place opens at its heading and closes where its module resumes.
         in-place (book-check/source-in-place-proposals src)
@@ -1363,6 +1403,22 @@
                                        (throw (ex-info (str "nested container at source line " (inc j)) {}))
                                        :else (recur (inc j))))))]
                 (recur (inc end) (conj out [:comment body]) [] proposal))
+            (if (re-find description-open-re l)
+              (let [line-no (inc i)
+                    _ (when-not (= l "::: description")
+                        (throw (ex-info (str "malformed description container at source line " line-no) {})))
+                    out (cond-> out (seq para) (into (flush para proposal)))
+                    start (inc i)
+                    [end body] (loop [j start]
+                                 (if (>= j n)
+                                   (throw (ex-info (str "unclosed description container at source line " line-no) {}))
+                                   (let [x (lines j)]
+                                     (cond
+                                       (= x ":::") [j (subvec lines start j)]
+                                       (re-find container-open-re x)
+                                       (throw (ex-info (str "nested container at source line " (inc j)) {}))
+                                       :else (recur (inc j))))))]
+                (recur (inc end) (conj out [:description body]) [] proposal))
             (if (re-find move-open-re l)
             (let [state (second (re-find #"^::: move(?:\s+(.*))?$" l))
                   line-no (inc i)
@@ -1415,7 +1471,7 @@
               (re-find questions-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] nil)
               (re-find skip l) (recur (inc i) out para proposal)
-              :else (recur (inc i) out (conj para l) proposal))))))))))))))
+              :else (recur (inc i) out (conj para l) proposal)))))))))))))))
 
 (defn parse-list [lines]
   (reduce (fn [items l]
@@ -2050,6 +2106,10 @@
 
         (= :comment (first b))
         (emit (comment-html (second b)))
+
+        ;; a module's description, at the head of its view or proposal
+        (= :description (first b))
+        (emit (description-html (second b)))
 
         (= :shown (first b))
         (let [[_ repository path lines] b]

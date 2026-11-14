@@ -13,6 +13,10 @@
                                                      its way is its <del>/<ins> words, in the move's shade
        </article>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
+       A module's description, at the head of its module view or proposal (a labelled block; changed, its removed and added text
+       each under its margin, each marking only its own changed words):
+         <section class="description"><div class="description-label">Description</div><p>…</p></section>
+         <section class="description"><div class="description-label">Description</div><div class="diff"><div class="del"><p>… <del>…</del> …</p></div><div class="add"><p>… <ins>…</ins> …</p></div></div></section>
        A deleted module shown whole, under the red del margin, with a Destroy or Archive mark (drawn by the class):
          <div class="record destroy">  or  <div class="record archive">
            <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
@@ -178,6 +182,12 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .fm dt{font-family:var(--f-label);font-weight:600;font-size:.9rem}
 .fm dd{margin:0;min-width:0;overflow-wrap:anywhere}
 @media (max-width:540px){.fm dl{grid-template-columns:1fr}.fm dd{margin-bottom:.4em}}
+/* A module's description: a labelled block at the head of its module view or proposal, in the page's colours.
+   Changed, its removed and added text stand under the red and green margins, as any change does. */
+.description{border:1px solid var(--line);border-radius:8px;background:var(--sheet);color:var(--fg);padding:8px 12px 10px;min-width:0}
+.description>*+*{margin-top:.35em}
+.description-label{font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.description p{overflow-wrap:anywhere}
 .ctx pre{padding-inline:12px}
 .diff-label{font-family:var(--f-label);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 

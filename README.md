@@ -55,6 +55,33 @@ book-build gives the proposal's sheet the class `proposal proposed`
 (`proposal in-place proposed` in place), which sets the light shade for its
 margins; the marker draws nothing itself.
 
+A Markdown module's description, the `description` of its front matter, is
+written in a `::: description` container at the head of its module view or
+proposal; front matter is never written in a book (`description-as-front-matter`,
+`front-matter-in-module-view`). In a module view it is the first nonblank line,
+its text as it stands, authenticated against the module's front matter
+(`module-description-differs`). A changed description is its removed lines then
+its added lines, first among its proposal's changes; in place, that proposal is
+the first thing in its module view and its removed text is authenticated. A new
+module's description is its added lines alone:
+
+    ## psyche-belief › vision/book/0.md
+
+    ::: description
+    How a presentation already written is published.
+    :::
+
+    ### Proposal 1: Persona · psyche-belief › vision/persona/0.md
+
+    ::: description
+    - Persona, the root of the meta harness, is designed or judged.
+    + Persona, the meta harness, is designed or judged.
+    :::
+
+book-build shows it as a labelled block, `<section class="description">`: as
+it stands, its text; changed, its removed text under the red margin and its
+added text under the green, each marking only its own changed words.
+
 **codex-usage** prints Codex usage left, its reset time and the available usage
 resets, from `codex app-server` with the `~/.codex` login. Read-only.
 `--json` prints the raw reply. `codex-app-server.clj` is the namespace it shares

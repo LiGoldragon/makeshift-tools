@@ -261,6 +261,53 @@
         (and gap (str/blank? (body k)) (or (empty? out) (str/blank? (peek out)))) (recur (inc k) out gap)
         :else (recur (inc k) (conj out (body k)) (and gap (str/blank? (body k))))))))
 
+;; ---------------------------------------------------------- description
+;;
+;; A Markdown module's description, the `description` of its front matter, is
+;; shown in a `::: description` container at the head of its module view or
+;; proposal, never as front matter: its lines unsigned as it stands, or its
+;; removed lines then its added lines when it changes, each side one text. A
+;; description as it stands is authenticated against the module's front matter.
+
+(defn- description-text [lines]
+  (let [t (normalized-paragraph lines)] (when-not (str/blank? t) t)))
+
+(defn description-sides
+  "A description container's body read: {:current text :added text :signed bool
+  :errors [reasons]}. Unsigned lines are the description as it stands (:current);
+  signed lines are its removed lines (:current) then its added lines (:added)."
+  [body]
+  (let [nonblank (vec (remove str/blank? body))
+        signs (mapv #(cond (removed-line? %) :removed (added-line? %) :added
+                           (context-line? %) :context :else :plain)
+                    nonblank)
+        side (fn [k] (description-text (remove nil? (map (fn [l s] (when (= s k) (unsigned-change-line l))) nonblank signs))))
+        ordered? (= signs (vec (concat (filter #{:removed} signs) (filter #{:added} signs))))]
+    (cond
+      (empty? nonblank) {:errors ["empty-description-container"]}
+      (every? #{:plain} signs) {:current (description-text nonblank) :signed false :errors []}
+      (and ordered? (or (side :removed) (side :added)))
+      (let [current (side :removed) added (side :added)]
+        {:current current :added added :signed true
+         :errors (cond-> [] (and current (= current added)) (conj "description-change-changes-nothing"))})
+      :else {:errors ["malformed-description"]})))
+
+(defn module-description
+  "The description in a module's front matter, as one text; nil when it has none."
+  [text]
+  (when-let [[_ front-matter] (re-find #"\A---\n((?s:.*?))\n---(?:\n|\z)" (str/replace text "\r\n" "\n"))]
+    (when-let [[_ value] (re-find #"(?m)^description:[ \t]*(.*)$" front-matter)]
+      (let [value (str/trim value)]
+        (description-text
+         [(cond (re-matches #"\".*\"" value) (str/replace (subs value 1 (dec (count value))) #"\\(.)" "$1")
+                (re-matches #"'.*'" value) (str/replace (subs value 1 (dec (count value))) "''" "'")
+                :else value)])))))
+
+(defn front-matter-line?
+  "A book line that is a description written as front matter: a `description:` key, signed or not."
+  [line]
+  (boolean (re-find #"^(?:[+-] |  )?description:(?:\s|\z)" line)))
+
 (defn- plain-fence-close-re [ch size]
   (re-pattern (str "^ {0,3}" (java.util.regex.Pattern/quote ch) "{" size ",}\\s*\\z")))
 
@@ -286,6 +333,8 @@
         proposed (first (filter #(not (str/blank? (lines %))) (range (inc h) e)))
         proposed (when (and proposed (= "::: proposed" (lines proposed))) proposed)
         start (if proposed (inc proposed) (inc h))
+        ;; its description container, read, with the index of its opening line
+        description (volatile! nil)
         errors (cond-> []
                  (nil? heading) (conj [h "proposal-heading-without-location"])
                  (and heading (not (some #{[repository path]} locations)))
@@ -293,7 +342,7 @@
     (loop [j start comment nil changed false current [] move nil errors errors]
       (let [done (fn [k]
                    {:heading h :end k :number number :title title :comment comment :proposed proposed
-                    :locations locations :current current :move move
+                    :locations locations :current current :move move :description @description
                     :errors (cond-> errors
                               (not changed) (conj [h "no-change-in-proposal"])
                               (and (= 2 (count locations)) (nil? move))
@@ -319,6 +368,23 @@
                              changed (conj [j "comment-after-change"]))]
                 (if close
                   (recur (inc close) (or comment body) changed current move errors)
+                  (done e)))
+
+              ;; A description changed in place: its removed lines then its added lines,
+              ;; first among the proposal's changes. Its module's description is
+              ;; authenticated by the module view, at whose head this proposal stands.
+              (= l "::: description")
+              (let [close (first (filter #(= ":::" (lines %)) (range (inc j) e)))
+                    read (description-sides (if close (subvec lines (inc j) close) []))
+                    errors (cond-> (into errors (map (fn [r] [j r])) (if close (:errors read) []))
+                             (nil? close) (conj [j "unclosed-description-container"])
+                             @description (conj [j "second-description-in-proposal"])
+                             changed (conj [j "description-not-at-head"])
+                             (and close (empty? (:errors read)) (not (:signed read)))
+                             (conj [j "in-place-description-unchanged"]))]
+                (when (and close (nil? @description)) (vreset! description (assoc read :line j)))
+                (if close
+                  (recur (inc close) comment (or changed (boolean (:signed read))) current move errors)
                   (done e)))
 
               (= l "::: move proposed")
@@ -399,6 +465,23 @@
               (recur (inc end)
                      (when open {:char (subs (second open) 0 1) :size (count (second open))})))))))))
 
+(defn unfenced-indices
+  "The indices in [start, end) of the lines that are book text: outside every
+  code fence (a fence's opening line among them) and every comment or shown
+  container's body."
+  [lines start end]
+  (loop [j start fence nil container false out []]
+    (if (>= j end)
+      out
+      (let [l (lines j)]
+        (cond
+          fence (recur (inc j) (when-not (re-find (fence-close-re (:char fence) (:size fence)) l) fence) container out)
+          container (recur (inc j) nil (not= ":::" l) out)
+          (#{"::: comment" "::: shown"} l) (recur (inc j) nil true out)
+          :else (let [open (re-find (re-pattern (str "^" sign-prefix " {0,3}(`{3,}|~{3,})")) l)]
+                  (recur (inc j) (when open {:char (subs (second open) 0 1) :size (count (second open))})
+                         false (conj out j))))))))
+
 (defn in-place-proposals
   "The in-place proposals of the module view of location, whose lines are
   [start, end); a heading inside the module's own fences is the module's."
@@ -466,6 +549,7 @@
                          (err! line "proposal-module-text-absent")))))))
              (swap! st assoc :plain nil)))
          plain! (fn [line number]
+                  (when (and (section) (not (str/blank? line))) (set-section! #(assoc % :body true)))
                   (if (str/blank? line)
                     (flush-plain!)
                     (swap! st update :plain
@@ -487,6 +571,21 @@
                  (cond
                    (= ::unavailable source) (err! line "shown-module-unavailable")
                    (not (contains-lines? source excerpt)) (err! line "shown-module-text-absent"))))))
+         check-description!
+         (fn [{:keys [line lines]}]
+           (let [read (description-sides (vec lines))
+                 {:keys [repository path] :as s} (section)]
+             (doseq [r (:errors read)] (err! line r))
+             (when (and s (empty? (:errors read)))
+               (cond
+                 (:signed read) (mark-changed!)
+                 ;; as it stands, it is the description of the proposal's one module
+                 (not (and repository path)) (err! line "description-without-module")
+                 :else
+                 (let [file (try (read-module repository path) (catch Throwable _ ::unavailable))]
+                   (cond
+                     (= ::unavailable file) (err! line "context-module-unavailable")
+                     (not= (:current read) (module-description file)) (err! line "module-description-differs")))))))
          finish! (fn []
                    (flush-plain!)
                    (let [s (section)]
@@ -496,6 +595,10 @@
          body! (fn [line number]
                  ;; The location lives in the heading; a File: line in the body is the retired form.
                  (when (re-find #"^File:" line) (err! number "file-line-in-body"))
+                 ;; a description is a description container, never a front matter line
+                 (when (and (section) (front-matter-line? line)
+                            (str/ends-with? (or (:path (section)) ".md") ".md"))
+                   (err! number "description-as-front-matter"))
                  (when (and (section) (change? line))
                    (flush-plain!)
                    (mark-changed!))
@@ -520,15 +623,42 @@
                  ;; replaced by the current lines it carries (its removals, or a
                  ;; moved passage at the source).
                  by-heading (into {} (map (juxt :heading identity) in-place))
+                 ;; The view's description stands at its head, its first nonblank line:
+                 ;; a container as it stands, or one changed by a proposal in place there.
+                 head (first (filter #(not (str/blank? (lines %))) (range (inc i) end)))
+                 head-open (and head (= "::: description" (lines head)))
+                 head-close (when head-open (first (filter #(= ":::" (lines %)) (range (inc head) end))))
+                 _ (when (and head-open (nil? head-close)) (err! (inc head) "unclosed-description-container"))
+                 head-read (when head-close
+                             (let [read (description-sides (subvec lines (inc head) head-close))]
+                               (doseq [r (:errors read)] (err! (inc head) r))
+                               (when (:signed read) (err! (inc head) "description-change-outside-proposal"))
+                               (when (and (empty? (:errors read)) (not (:signed read)))
+                                 (assoc read :line head))))
+                 head-proposal-read (when-let [d (:description (by-heading head))]
+                                      (when (empty? (:errors d)) d))
+                 view-description (or head-read head-proposal-read)
+                 placed (into (if head-open #{head} #{})
+                              (keep #(some-> % :description :line) in-place))
+                 markdown (str/ends-with? path ".md")
+                 _ (doseq [p in-place :when (and (:description p) (not= head (:heading p)))]
+                     (err! (inc (:line (:description p))) "description-not-at-head"))
+                 book-text (unfenced-indices lines (inc i) end)
+                 _ (doseq [k book-text]
+                     (cond
+                       (and (= "::: description" (lines k)) (not (placed k)))
+                       (err! (inc k) "description-not-at-head")
+                       (and markdown (front-matter-line? (lines k)))
+                       (err! (inc k) "description-as-front-matter")))
+                 front-matter? (some #(and markdown (front-matter-line? (lines %))) book-text)
                  raw-lines (loop [j (inc i) out []]
-                             (if (>= j end)
-                               out
-                               (if-let [p (by-heading j)]
-                                 (recur (:end p) (into out (:current p)))
-                                 (recur (inc j) (conj out (lines j))))))
+                             (cond
+                               (>= j end) out
+                               (and head-close (= j head)) (recur (inc head-close) out)
+                               (by-heading j) (recur (:end (by-heading j)) (into out (:current (by-heading j))))
+                               :else (recur (inc j) (conj out (lines j)))))
                  raw (str/join "\n" raw-lines)
                  shown (str/trim raw)
-                 markdown (str/ends-with? path ".md")
                  ;; A markdown module may sit in a markdown or text fence; any other file is the
                  ;; content of its one fence, in its language, kept to the character.
                  literal (if markdown
@@ -537,8 +667,15 @@
                  shown (if literal (nth literal 2) shown)]
              (try
                (let [file (str/replace (read-module repo path) "\r\n" "\n")]
+                 (when (and view-description
+                            (not= (:current view-description) (module-description file)))
+                   (err! (inc (:line view-description)) "module-description-differs"))
                  (when (not= shown (if markdown (module-body file) (str/replace file #"\n+\z" "")))
-                   (err! number "context-module-differs")))
+                   (cond
+                     ;; front matter is never shown raw: its description is a description container
+                     (and markdown (re-find #"\A---\n" shown)) (err! number "front-matter-in-module-view")
+                     (or front-matter? (and head-open (nil? head-close))) nil
+                     :else (err! number "context-module-differs"))))
                (catch Throwable _ (err! number "context-module-unavailable")))
              (swap! st update :shown into (range (inc i) end))))]
      (doseq [i (range (count lines))]
@@ -561,6 +698,7 @@
                heading (err! number "heading-after-questions")
                (re-find #"^::: comment(?:\s|$)" line) (err! number "comment-in-questions")
                (re-find #"^::: shown(?:\s|$)" line) (err! number "shown-in-questions")
+               (re-find #"^::: description(?:\s|$)" line) (err! number "description-in-questions")
                (re-find #"^::: move(?:\s|$)" line) (err! number "move-in-questions")
                (re-find #"^::: proposed(?:\s|$)" line) (err! number "proposed-in-questions")
                (or (change? line) (added-line? line) (removed-line? line))
@@ -578,12 +716,13 @@
              (do (when (and (= :comment (:kind container)) (not (:content container)))
                    (err! (:line container) "empty-comment-container"))
                  (when (= :shown (:kind container)) (check-shown! container))
+                 (when (= :description (:kind container)) (check-description! container))
                  (when (= :move (:kind container))
                    (doseq [[k reason] (concat (move-body-word-mark-errors (vec (:lines container)))
                                               (move-added-line-errors (vec (:lines container))))]
                      (err! (+ (:line container) 1 k) reason)))
                  (swap! st assoc :container nil))
-             (re-find #"^::: (?:comment|move|shown)(?:\s|$)" line)
+             (re-find #"^::: (?:comment|move|shown|description)(?:\s|$)" line)
              (err! number "nested-container")
              :else
              (swap! st (fn [s] (-> s
@@ -642,6 +781,8 @@
                  malformed-comment? (re-find #"^::: comment(?:\s|$)" line)
                  shown-open? (= line "::: shown")
                  malformed-shown? (re-find #"^::: shown(?:\s|$)" line)
+                 description-open? (= line "::: description")
+                 malformed-description? (re-find #"^::: description(?:\s|$)" line)
                  move-open (re-matches #"::: move (proposed|landed)" line)
                  malformed-move? (re-find #"^::: move(?:\s|$)" line)
                  proposed-open? (= line "::: proposed")
@@ -669,6 +810,21 @@
 
                malformed-shown?
                (do (flush-plain!) (err! number "malformed-shown-container"))
+
+               ;; `::: description`: the module's description, at the head of its proposal,
+               ;; before any change or module text, once.
+               description-open?
+               (do (flush-plain!)
+                   (if-not (section)
+                     (err! number "description-outside-proposal")
+                     (let [s (section)]
+                       (cond (:description s) (err! number "second-description-in-proposal")
+                             (or (:changed s) (:body s)) (err! number "description-not-at-head"))
+                       (set-section! #(assoc % :description true))))
+                   (swap! st assoc :container {:kind :description :line number :content false :lines []}))
+
+               malformed-description?
+               (do (flush-plain!) (err! number "malformed-description-container"))
 
                move-open
                (do (flush-plain!)
@@ -708,6 +864,7 @@
                             (not (or (= language "mermaid")
                                      (and (= language "") (diagram-fence? lines i opening)))))
                    (err! number "text-outside-proposal-without-module"))
+                 (when (section) (set-section! #(assoc % :body true)))
                  ;; A signed opener is a change line, as the fence it opens is read.
                  (when (and (section) (re-find #"^[+-] " (nth opening 3))) (mark-changed!))
                  (swap! st assoc :fence

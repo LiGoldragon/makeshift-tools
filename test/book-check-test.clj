@@ -613,5 +613,106 @@
       (is (= ["proposed-outside-review"] (reasons (view "" "::: proposed\n\n") module)))
       (is (= ["proposed-outside-review"] (reasons (view " Proposal" "::: proposed\n\n") module))))))
 
+;; A module's description: a `::: description` container at the head of its
+;; module view or proposal, never front matter.
+(def description-body "## The rule\n\nFirst line.\n\nSecond line.\n\n- a bullet\n")
+(def description-proposal "### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ Added.\n")
+(defn description-view [& view]
+  (str (apply in-place-book view) "\n" description-proposal))
+(defn description-proposal-book [& body]
+  (str "# A book\n\n### Proposal 1: Describe · psyche-belief › vision/rule.md\n\n" (apply str body)))
+
+(deftest a-module-view-shows-its-description-as-it-stands
+  (testing "authenticated against the module's front matter"
+    (is (= [] (check (description-view "::: description\nA fixture.\n:::\n\n" description-body) in-place-opts)))
+    (is (= [] (check (description-view "::: description\nA\nfixture.\n:::\n\n" description-body) in-place-opts))
+        "hard-wrapped, it is one text")
+    (is (= [] (check (description-view description-body) in-place-opts)) "a view without it is still the module")
+    (is (= ["module-description-differs"]
+           (reasons (description-view "::: description\nAnother fixture.\n:::\n\n" description-body) in-place-opts)))
+    (is (= ["module-description-differs"]
+           (reasons (description-view "::: description\nA fixture.\n:::\n\n" description-body)
+                    {:read-module (fn [_ _] description-body)}))
+        "a module with no description has none to show")
+    (is (= ["context-module-unavailable"]
+           (reasons (description-view "::: description\nA fixture.\n:::\n\n" description-body) {:read-module throwing}))))
+  (testing "its form"
+    (is (= ["description-change-outside-proposal"]
+           (reasons (description-view "::: description\n- A fixture.\n+ A better one.\n:::\n\n" description-body) in-place-opts)))
+    (is (some #{"description-not-at-head"}
+              (reasons (description-view "## The rule\n\n::: description\nA fixture.\n:::\n\nFirst line.\n\nSecond line.\n\n- a bullet\n") in-place-opts)))
+    (is (= ["unclosed-description-container"]
+           (reasons (str "# A book\n\n## psyche-belief › vision/rule.md\n\n::: description\nA fixture.\n" description-body "\n" description-proposal) in-place-opts)))
+    (is (= ["empty-description-container"]
+           (reasons (description-view "::: description\n\n:::\n\n" description-body) in-place-opts)))))
+
+(deftest raw-front-matter-is-refused
+  (is (= ["front-matter-in-module-view" "description-as-front-matter"]
+         (reasons (description-view "---\ndescription: A fixture.\n---\n\n" description-body) in-place-opts)))
+  (is (= ["description-as-front-matter" "description-as-front-matter"]
+         (reasons (description-proposal-book "- description: Old.\n+ description: New.\n"))))
+  (is (= ["description-as-front-matter"]
+         (reasons (str "# A book\n\n## psyche-belief › vision/rule.md\n\n## The rule\n\n"
+                       "#### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ description: New.\n\n"
+                       "First line.\n\nSecond line.\n\n- a bullet\n")
+                  in-place-opts))
+      "in place too")
+  (is (= [] (check "# A book\n\n### Proposal 1: Y · repo › ci.yaml\n\n+ description: A job.\n"))
+      "a YAML file's own key is its text")
+  (is (= [] (check (description-proposal-book "```text\n+ description: Quoted.\n```\n")))
+      "a line in a code fence is code"))
+
+(deftest a-proposal-changes-or-creates-a-description
+  (testing "changed: removed lines then added lines, at the head"
+    (is (= [] (check (description-proposal-book "::: comment\nWhy.\n:::\n\n::: description\n- Old words.\n+ New words.\n:::\n\n+ Added.\n")
+                     {:read-module throwing})))
+    (is (= [] (check (description-proposal-book "::: description\n- Old\n- words.\n\n+ New\n+ words.\n:::\n")
+                     {:read-module throwing}))
+        "a changed description is a change of its own"))
+  (testing "a new module shown whole"
+    (is (= [] (check (str "# A book\n\n### Proposal 1: New · psyche-belief › vision/new/0.md, a new file\n\n"
+                          "::: description\n+ What the new module is about.\n:::\n\n+ ## A rule\n\n+ The rule.\n")
+                     {:read-module throwing}))))
+  (testing "as it stands, it is the module's"
+    (is (= [] (check (description-proposal-book "::: description\nA fixture.\n:::\n\n+ Added.\n") in-place-opts)))
+    (is (= ["module-description-differs"]
+           (reasons (description-proposal-book "::: description\nAnother.\n:::\n\n+ Added.\n") in-place-opts)))
+    (is (= ["description-without-module"]
+           (reasons (str "# A book\n\n### Proposal 1: Move · psyche-belief › vision/rule.md, and psyche-belief › vision/new.md\n\n"
+                         "::: description\nA fixture.\n:::\n\n+ Moved.\n")))))
+  (testing "in place, at the head of its module view"
+    (let [view (fn [description]
+                 (str "# A book\n\n## psyche-belief › vision/rule.md\n\n"
+                      "#### Proposal 1: Describe · psyche-belief › vision/rule.md\n\n::: comment\nWhy.\n:::\n\n"
+                      "::: description\n" description ":::\n\n" description-body))]
+      (is (= [] (check (view "- A fixture.\n+ A better fixture.\n") in-place-opts)))
+      (is (= ["module-description-differs"] (reasons (view "- A plain fixture.\n+ A better fixture.\n") in-place-opts))
+          "its removed text is the description as it stands")
+      (is (= ["module-description-differs"] (reasons (view "+ A better fixture.\n") in-place-opts))
+          "a module that has a description shows it removed")
+      (is (= ["no-change-in-proposal" "in-place-description-unchanged"] (reasons (view "A fixture.\n") in-place-opts)))
+      (is (some #{"description-not-at-head"}
+                (reasons (str "# A book\n\n## psyche-belief › vision/rule.md\n\n## The rule\n\n"
+                              "#### Proposal 1: D · psyche-belief › vision/rule.md\n\n::: description\n- A fixture.\n+ B.\n:::\n\n"
+                              "First line.\n\nSecond line.\n\n- a bullet\n")
+                         in-place-opts)))))
+  (testing "malformed forms are refused"
+    (doseq [[body reason] [["::: description\n+ New.\n- Old.\n:::\n" "malformed-description"]
+                           ["::: description\n- Old.\nNew.\n:::\n" "malformed-description"]
+                           ["::: description\n  Context.\n:::\n" "malformed-description"]
+                           ["::: description\n-\n+\n:::\n" "malformed-description"]
+                           ["::: description\n- Same.\n+ Same.\n:::\n" "description-change-changes-nothing"]
+                           ["::: description\n:::\n" "empty-description-container"]
+                           ["::: description now\n- Old.\n+ New.\n" "malformed-description-container"]
+                           ["::: description\n- Old.\n+ New.\n" "unclosed-description-container"]
+                           ["+ Added.\n\n::: description\n- Old.\n+ New.\n:::\n" "description-not-at-head"]
+                           ["Module text.\n\n::: description\n- Old.\n+ New.\n:::\n" "description-not-at-head"]
+                           ["::: description\n- Old.\n+ New.\n:::\n\n::: description\n- Old.\n+ New.\n:::\n" "second-description-in-proposal"]
+                           ["::: comment\nWhy.\n::: description\n:::\n\n+ A.\n" "nested-container"]]]
+      (is (some #{reason} (reasons (description-proposal-book body) {:read-module throwing})) body))
+    (is (some #{"description-outside-proposal"} (reasons "# A book\n\n::: description\nText.\n:::\n")))
+    (is (= ["description-in-questions"]
+           (reasons (str (description-proposal-book "+ Added.\n") "\n## Questions\n\n::: description\n"))))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -1215,5 +1215,48 @@
     (is (str/includes? html "<section class=\"proposal in-place proposed\"><header><span class=\"pnum\">2</span>"))
     (is (not (str/includes? html "::: proposed")))))
 
+(def description-label "<section class=\"description\"><div class=\"description-label\">Description</div>")
+
+(deftest a-module-view-shows-its-description-at-its-head
+  (let [md (str "# B\n\n## psyche-belief › vision/rule.md\n\n::: description\nA plain fixture.\n:::\n\n"
+                "## The rule\n\nFirst line.\n\n"
+                "### Proposal 1: X · psyche-belief › vision/rule.md\n\n+ Added.\n")
+        html (built md)
+        at #(str/index-of html %)]
+    (is (str/includes? html (str description-label "<p>A plain fixture.</p></section>")))
+    (is (< (at "<article class=\"module diff\">") (at description-label) (at "The rule") (at "First line."))
+        "the description stands at the head of the module's sheet")
+    (is (not (str/includes? html "description:")) "no front matter line")
+    (is (not (str/includes? html ":::")))))
+
+(deftest a-changed-description-marks-only-its-changed-words
+  (let [md (str "# B\n\n### Proposal 1: Describe · psyche-belief › vision/rule.md\n\n::: comment\nWhy.\n:::\n\n"
+                "::: description\n- A plain fixture.\n+ A better fixture.\n:::\n\n+ Added.\n")
+        html (built md)
+        at #(str/index-of html %)]
+    (is (str/includes? html (str description-label "<div class=\"diff\">"
+                                 "<div class=\"del\"><p>A <del>plain</del> fixture.</p></div>"
+                                 "<div class=\"add\"><p>A <ins>better</ins> fixture.</p></div></div></section>"))
+        "the removed text under the red margin and the added under the green, each marking its own words")
+    (is (< (at "comment-label") (at description-label) (at "<p>Added.</p>")))
+    (is (not (str/includes? html "description:")))))
+
+(deftest a-new-module-shows-its-description-added
+  (let [md (str "# B\n\n### Proposal 1: New · psyche-belief › vision/new/0.md, a new file\n\n"
+                "::: description\n+ What the new module is about.\n:::\n\n+ ## A rule\n\n+ The rule.\n")
+        html (built md)]
+    (is (str/includes? html (str description-label "<div class=\"diff\"><div class=\"add\"><p>What the new module is about.</p></div></div></section>")))))
+
+(deftest a-description-changed-in-place-stands-in-its-proposal-at-the-head-of-the-sheet
+  (let [md (str "# B\n\n## psyche-belief › vision/rule.md\n\n"
+                "#### Proposal 1: Describe · psyche-belief › vision/rule.md\n\n"
+                "::: description\n- A plain fixture.\n+ A better fixture.\n:::\n\n"
+                "## The rule\n\nFirst line.\n")
+        html (built md)
+        at #(str/index-of html %)]
+    (is (< (at "<article class=\"module diff\">") (at "<section class=\"proposal in-place\">") (at description-label)
+           (at "<ins>better</ins>") (at "</section>\n</section>") (at "The rule"))
+        "the proposal closes after its description, and the module resumes")))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))
