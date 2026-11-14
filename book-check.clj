@@ -41,7 +41,7 @@
 ;; The three context repositories hold only their authored modules; any other
 ;; repository of the living holds any file, named by a relative path.
 (def context-repository #"^(?:psyche|mind|field)-belief\z")
-(def context-module #"^(?:spirit|intent|vision|knowledge|compensation|inquiry|role|raw)/[A-Za-z0-9][A-Za-z0-9_.-]*\.md\z")
+(def context-module #"^(?:spirit|intent|vision|knowledge|notion|compensation|inquiry|role|raw)/[A-Za-z0-9][A-Za-z0-9_.-]*(?:/[0-9]+)?\.md\z")
 (def repository-name #"^[A-Za-z0-9][A-Za-z0-9_.-]*\z")
 (def file-path #"^(?!/)(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*\z|^(?!/)(?:[A-Za-z0-9_.-]+/)*\.[A-Za-z0-9_-][A-Za-z0-9_.-]*\z")
 
