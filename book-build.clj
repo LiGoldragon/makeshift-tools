@@ -1790,13 +1790,16 @@
 
 (defn ethos-fragment-whole-text
   "The kept text of a marked Ethos fragment whose source starts with a root head,
-  else nil: only such a fragment is a whole document losing lines, to be checked
-  as one."
+  else nil. A wholly removed fragment is historical text, highlighted without
+  checking; a context or added line makes the fragment subject to the check."
   [lines]
   (let [kept (ethos-fragment-kept-text lines)
         head (some-> (first (split-ethos-declarations (strip-ethos-comments kept)))
                      (str/split #"[^A-Za-z0-9_]" 2) first)]
-    (when (ethos-roots head) kept)))
+    (when (and (ethos-roots head)
+               (some #(or (str/starts-with? % "  ")
+                          (= % "+") (str/starts-with? % "+ ")) lines))
+      kept)))
 
 (defn guess-code-language
   "An unlabelled fence's language read from its text: \"ethos\" when it opens

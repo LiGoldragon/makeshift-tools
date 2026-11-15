@@ -524,6 +524,23 @@
                        "```ethos\n  Library\n  Broken\n- [ Old.Integer ]\n```\n:::\n")]]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected: Rejected.Broken" (build md)))))))
 
+(deftest wholly-removed-ethos-is-highlighted-history
+  (let [calls (atom [])
+        removed "```ethos\n- Memory\n- [ belief:[ ModuleSource ModuleName ] ]\n- [ Source.{ ModuleSource Vector<ModuleName> }\n-   Answer.[ Succeeded Failed ] ]\n```\n"
+        render (fn [body]
+                 (binding [book-build/*enforce-ethos* true
+                           book-build/*ethos-check* (fn [text] (swap! calls conj text) "Rejected.ConceptualRoot")]
+                   (book-build/build body "")))]
+    (doseq [source [(str "### Proposal 1: Historical · repo › a.md\n\n" removed)
+                    (str "### Proposal 1: Move · repo › a.md\n\n::: move proposed\nfrom: repo › a.md\nto: repo › b.md\n\n" removed ":::\n")]]
+      (let [html (render source)]
+        (is (str/includes? html "language-ethos"))
+        (is (str/includes? html "code-del"))))
+    (is (empty? @calls))
+    (is (nil? (book-build/ethos-fragment-whole-text ["- Memory" "- []"])))
+    (is (= "Memory\n[]" (book-build/ethos-fragment-whole-text ["  Memory" "- []"])))
+    (is (= "Memory\n[]" (book-build/ethos-fragment-whole-text ["- Memory" "- []" "+ Library"])))))
+
 ;; A module view is the module as it stands, authenticated as source by book-check; its
 ;; fences are not whole Ethos documents, so one may use a type another fence declares.
 (deftest a-module-view-fences-are-not-checked-as-whole-ethos-documents
