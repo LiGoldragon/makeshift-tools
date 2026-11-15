@@ -1287,9 +1287,8 @@
         html (built md)
         at #(str/index-of html %)]
     (is (str/includes? html (str description-label "<div class=\"diff\">"
-                                 "<div class=\"del\"><p>A <del>plain</del> fixture.</p></div>"
-                                 "<div class=\"add\"><p>A <ins>better</ins> fixture.</p></div></div></section>"))
-        "the removed text under the red margin and the added under the green, each marking its own words")
+                                 "<div class=\"replacement\"><p>A <del>plain</del><ins>better</ins> fixture.</p></div></div></section>"))
+        "one passage under the change margin, with only changed words marked")
     (is (< (at "comment-label") (at description-label) (at "<p>Added.</p>")))
     (is (not (str/includes? html "description:")))))
 

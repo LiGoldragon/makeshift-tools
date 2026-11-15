@@ -13,10 +13,10 @@
                                                      its way is its <del>/<ins> words, in the move's shade
        </article>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
-       A module's description, at the head of its module view or proposal (a labelled block; changed, its removed and added text
-       each under its margin, each marking only its own changed words):
+       A module's description, at the head of its module view or proposal (a labelled block; changed, one passage
+       under a change margin, with only its changed words marked inline):
          <section class="description"><div class="description-label">Description</div><p>…</p></section>
-         <section class="description"><div class="description-label">Description</div><div class="diff"><div class="del"><p>… <del>…</del> …</p></div><div class="add"><p>… <ins>…</ins> …</p></div></div></section>
+         <section class="description"><div class="description-label">Description</div><div class="diff"><div class="replacement"><p>… <del>…</del><ins>…</ins> …</p></div></div></section>
        A deleted module shown whole, under the red del margin, with a Destroy or Archive mark (drawn by the class):
          <div class="record destroy">  or  <div class="record archive">
            <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
@@ -152,13 +152,15 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .ctx>*+*{padding-top:.6em}
 .ctx{background:transparent;color:var(--fg)}
 .ctx::before{content:"";}
-.diff del,pre del,.move del{color:var(--del-edge);background:var(--hl-del);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
+.diff del,pre del,.move del{color:var(--del-edge);background:var(--hl-del);text-decoration:line-through;overflow-wrap:anywhere;word-break:break-word}
 .diff ins,pre ins,.move ins{color:var(--add-edge);background:var(--hl-add);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
 .diff del *,pre del *,.move del *{color:inherit;text-decoration:inherit}
 .diff ins *,pre ins *,.move ins *{color:inherit;text-decoration:none}
 /* Fallback for publishers that emit prose panels instead of inline marks. */
 .diff .del,.diff .add{color:var(--fg);background:transparent;text-decoration:none}
 .del>*,.add>*{overflow-wrap:anywhere}
+.diff .replacement,.diff>:is(p,h1,h2,h3,h4,h5,h6):has(del,ins){padding:6px 10px 6px 12px;border-left:4px solid var(--add-edge);border-radius:6px;min-width:0}
+.diff .replacement>*{overflow-wrap:anywhere}
 .diff .add,.diff .del{padding:6px 10px 6px 12px;border-left:4px solid;border-radius:6px;min-width:0}
 .diff .add{border-left-color:var(--add-edge)}
 .diff .moved{color:var(--moved-fg);background:var(--moved-bg);padding:6px 10px 6px 12px;border-radius:6px;min-width:0}

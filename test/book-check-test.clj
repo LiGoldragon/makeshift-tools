@@ -299,7 +299,8 @@
     (is (= [] (check account)) "no missing-proposal either")
     (is (= [] (check (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"))))
     (is (= ["no-change-in-proposal" "proposal-module-text-absent"]
-           (reasons (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\nOnly prose.\n")))
+           (reasons (str account "\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\nOnly prose.\n")
+                    {:read-module (fn [& _] "Existing paragraph.")}))
         "a proposal inside an account is checked as a proposal")
     (is (= ["missing-proposal" "text-outside-proposal-without-module"]
            (reasons "# T\n\nProse in a proposal book.\n")))

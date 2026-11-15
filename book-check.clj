@@ -970,6 +970,47 @@
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))
 
+(defn- div-end
+  "The end offset of the div starting at start, including nested divs."
+  [html start]
+  (let [matcher (re-matcher #"(?is)</?div\b[^>]*>" html)]
+    (.region matcher start (count html))
+    (loop [depth 0]
+      (when (.find matcher)
+        (let [depth (+ depth (if (str/starts-with? (str/lower-case (.group matcher)) "</") -1 1))]
+          (if (zero? depth) (.end matcher) (recur depth)))))))
+
+(defn- visible-block-text [html]
+  (-> html (str/replace #"<[^>]*>" " ")
+      (str/replace "&amp;" "&") (str/replace "&lt;" "<") (str/replace "&gt;" ">")
+      (str/replace "&quot;" "\"") (str/replace "&#39;" "'")
+      (str/replace #"\s+" " ") str/trim))
+
+(defn repeated-replacement-errors
+  "Adjacent removed/added blocks that repeat most of either passage's words.
+  The diagnostic names both passages, not merely the enclosing page."
+  [html]
+  (let [matcher (re-matcher #"<div class=\"del\">" html)
+        words #(frequencies (re-seq #"[\p{L}\p{N}]+" (str/lower-case %)))]
+    (loop [out []]
+      (if-not (.find matcher)
+        out
+        (let [start (.start matcher)
+              end (div-end html start)
+              next-open (when end (re-find #"\A\s*<div class=\"add\">" (subs html end)))
+              added-start (when next-open (+ end (str/index-of next-open "<div")))
+              added-end (when added-start (div-end html added-start))
+              removed (when end (visible-block-text (subs html start end)))
+              added (when added-end (visible-block-text (subs html added-start added-end)))
+              old (words (or removed "")) new (words (or added ""))
+              shared (reduce + 0 (map (fn [[word n]] (min n (get new word 0))) old))
+              shorter (min (reduce + 0 (vals old)) (reduce + 0 (vals new)))]
+          (recur (cond-> out
+                   (and (pos? shorter) (> (* 2 shared) shorter))
+                   (conj {:line (inc (count (re-seq #"\n" (subs html 0 start))))
+                          :reason "replaced-line-printed-twice"
+                          :removed removed :added added}))))))))
+
 (defn check-built-page
   "Built HTML -> typed structural errors. Document chrome belongs to the page,
   never to an authenticated module article. A module's own level-one heading is
@@ -991,7 +1032,7 @@
                (cond-> errors bad (conj {:line (inc index)
                                          :reason "book-heading-inside-module-view"
                                          :element bad}))))
-      errors)))
+      (vec (sort-by :line (into errors (repeated-replacement-errors html)))))))
 
 (defn main [args]
   (cond

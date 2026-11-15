@@ -824,27 +824,15 @@
                      (when (seq y) (str "<ins>" (fmt (str/join y)) "</ins>"))))))
        str/join))
 
-(defn marked-side
-  "One side of a replaced text, read whole: its unchanged tokens plain and only
-  its own changed words marked, in <del> on the removed side (:del) and in <ins>
-  on the added side (:add)."
-  [old new fmt side]
-  (let [[open close] (if (= :del side) ["<del>" "</del>"] ["<ins>" "</ins>"])]
-    (->> (word-diff (tokens old) (tokens new))
-         chunks
-         fold-chunks
-         (map (fn [[kind x y]]
-                (if (= kind :same)
-                  (fmt (str/join x))
-                  (let [words (if (= :del side) x y)]
-                    (when (seq words) (str open (fmt (str/join words)) close))))))
-         str/join)))
+(defn replacement-html
+  "A replaced passage is read once, under its ordinary change margin."
+  [html]
+  (str "<div class=\"replacement\">" html "</div>"))
 
 (defn description-html
   "A module's description, as a labelled block of its own: as it stands, its
-  text; changed, its removed text under the red margin and its added text under
-  the green, each marking only its own changed words; new, its text under the
-  green margin."
+  text; replaced, one passage with changed words marked inline; new, its text
+  under the green addition margin."
   [lines]
   (let [{:keys [current added signed]} (book-check/description-sides (vec lines))
         p #(str "<p>" % "</p>")
@@ -853,8 +841,7 @@
          (if-not signed
            (p (inline current))
            (str "<div class=\"diff\">"
-                (cond (and current added) (str (side "del" (marked-side current added inline :del))
-                                               (side "add" (marked-side current added inline :add)))
+                (cond (and current added) (replacement-html (p (marked current added inline)))
                       added (side "add" (inline added))
                       :else (side "del" (inline current)))
                 "</div>"))
@@ -1886,7 +1873,7 @@
        "</ul><p class=\"key-note\">Light shade: proposed. Dark shade: landed.</p></aside>"))
 
 (def ^:private change-mark
-  #"<ins>|<del>|class=\"(?:add|del|moved|shown|code-add|code-del|code-diff|figmark fig-add|figmark fig-del|move move-[a-z]+|record [a-z]+|row-add|row-del)\"")
+  #"<ins>|<del>|class=\"(?:replacement|add|del|moved|shown|code-add|code-del|code-diff|figmark fig-add|figmark fig-del|move move-[a-z]+|record [a-z]+|row-add|row-del)\"")
 
 (defn with-colour-key
   "A page's parts with the colour key after its title and signature line, when
