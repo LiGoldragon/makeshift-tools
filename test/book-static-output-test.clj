@@ -16,13 +16,13 @@
          (book-build/signed-code-html "rust" ["- one" "- two"]))
       "a removed-only fence is one red-margin fence")
   (is (= (str "<pre class=\"code-diff\"><code class=\"language-rust\">"
-              "<span class=\"ln ln-del\">let old = 1;\n</span><span class=\"ln ln-add\">let new = 1;\n</span></code></pre>")
+              "<span class=\"ln ln-replace\">let <del>old</del><ins>new</ins> = 1;\n</span></code></pre>")
          (book-build/signed-code-html "rust" ["- let old = 1;" "+ let new = 1;"]))
-      "a mixed fence interleaves its lines, each carrying its sign class")
+      "a replaced code line is one passage with word marks")
   (doseq [[name source mark]
           [["added" "+ let one = 1;\n+ let two = 2;" "<pre class=\"code-add\">"]
            ["removed" "- let one = 1;\n- let two = 2;" "<pre class=\"code-del\">"]
-           ["mixed" "- let old = 1;\n+ let new = 1;" "<span class=\"ln ln-del\">let old = 1;"]]]
+           ["mixed" "- let old = 1;\n+ let new = 1;" "<span class=\"ln ln-replace\">let <del>old</del><ins>new</ins> = 1;"]]]
     (let [html (book-build/build (str "```rust\n" source "\n```\n") "")]
       (is (str/includes? html mark) (str name " fence is marked in built HTML"))
       (is (not (re-find #"(?m)^[+-] " html)) (str name " fence leaves no sign for page JavaScript")))))

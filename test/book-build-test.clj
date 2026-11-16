@@ -68,8 +68,7 @@
     (is (= "<pre class=\"code-del\"><code class=\"language-rust\">one\ntwo</code></pre>"
            (book-build/signed-code-html "rust" ["- one" "- two"])) "wholly removed")
     (is (= (str "<pre class=\"code-diff\"><code class=\"language-rust\">"
-                "<span class=\"ln\">x\n</span><span class=\"ln ln-del\">  (a b)\n</span>"
-                "<span class=\"ln ln-add\">  (a z)\n</span><span class=\"ln\">(c)\n</span></code></pre>")
+                "<span class=\"ln\">x\n</span><span class=\"ln ln-replace\">  (a <del>b</del><ins>z</ins>)\n</span><span class=\"ln\">(c)\n</span></code></pre>")
            (book-build/signed-code-html "rust" ["  x" "-   (a b)" "+   (a z)" "  (c)"])) "mixed")
     (is (nil? (book-build/signed-code-html "rust" ["plain"])) "no sign, no change")))
 
@@ -146,10 +145,10 @@
     (is (= 1 (count (re-seq #"<table>" html))) "one table")
     (is (str/includes? html "<thead><tr><th>type</th><th>kind</th></tr></thead>"))
     (is (str/includes? html "<tr><td>kept</td><td><code>A</code></td></tr>"))
-    (is (str/includes? html "<tr class=\"row-del\"><td>gone</td><td><code>B</code></td></tr>"))
+    (is (str/includes? html "<tr class=\"row-replace\"><td><del>gone</del><ins>new</ins></td><td><del><code>B</code></del><ins>D</ins></td></tr>"))
     (is (str/includes? html "<tr class=\"row-del\"><td>also gone</td><td>C</td></tr>"))
-    (is (str/includes? html "<tr class=\"row-add\"><td>new</td><td>D</td></tr>"))
-    (is (= 2 (count (re-seq #"<tr class=\"row-del\">" html))) "each removed row is its own struck row")
+    (is (not (str/includes? html "class=\"row-add\"")))
+    (is (= 1 (count (re-seq #"<tr class=\"row-del\">" html))) "only the unpaired removed row remains separate")
     (is (not (str/includes? html "<p>")) "no paragraph of pipes")
     (is (not (re-find #"-{3}" html)) "no separator row drawn as text"))
   (let [html (change "- | a | b |\n- |---|---|\n- | 1 | 2 |")]
@@ -468,8 +467,8 @@
           "a root-headed fragment is checked as the source it leaves: minus lines kept, plus lines dropped")
       (is (str/includes? html "class=\"language-ethos\""))
       (is (str/includes? html "ts-keyword") "the stripped sides are highlighted as Ethos")
-      (is (str/includes? html "ln-del"))
-      (is (str/includes? html "ln-add")))
+      (is (str/includes? html "ln-replace"))
+      (is (str/includes? html "<del>")))
     (reset! calls [])
     (render "  [ Kept.Integer ]\n- [ Old.Integer ]\n+ [ New.Integer ]")
     (is (empty? @calls) "a fragment with no root head never reaches the whole-document checker")
@@ -897,8 +896,8 @@
           (is (str/includes? d "language-datom"))
           (is (str/includes? l "<code class=\"language-rust\">let a = 1;</code>"))))
       (is (str/includes? (built (fence "datom" "+" datom)) "language-datom") "a label is kept")
-      (is (str/includes? (built (str head "```rust\n- let a = 1;\n+ let a = 2;\n```\n")) "<span class=\"ln ln-del\">")
-          "removed then added stays a diff"))))
+      (is (str/includes? (built (str head "```rust\n- let a = 1;\n+ let a = 2;\n```\n")) "<span class=\"ln ln-replace\">")
+          "removed then added is one marked code line"))))
 
 (deftest move-containers-render-once-and-share-figures
   (let [src (str "::: move proposed\nfrom: vision/<old>.md\nto: vision/new.md\n\n"

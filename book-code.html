@@ -256,13 +256,14 @@ pre.code-add{box-shadow:inset 4px 0 var(--add-edge)}
 pre.code-del{box-shadow:inset 4px 0 var(--del-edge)}
 pre.code-diff:has(>code){padding-inline:0}
 pre.code-diff .ln{display:block;padding-inline:14px;position:relative}
-pre.code-diff .ln-add{box-shadow:inset 4px 0 var(--add-edge)}
+pre.code-diff .ln-add,pre.code-diff .ln-replace{box-shadow:inset 4px 0 var(--add-edge)}
 pre.code-diff .ln-del{box-shadow:inset 4px 0 var(--del-edge)}
 pre.code-diff .ln-add::before,pre.code-diff .ln-del::before{position:absolute;left:5px;font-weight:600}
 pre.code-diff .ln-add::before{content:"+";color:var(--add-edge)}
 pre.code-diff .ln-del::before{content:"\2212";color:var(--del-edge)}
-tr.row-add>:first-child{box-shadow:inset 4px 0 var(--add-edge)}
+tr.row-add>:first-child,tr.row-replace>:first-child{box-shadow:inset 4px 0 var(--add-edge)}
 tr.row-del>:first-child{box-shadow:inset 4px 0 var(--del-edge)}
+pre.code-diff :is(del,ins) [class]{color:inherit}
 /* Syntax colours, from tree-sitter's captures. */
 .ts-keyword,.ts-type,.ts-constructor{color:var(--hl-type)}
 .ts-punctuation,.ts-operator{color:var(--hl-punct)}

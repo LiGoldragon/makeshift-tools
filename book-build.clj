@@ -974,11 +974,62 @@
                     :else [:ctx l])]
     [k (if (blank? c) "" c)]))
 
+(defn paired-runs
+  "Pair a removed run with its immediately following added run, in order.
+  Unpaired lines retain their sign; there is no word-overlap threshold."
+  [items removed added]
+  (loop [items (seq items) out []]
+    (if-not (seq items)
+      out
+      (let [[run more] (split-with #(= (ffirst items) (first %)) items)]
+        (if (and (= removed (ffirst items)) (= added (ffirst more)))
+          (let [[next-run tail] (split-with #(= added (first %)) more)
+                old (mapv second run) new (mapv second next-run)]
+            (recur tail
+                   (into out (for [i (range (max (count old) (count new)))
+                                   :let [a (get old i) b (get new i)]]
+                               (cond (and a b) [:replace [a b]]
+                                     a [removed a] :else [added b])))))
+          (recur more (into out run)))))))
+
+(defn highlighted-slice
+  "Slice a highlighted line by source character offsets, keeping its capture
+  spans balanced. Entities count as their source character, never as markup."
+  [html start end]
+  (loop [parts (re-seq #"<[^>]*>|&[^;]+;|[^<&]+" html) stack [] offset 0 out []]
+    (if-let [part (first parts)]
+      (cond
+        (str/starts-with? part "</") (recur (rest parts) (pop stack) offset out)
+        (str/starts-with? part "<") (recur (rest parts) (conj stack part) offset out)
+        :else
+        (let [entity? (str/starts-with? part "&")
+              width (if entity? 1 (count part))
+              a (max 0 (- start offset)) b (min width (- end offset))
+              text (when (< a b) (if entity? part (subs part a b)))]
+          (recur (rest parts) stack (+ offset width)
+                 (cond-> out text (conj (str (str/join stack) text
+                                             (apply str (repeat (count stack) "</span>"))))))))
+      (str/join out))))
+
+(defn marked-code
+  "Word marks projected onto the two whole-side syntax highlights. Unchanged
+  tokens use the new side; removed tokens keep the old side's captures."
+  [old new old-html new-html]
+  (loop [cs (fold-chunks (chunks (word-diff (tokens old) (tokens new)))) o 0 n 0 out []]
+    (if-let [[kind x y] (first cs)]
+      (let [a (count (str/join x)) b (if (= :same kind) a (count (str/join y)))]
+        (recur (rest cs) (+ o a) (+ n b)
+               (conj out (if (= :same kind)
+                           (highlighted-slice new-html n (+ n b))
+                           (str (when (pos? a) (str "<del>" (highlighted-slice old-html o (+ o a)) "</del>"))
+                                (when (pos? b) (str "<ins>" (highlighted-slice new-html n (+ n b)) "</ins>")))))))
+      (str/join out))))
+
 (defn signed-code-html
   "A code fence written as a change; nil when no line is signed. Wholly added
   or wholly removed, it is one fence with a green or red margin. Otherwise the
   module as it stands and as proposed are each highlighted whole, then the
-  lines interleave in the order written, each carrying its sign in the gutter."
+  replaced lines print once, with token marks on their syntax highlights."
   [lang lines]
   (let [items (mapv code-sign lines)
         kinds (set (map first (remove #(and (= :ctx (first %)) (blank? (second %))) items)))]
@@ -991,9 +1042,12 @@
             old (side :del) new (side :add)
             old-h (or (highlight-lines lang old) (mapv esc old))
             new-h (or (highlight-lines lang new) (mapv esc new))
-            rows (loop [[[k] & more] items o 0 n 0 out []]
+            rows (loop [[[k [a b]] & more] (paired-runs items :del :add) o 0 n 0 out []]
                    (case k
                      nil out
+                     :replace (recur more (inc o) (inc n)
+                                     (conj out (str "<span class=\"ln ln-replace\">"
+                                                    (marked-code a b (old-h o) (new-h n)) "\n</span>")))
                      :del (recur more (inc o) n (conj out (str "<span class=\"ln ln-del\">" (old-h o) "\n</span>")))
                      :add (recur more o (inc n) (conj out (str "<span class=\"ln ln-add\">" (new-h n) "\n</span>")))
                      (recur more (inc o) (inc n) (conj out (str "<span class=\"ln\">" (new-h n) "\n</span>")))))]
@@ -1050,12 +1104,30 @@
     :fig body
     (str "<p>" (inline body) "</p>")))
 
+(declare table-diff-html)
+
 (defn paired-body
-  "A removed and an added body, one text; nil unless both are paragraphs or headings."
+  "A removed and an added body of the same shape, printed once."
   [[kind-a a] [kind-b b]]
   (when (= kind-a kind-b)
     (case kind-a
       :p (str "<p>" (marked a b inline) "</p>")
+      :list (let [tag (if (re-find #"^\d" (ffirst b)) "ol" "ul")]
+              (replacement-html
+               (str "<" tag ">"
+                    (apply str (for [i (range (max (count a) (count b)))
+                                     :let [old (second (get a i)) new (second (get b i))]]
+                                 (str "<li>" (marked (or old "") (or new "") inline) "</li>")))
+                    "</" tag ">")))
+      :table (table-diff-html
+              (concat [[:replace [(first a) (first b)]] [" " (second b)]]
+                      (map #(vector "-" %) (drop 2 a))
+                      (map #(vector "+" %) (drop 2 b))))
+      :code (let [[old-lang old-lines] a [new-lang new-lines] b]
+              (when (and (= old-lang new-lang) (not (drawing? old-lines)))
+                (signed-code-html new-lang
+                                  (concat (map #(str "- " %) old-lines)
+                                          (map #(str "+ " %) new-lines)))))
       :heading (let [[_ ha ta] (re-find #"^(#{1,6}) (.*)$" a) [_ hb tb] (re-find #"^(#{1,6}) (.*)$" b)]
                  (when (= ha hb) (heading-html (str ha " " (marked ta tb inline)) identity)))
       nil)))
@@ -1152,25 +1224,39 @@
 
 (defn- table-diff-html
   "A table written as a change: its rows are [sign content], the kept header and
-  separator first, then kept, removed and added rows. One table; a removed or
-  added row carries its sign as a red or green margin."
+  separator first, then kept, removed and added rows. Replaced rows print once
+  with cell-wise word marks; unpaired rows retain their original sign."
   [rows]
-  (let [[[_ head] [_ sep] & body] rows
+  (let [old (mapv second (filter #(#{"-" " "} (first %)) rows))
+        new (mapv second (filter #(#{"+" " "} (first %)) rows))
+        rows (if (and (= "-" (ffirst rows))
+                      (<= 2 (count old)) (<= 2 (count new))
+                      (table-sep? (second old)) (table-sep? (second new)))
+               (concat [[:replace [(first old) (first new)]] [" " (second new)]]
+                       (map #(vector "-" %) (drop 2 old))
+                       (map #(vector "+" %) (drop 2 new)))
+               rows)
+        [[head-sign head] [_ sep] & body] rows
         aligns (mapv #(let [c (strip %)]
                         (cond (and (str/starts-with? c ":") (str/ends-with? c ":")) "center"
                               (str/ends-with? c ":") "right"
                               :else nil))
                      (cells sep))
         row (fn [sign tag l]
-              (str "<tr" (case sign "-" " class=\"row-del\"" "+" " class=\"row-add\"" "") ">"
+              (str "<tr" (case sign "-" " class=\"row-del\"" "+" " class=\"row-add\"" :replace " class=\"row-replace\"" "") ">"
                    (apply str (map-indexed
                                (fn [k c]
                                  (str "<" tag (when-let [a (get aligns k)] (str " style=\"text-align:" a "\"")) ">"
-                                      (inline c) "</" tag ">"))
-                               (cells l)))
+                                      (if (= sign :replace)
+                                        (marked (or (first c) "") (or (second c) "") inline)
+                                        (inline c)) "</" tag ">"))
+                               (if (= sign :replace)
+                                 (let [[a b] (mapv cells l)]
+                                   (mapv #(vector (get a %) (get b %)) (range (max (count a) (count b)))))
+                                 (cells l))))
                    "</tr>"))]
-    (str "<table><thead>" (row " " "th" head) "</thead><tbody>"
-         (apply str (map (fn [[sign l]] (row sign "td" l)) body)) "</tbody></table>")))
+    (str "<table><thead>" (row head-sign "th" head) "</thead><tbody>"
+         (apply str (map (fn [[sign l]] (row sign "td" l)) (paired-runs body "-" "+"))) "</tbody></table>")))
 
 (defn- table-diff-items
   "Change lines with each table whose rows carry more than one sign, header and

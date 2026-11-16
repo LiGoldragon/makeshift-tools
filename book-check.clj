@@ -970,10 +970,11 @@
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))
 
-(defn- div-end
-  "The end offset of the div starting at start, including nested divs."
+(defn- change-block-end
+  "The end offset of a change div, code line or table row, including nested spans."
   [html start]
-  (let [matcher (re-matcher #"(?is)</?div\b[^>]*>" html)]
+  (let [tag (second (re-find #"^<(div|span|tr)\b" (subs html start)))
+        matcher (re-matcher (re-pattern (str "(?is)</?" tag "\\b[^>]*>")) html)]
     (.region matcher start (count html))
     (loop [depth 0]
       (when (.find matcher)
@@ -986,26 +987,38 @@
       (str/replace "&quot;" "\"") (str/replace "&#39;" "'")
       (str/replace #"\s+" " ") str/trim))
 
+(defn- change-run
+  "Consecutive change blocks of one sign, and the offset immediately after them."
+  [html start head]
+  (loop [offset start texts []]
+    (let [space (re-find #"^\s*" (subs html offset))
+          next (+ offset (count space))]
+      (if (str/starts-with? (subs html next) head)
+        (if-let [end (change-block-end html next)]
+          (recur end (conj texts (visible-block-text (subs html next end))))
+          {:end offset :text (str/join " " texts)})
+        {:end offset :text (str/join " " texts)}))))
+
 (defn repeated-replacement-errors
-  "Adjacent removed/added blocks that repeat most of either passage's words.
-  The diagnostic names both passages, not merely the enclosing page."
+  "Adjacent removed/added runs that repeat most of either passage's words.
+  Covers prose blocks, code lines and table rows; names both passages."
   [html]
-  (let [matcher (re-matcher #"<div class=\"del\">" html)
+  (let [matcher (re-matcher #"<(?:div class=\"del\"|span class=\"ln ln-del\"|tr class=\"row-del\")>" html)
         words #(frequencies (re-seq #"[\p{L}\p{N}]+" (str/lower-case %)))]
-    (loop [out []]
-      (if-not (.find matcher)
+    (loop [offset 0 out []]
+      (if-not (.find matcher offset)
         out
         (let [start (.start matcher)
-              end (div-end html start)
-              next-open (when end (re-find #"\A\s*<div class=\"add\">" (subs html end)))
-              added-start (when next-open (+ end (str/index-of next-open "<div")))
-              added-end (when added-start (div-end html added-start))
-              removed (when end (visible-block-text (subs html start end)))
-              added (when added-end (visible-block-text (subs html added-start added-end)))
-              old (words (or removed "")) new (words (or added ""))
+              removed-head (.group matcher)
+              added-head (str/replace removed-head "del\"" "add\"")
+              removed-run (change-run html start removed-head)
+              added-run (change-run html (:end removed-run) added-head)
+              removed (:text removed-run) added (:text added-run)
+              old (words removed) new (words added)
               shared (reduce + 0 (map (fn [[word n]] (min n (get new word 0))) old))
               shorter (min (reduce + 0 (vals old)) (reduce + 0 (vals new)))]
-          (recur (cond-> out
+          (recur (max (inc start) (:end added-run))
+                 (cond-> out
                    (and (pos? shorter) (> (* 2 shared) shorter))
                    (conj {:line (inc (count (re-seq #"\n" (subs html 0 start))))
                           :reason "replaced-line-printed-twice"
