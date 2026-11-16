@@ -773,8 +773,8 @@
     (is (= 1 (count (re-seq #"read once" proposed))) "the passage is read once")
     (is (str/includes? landed "<section class=\"move move-landed\">"))
     (is (str/includes? landed "<del>layers</del><ins>ladder</ins>"))
-    (is (str/includes? code ".move-landed{--add-edge:var(--add-landed-edge);--del-edge:var(--del-landed-edge)}")
-        "a landed move's words take the dark shade")
+    (is (str/includes? code ".move-landed{--rail:var(--fg);--rail-width:4px}")
+        "a landed move shows the double margin")
     (is (str/includes? code ".move del{") "the words of a move's edit are marked as a replaced line's are")))
 
 (deftest a-moved-passage-carries-added-lines-under-the-addition-margin
@@ -793,8 +793,8 @@
           "in order")
       (is (str/includes? html "<p>A rule stays.</p>") "the rest keeps the move margin, outside the addition")
       (is (str/includes? html "+ not added") "a plus line in a code fence is code"))
-    (is (str/includes? code ".move-landed{--add-edge:var(--add-landed-edge)") "landed: the dark shade")
-    (is (str/includes? code ".move-proposed{--add-edge:var(--add-proposed-edge)") "proposed: the light shade")
+    (is (str/includes? code ".move-landed{--rail:var(--fg);--rail-width:4px}") "landed: the double margin")
+    (is (str/includes? code ".move-proposed{--rail:transparent;--rail-width:0px}") "proposed: the single margin")
     (is (str/includes? code ".move>.add{border-left:4px solid var(--add-edge)") "the addition margin replaces the move's")))
 
 (deftest the-comment-has-its-own-colour-light-and-dark
@@ -1027,9 +1027,9 @@
     (is (not (str/includes? proposal "book-kind")) "a proposal shows the light shade")
     (is (= proposal plain))
     (is (str/includes? review "<title>A review</title>")))
-  (is (str/includes? code "--add-landed-edge") "landed edge colours for add and del")
-  (is (str/includes? code "--del-landed-edge"))
-  (is (re-find #":root:has\(meta\[name=\"book-kind\"\]\[content=\"review\"\]\)\{--add-edge:var\(--add-landed-edge\);--del-edge:var\(--del-landed-edge\)\}" code)))
+  (is (not (str/includes? code "landed-edge")) "a landed mark is a double margin, not a darker colour")
+  (is (str/includes? code ":root:has(meta[name=\"book-kind\"][content=\"review\"]){--rail:var(--fg);--rail-width:4px}") "a review shows the double margin")
+  (is (str/includes? code ".proposal.proposed{--rail:transparent;--rail-width:0px}") "a proposed part of a review shows the single margin"))
 
 (deftest the-signature-line-is-the-subtitle
   (doseq [kind ["Proposal" "Review" "Account"]]
@@ -1105,9 +1105,9 @@
   (is (not (str/includes? (book-build/build "# B\n\n## psyche-belief › vision/book.md\n\nAs it stands.\n" "") "class=\"key\""))
       "a page that changes nothing has no key")
   (is (not (str/includes? (book-build/build "+ New.\n" "") "class=\"key\"")) "a fragment without a title has no key")
-  (doseq [sw ["sw-add{background:var(--add-proposed-edge)}" "sw-add-landed{background:var(--add-landed-edge)}"
-              "sw-del{background:var(--del-proposed-edge)}" "sw-del-landed{background:var(--del-landed-edge)}"
-              "sw-move{background:var(--move-proposed-edge)}" "sw-move-landed{background:var(--move-landed-edge)}"
+  (doseq [sw ["sw-add{background:var(--add-proposed-edge)}" "sw-add-landed{background:linear-gradient(to right,var(--add-proposed-edge) 50%,var(--fg) 50%)}"
+              "sw-del{background:var(--del-proposed-edge)}" "sw-del-landed{background:linear-gradient(to right,var(--del-proposed-edge) 50%,var(--fg) 50%)}"
+              "sw-move{background:var(--move-proposed-edge)}" "sw-move-landed{background:linear-gradient(to right,var(--move-proposed-edge) 50%,var(--fg) 50%)}"
               "sw-shown{background:var(--shown-edge)}" "sw-module{background:var(--accent)}"]]
     (is (str/includes? code sw) (str "the swatch is the page colour: " sw)))
   (is (= 3 (count (re-seq #"--add-proposed-edge:#" code))) "the proposed green holds in a review, whose marks are landed"))
@@ -1245,14 +1245,14 @@
                  "### Proposal 2: Proposed · psyche-belief › vision/book.md\n\n::: proposed\n\n::: comment\nWhy.\n:::\n\n- Older.\n+ Newer.\n")
         html (built src)
         landed (subs html (str/index-of html "<article class=\"proposal\">") (str/index-of html "<article class=\"proposal proposed\">"))]
-    (is (str/includes? html "<meta name=\"book-kind\" content=\"review\">") "the page stays a review, dark by default")
+    (is (str/includes? html "<meta name=\"book-kind\" content=\"review\">") "the page stays a review, double margin by default")
     (is (= 1 (count (re-seq #"<article class=\"proposal\">" html))) "the unmarked part stays landed")
     (is (= 1 (count (re-seq #"<article class=\"proposal proposed\">" html))) "the marked part carries the class")
     (is (not (str/includes? landed "proposed")) "the landed part is not marked")
     (is (str/includes? html "<h2>Proposed · psyche-belief › vision/book.md</h2></header>\n<aside class=\"comment\"") "the marker draws nothing of its own")
     (is (not (str/includes? html "::: proposed")))
-    (is (str/includes? code ".proposal.proposed{--add-edge:var(--add-proposed-edge);--del-edge:var(--del-proposed-edge)}")
-        "the class takes the light shade, over the review's dark default on the root")))
+    (is (str/includes? code ".proposal.proposed{--rail:transparent;--rail-width:0px}")
+        "the class takes the single margin, over the review's double margin on the root")))
 
 (deftest a-proposal-in-place-of-a-review-declared-proposed-carries-the-class
   (let [md (str "Presentation.{ «B» Review }\n\n# B\n\n## psyche-belief \u203a vision/rule.md\n\nFirst line.\n\n"

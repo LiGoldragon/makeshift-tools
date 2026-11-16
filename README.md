@@ -27,12 +27,13 @@ or a change-marked line after that heading is refused (`heading-after-questions`
 `move-in-questions`, `code-fence-in-questions`, `change-in-questions`).
 book-build renders it as a heading and prose outside every sheet.
 
-A Review shows its added and removed lines in the dark shade, the shade of
-landed changes; a Proposal shows the light shade, the shade of proposed
-changes. A Review that holds both declares each proposed part with the line
+A Review shows its added and removed lines under a double margin, the mark of
+landed changes: the line's colour, the same as when proposed, beside a rail of
+the page's text colour, each as wide as a whole single margin. A Proposal shows
+the single margin, the mark of proposed changes. A Review that holds both declares each proposed part with the line
 `::: proposed`, the first nonblank line under that proposal's heading (before
 its `::: comment`). It is one line with no closing `:::`, in the words of
-`::: move proposed`, and takes the same light shade. A proposal without it stays
+`::: move proposed`, and takes the same single margin. A proposal without it stays
 dark. It stands under a `### Proposal` heading or an in-place `#### Proposal`
 heading:
 
@@ -52,7 +53,7 @@ as it is outside a proposal (`proposed-outside-proposal`), anywhere but first
 under the heading (`proposed-not-first-in-proposal`), with text after it
 (`malformed-proposed-marker`), or in `## Questions` (`proposed-in-questions`).
 book-build gives the proposal's sheet the class `proposal proposed`
-(`proposal in-place proposed` in place), which sets the light shade for its
+(`proposal in-place proposed` in place), which sets the single margin for its
 margins; the marker draws nothing itself.
 
 A Markdown module's description, the `description` of its front matter, is

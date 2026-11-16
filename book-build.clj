@@ -26,7 +26,7 @@
 ;; module text it explains. Each alternative is its own proposal. The first line may be a
 ;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
 ;; (the default when absent), Review or Account: a Review shows its added and
-;; removed lines in the dark shade. A paragraph opening "Created by" under the
+;; removed lines under the double margin of a landed change. A paragraph opening "Created by" under the
 ;; title is the signature line, shown as the subtitle. A titled page that carries
 ;; a change mark opens with the key to its colours. A ::: shown excerpt of a
 ;; Markdown or plain-text module is prose that wraps; of any other, code. A
@@ -1653,7 +1653,7 @@
   "The opening of a proposal's sheet. With no File line under it, its title
   says where it lands, and is shown as the target chip in the header. A
   proposal that declared itself proposed carries the class proposed: its
-  change margins show in the light shade."
+  change margins show the single margin."
   [n title where? proposed?]
   (str "<article class=\"proposal" (when proposed? " proposed") "\"><header><span class=\"pnum\">" n "</span>"
        (if where?
@@ -1923,15 +1923,15 @@
          "</section>")))
 
 (def colour-key
-  "The key to a page's colours: each mark of a change, with its proposed (light)
-  and landed (dark) shade where it has both, and the two views as it stands."
+  "The key to a page's colours: each mark of a change, with its proposed (a single margin)
+  and landed (a double margin) where it has both, and the two views as it stands."
   (str "<aside class=\"key\" aria-label=\"Key to the colours\"><div class=\"key-label\">Colours</div><ul>"
        "<li><span class=\"sw sw-add\"></span><span class=\"sw sw-add-landed\"></span>added</li>"
        "<li><span class=\"sw sw-del\"></span><span class=\"sw sw-del-landed\"></span>removed</li>"
        "<li><span class=\"sw sw-move\"></span><span class=\"sw sw-move-landed\"></span>moved</li>"
        "<li><span class=\"sw sw-shown\"></span>an excerpt, as it stands</li>"
        "<li><span class=\"sw sw-module\"></span>a module, as it stands</li>"
-       "</ul><p class=\"key-note\">Light shade: proposed. Dark shade: landed.</p></aside>"))
+       "</ul><p class=\"key-note\">A single margin: proposed. A double margin: landed.</p></aside>"))
 
 (def ^:private change-mark
   #"<ins>|<del>|class=\"(?:replacement|add|del|moved|shown|code-add|code-del|code-diff|figmark fig-add|figmark fig-del|move move-[a-z]+|record [a-z]+|row-add|row-del)\"")

@@ -61,7 +61,8 @@
     keyBeforeSheets: !!key && !!(key.compareDocumentPosition(firstSheet) & Node.DOCUMENT_POSITION_FOLLOWING),
     keyItems: key ? [...key.querySelectorAll('li')].map(li => li.textContent) : [],
     keyNote: key ? key.querySelector('.key-note').textContent : null,
-    swatches: Object.fromEntries(['add','add-landed','del','del-landed','move','move-landed','shown','module'].map(n => [n, bg('.sw-' + n)])) };
+    swatches: Object.fromEntries(['add','del','move','shown','module'].map(n => [n, bg('.sw-' + n)])),
+    landedSwatches: Object.fromEntries(['add','del','move'].map(n => { const e = document.querySelector('.sw-' + n + '-landed'); return [n, e ? { image: getComputedStyle(e).backgroundImage, width: e.getBoundingClientRect().width, single: document.querySelector('.sw-' + n).getBoundingClientRect().width } : null]; })) };
 })")
 
 (defn lightness
@@ -118,11 +119,15 @@
             (is (<= (get m "pageWidth") (get m "width")) (w "the page never scrolls sideways"))
             (is (get m "keyBeforeSheets") (w "the key opens the page"))
             (is (= ["added" "removed" "moved" "an excerpt, as it stands" "a module, as it stands"] (get m "keyItems")) (w "the key names every colour"))
-            (is (= "Light shade: proposed. Dark shade: landed." (get m "keyNote")))
-            (when-let [sw (and (every? some? (vals (get m "swatches"))) (get m "swatches"))]
-              (doseq [k ["add" "del" "move"]]
-                (is (> (lightness (get sw k)) (lightness (get sw (str k "-landed")))) (w (str k ": the proposed shade is the lighter"))))
-              (is (= 8 (count (set (vals sw)))) (w "every swatch is its own colour")))))))))
+            (is (= "A single margin: proposed. A double margin: landed." (get m "keyNote")))
+            (let [sw (get m "swatches")]
+              (is (= 5 (count (set (vals sw)))) (w "every single swatch is its own colour"))
+              (doseq [k ["add" "del" "move"] :let [l (get-in m ["landedSwatches" k])]]
+                (is l (w (str k ": a landed swatch is drawn")))
+                (when l
+                  (is (str/includes? (get l "image") (get sw k)) (w (str k ": the landed swatch keeps the proposed colour")))
+                  (is (str/includes? (get l "image") (get m "fg")) (w (str k ": the landed swatch carries the text-colour rail")))
+                  (is (>= (get l "width") (* 2 (get l "single"))) (w (str k ": each colour of the double is a whole single wide"))))))))))))
 
 (let [{:keys [fail error]} (run-tests 'book-theme-render-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

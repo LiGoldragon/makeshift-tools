@@ -95,12 +95,12 @@
         regression-rules (map second (re-seq move-re regression-css))]
     (is (seq move-rules) "move declarations are present")
     (is (str/includes? css ".move{border-left:4px solid var(--move-edge)") "move is a single left margin border")
-    (is (str/includes? css ".move-proposed{--move-edge:var(--move-proposed-edge)}") "proposed move edge")
-    (is (str/includes? css ".move-landed{--move-edge:var(--move-landed-edge)}") "landed move edge")
-    (is (str/includes? css "--move-proposed-edge:#6b7ed6") "light proposed edge")
-    (is (str/includes? css "--move-landed-edge:#304aa8") "light landed edge")
-    (is (str/includes? css "--move-proposed-edge:#9aaeff") "dark proposed edge")
-    (is (str/includes? css "--move-landed-edge:#7e95f5") "dark landed edge")
+    
+    (is (str/includes? css ".move-proposed,.move-landed{--move-edge:var(--move-proposed-edge)}") "a landed move keeps its proposed colour")
+    (is (str/includes? css ".move-landed{--rail:var(--fg);--rail-width:4px}") "a landed move adds the text-colour rail")
+    (is (str/includes? css "--move-proposed-edge:#6b7ed6") "light edge")
+    (is (str/includes? css "--move-proposed-edge:#9aaeff") "dark theme edge")
+    (is (not (str/includes? css "landed-edge")) "no separate dark shade of a landed edge")
     (is (not (str/includes? css ".move{border:2px")) "move has no full surround")
     (is (every? #(not (re-find #"(?m)(?:^|;)\s*(?:background|color)\s*:" %)) move-rules)
         "move rules do not recolour their body")

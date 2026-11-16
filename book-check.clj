@@ -844,7 +844,7 @@
                (do (flush-plain!) (err! number "malformed-move-container"))
 
                ;; `::: proposed`: the first nonblank line under a proposal heading of a
-               ;; Review, one line with no closing; the proposal's marks show in the light shade.
+               ;; Review, one line with no closing; the proposal's marks show the single margin.
                proposed-open?
                (do (flush-plain!)
                    (cond (not (section)) (err! number "proposed-outside-proposal")
