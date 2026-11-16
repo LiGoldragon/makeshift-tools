@@ -1774,20 +1774,34 @@
   [form]
   (boolean (re-find #"^[A-Z]\w*\.\[\s*[a-z]" form)))
 
+(def ^:private ethos-fragment-heads #{"Types" "Traits" "SelfContainedLibrary"})
+
 (defn ethos-gate-text
-  "The text Check reads for a fence. A fence of bare declarations, with no
-  root head, is a fragment of an implied Library: each declaration goes into
-  the types or the traits section by what it is, and comments are dropped.
-  A fence that opens with a root head (or holds nothing) is checked whole."
+  "The text Check reads for a fence. A fence whose head is a fragment head,
+  Types, Traits or SelfContainedLibrary, is read by what it holds: Types as a
+  Library's types section, Traits as its traits section, SelfContainedLibrary
+  as a whole Library with no imports. A fence of bare declarations, with no
+  head, is a fragment of an implied Library: each declaration goes into the
+  types or the traits section by what it is. Comments are dropped from a
+  wrapped fence. A fence that opens with a root head (or holds nothing) is
+  checked whole. The page shows the fence as written; only the check reads
+  the wrapped text."
   [text]
   (let [bare (strip-ethos-comments text)
         forms (split-ethos-declarations bare)
-        head (some-> (first forms) (str/split #"[^A-Za-z0-9_]" 2) first)]
-    (if (or (empty? forms) (ethos-roots head))
-      text
-      (let [{traits true types false} (group-by trait-declaration? forms)]
-        (let [section #(if (seq %) (str "[ " (str/join " " %) " ]") "[]")]
-          (str "Library [] " (section types) " " (section traits) " []"))))))
+        head (some-> (first forms) (str/split #"[^A-Za-z0-9_]" 2) first)
+        body (str/join " " (rest forms))]
+    (cond
+      (or (empty? forms) (ethos-roots head)) text
+      (and (= head (first forms)) (ethos-fragment-heads head))
+      (case head
+        "Types" (str "Library [] " body " [] []")
+        "Traits" (str "Library [] [] " body " []")
+        "SelfContainedLibrary" (str "Library [] " body))
+      :else
+      (let [{traits true types false} (group-by trait-declaration? forms)
+            section #(if (seq %) (str "[ " (str/join " " %) " ]") "[]")]
+        (str "Library [] " (section types) " " (section traits) " []")))))
 
 (defn ethos-zero-check
   "ethos-zero's Check of an ethos text: nil when accepted, else its refusal

@@ -560,6 +560,35 @@
                         "```ethos\nDeliveredRequest.[ Order.{ RequestId String } ]\n```\n"))))
       (is (= 1 (count @calls))))))
 
+;; A fence headed Types, Traits or SelfContainedLibrary is checked by what it holds.
+(deftest fragment-heads-are-checked-by-what-the-fence-holds
+  (let [gate book-build/ethos-gate-text
+        types "Types\n[ Record.{ String Integer } ]"
+        traits "Traits\n[ Summarizable.[ summarize.[ String ] ] ]"
+        self-contained (str "SelfContainedLibrary\n[ Record.{ String Integer } ]\n"
+                            "[ Summarizable.[ summarize.[ String ] ] ]\n[ Record.[ Summarizable ] ]")]
+    (is (= "Library [] [ Record.{ String Integer } ] [] []" (gate types)))
+    (is (= "Library [] [] [ Summarizable.[ summarize.[ String ] ] ] []" (gate traits)))
+    (is (= (str "Library [] [ Record.{ String Integer } ] "
+                "[ Summarizable.[ summarize.[ String ] ] ] [ Record.[ Summarizable ] ]")
+           (gate self-contained)))
+    (let [calls (atom [])
+          render (fn [body]
+                   (binding [book-build/*enforce-ethos* true book-build/*highlight* false
+                             book-build/*ethos-check* (fn [text] (swap! calls conj text) nil)]
+                     (book-build/build (str "# B\n\n```ethos\n" body "\n```\n") "")))]
+      (doseq [body [types traits self-contained]]
+        (let [html (render body)]
+          (is (str/includes? html "language-ethos"))
+          (is (str/includes? html (first (str/split-lines body))) "the page shows the fence as written")))
+      (is (= 3 (count @calls)))
+      (is (every? #(str/starts-with? % "Library ") @calls)))
+    (testing "a fragment whose content is refused is refused as before"
+      (binding [book-build/*enforce-ethos* true book-build/*highlight* false
+                book-build/*ethos-check* (fn [text] "Rejected.Unpaired")]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected"
+              (book-build/build (str "# B\n\n```ethos\n" types "\n```\n") "")))))))
+
 ;; A fence of bare declarations is a fragment of an implied Library.
 (deftest bare-declarations-are-checked-as-a-fragment-of-a-library
   (let [gate book-build/ethos-gate-text]
