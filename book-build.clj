@@ -1671,20 +1671,20 @@
 ;; compiled here: the flake reference is realised with no local build job, so
 ;; it is substituted or built on the remote builder.
 
-(def pinned-ethos-zero
-  "The ethos-zero the books are checked against: tag v20.0.0 of LiGoldragon/ethos-zero."
-  "github:LiGoldragon/ethos-zero/04d93e4b705a1b2abbb806fa385a04ce74b13cdd")
+(def configured-ethos-zero
+  "The publication validator selected by the builder's adjacent configuration."
+  (get (cheshire.core/parse-string (slurp (str (fs/path script-dir "book-ethos.json")))) "validator"))
 
 (def ^:dynamic *ethos-zero*
   "The ethos-zero that checks proposed code (a fence inside a proposal or
   written as a change): a flake reference, a store path, or an ethos-zero
   binary."
-  pinned-ethos-zero)
+  configured-ethos-zero)
 
 (def ^:dynamic *ethos-zero-real*
   "The ethos-zero that checks real code: a fence quoting source outside any
   proposal."
-  pinned-ethos-zero)
+  configured-ethos-zero)
 
 (def ^:dynamic *ethos-check*
   "A function of an ethos text giving nil when ethos-zero accepts it, else
@@ -2378,8 +2378,8 @@
           ei (.indexOf args "--ethos-zero")
           ri (.indexOf args "--ethos-zero-real")]
       (binding [*figures-dir* (when (>= fi 0) (get args (inc fi)))
-                *ethos-zero* (if (>= ei 0) (get args (inc ei)) pinned-ethos-zero)
-                *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) pinned-ethos-zero)]
+                *ethos-zero* (if (>= ei 0) (get args (inc ei)) configured-ethos-zero)
+                *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) configured-ethos-zero)]
         (try (let [src (read-text src-path)]
                (check-source! src)
                (binding [*enforce-ethos* true]
