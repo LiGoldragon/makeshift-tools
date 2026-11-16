@@ -680,7 +680,23 @@
     (is (left-out (in-module sketch))
         "a sketch with edges is a diagram, in a module view too")
     (is (left-out (str "# B\n\n" sketch)))
-    (is (left-out (in-module "```\nsome { unbalanced\n```\n")))))
+    (is (not (left-out (in-module "```\nsome { unbalanced\n```\n")))
+        "in a module view, an unlabelled fence that is no drawing is code")))
+
+(deftest a-bare-code-fence-in-a-module-view-is-code-and-takes-no-figure-number
+  (let [render (fn [md] (binding [book-build/*ethos-check* (constantly nil)] (book-build/build md "")))
+        code "```\n{ one\n  two }\nplain words\n```\n"
+        box "```\n+------+\n| a    |\n+------+\n   | to\n   v\n+------+\n| b    |\n+------+\n```\n"
+        md (str "# B\n\n## mind-belief \u203a knowledge/x.md\n\n```\nsome { unbalanced\nlines\n```\n\n"
+                code "\nBetween.\n\n" box)
+        err (java.io.StringWriter.)
+        html (binding [*err* err] (render md))]
+    (is (str/includes? html "some { unbalanced") "the bare fence is shown as its text")
+    (is (= "book-build: figure fig-1.svg not found; diagram 1 left out\n" (str err))
+        "only the drawing asks for a figure, and it is figure 1")
+    (let [html (with-figures {"fig-1.svg" a-to-b} #(render md))]
+      (is (= 1 (count (re-seq #"<div class=\"figure\"" html))))
+      (is (str/includes? html "two }")))))
 
 (deftest sketch-one-of-book-09-is-a-diagram
   (let [src (slurp (str (fs/path fixtures-dir "what-a-book-is.md")))]

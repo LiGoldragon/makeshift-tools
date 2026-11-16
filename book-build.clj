@@ -7,8 +7,9 @@
 ;; Crystallization heading, proposals (### Proposal N: title), File:
 ;; lines, fenced text as panels signed in the margin, fenced code highlighted by tree-sitter as code
 ;; blocks, and numbered rulings. An ASCII box-and-arrow diagram in an unlabelled
-;; fence, and every unlabelled fence outside a proposal, boxed or not, is a
-;; diagram; it is never drawn: the n-th diagram is shown as fig-n.svg from the
+;; fence, and every unlabelled fence outside a proposal and outside a module view,
+;; boxed or not, is a diagram (in a module view an unlabelled fence is the module's
+;; text, a diagram only when it is a drawing; a figure is numbered only if it is one); it is never drawn: the n-th diagram is shown as fig-n.svg from the
 ;; --figures directory, its colours replaced by the page theme's (ink the page
 ;; text colour, fills the page surface) and its ids made its own. Every Mermaid fence requires its ordered figure file;
 ;; a missing or unreadable one stops the build and names that file. Other
@@ -2294,8 +2295,9 @@
             (and (= lang "text") (not-any? signed-line? lines) (diagram? lines))
             (emit (show-fig lines))
 
-            ;; An unlabelled fence outside a proposal is a diagram, boxed or not.
-            (and (:bare (meta b)) (not @in-article) (not-any? signed-line? lines))
+            ;; An unlabelled fence outside a proposal and outside a module view is a diagram, boxed or
+            ;; not. In a module view it is the module's own text, a drawing only when it is one.
+            (and (:bare (meta b)) (not @in-article) (not @in-module) (not-any? signed-line? lines))
             (emit (show-fig lines))
 
             (and (= lang "text") (not-any? signed-line? lines))
