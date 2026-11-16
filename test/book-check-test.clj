@@ -224,6 +224,18 @@
                                        "\n" proposal) opts))))
         "a view that differs from the module is refused")))
 
+(deftest a-module-view-accepts-every-version-file-name
+  (doseq [version ["0.md" "0-1.md" "all.md"]]
+    (let [path (str "vision/flow-nexus/" version)
+          body "A rule.\n"
+          read-module (fn [repo p]
+                        (same! "psyche-belief" repo) (same! path p)
+                        (str "---\ndescription: A fixture.\ndependencies: []\n---\n\n" body))
+          opts {:read-module read-module}
+          source (str "# A book\n\n## psyche-belief › " path "\n\n::: description\nA fixture.\n:::\n\n" body
+                      "\n## Proposal 1: psyche-belief › " path "\n+ A proposal.\n")]
+      (is (= [] (check source opts)) (str "a module view of " path)))))
+
 (deftest removal-only-or-deleted-file-passes
   (is (= [] (reasons "# A book\n## Proposal 1: chronos › a.ethos\n- Old line.\n")))
   (is (= [] (reasons "# A book\n## Proposal 1: chronos › a.ethos, a deleted file\nIt goes.\n")))
