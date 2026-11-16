@@ -953,13 +953,19 @@
 
 (defn- code-class [lang] (get langs lang (if (= "" lang) "text" lang)))
 
+(declare check-rendered-ethos! guess-code-language)
+(def ^:dynamic *validate-rendered-ethos* true)
+(def ^:dynamic *rendered-ethos-reference* nil)
+
 (defn code-html
   "A code fence: its lines highlighted in its language, plain when no grammar
   serves it. With a sign, the whole fence is added (+) or removed (-), and the
   sign is its margin alone."
   ([lang lines] (code-html lang lines nil))
   ([lang lines sign]
-   (let [lines (vec lines)]
+   (let [lines (vec lines)
+         lang (if (= lang "") (or (guess-code-language lines) "text") lang)]
+     (when (not= sign "-") (check-rendered-ethos! lang lines))
      (str "<pre" (case sign "+" " class=\"code-add\"" "-" " class=\"code-del\"" "")
           "><code class=\"language-" (code-class lang) "\">"
           (str/join "\n" (or (highlight-lines lang lines) (map esc lines)))
@@ -1032,6 +1038,7 @@
   replaced lines print once, with token marks on their syntax highlights."
   [lang lines]
   (let [items (mapv code-sign lines)
+        lang (if (= lang "") (or (guess-code-language (mapv second items)) "text") lang)
         kinds (set (map first (remove #(and (= :ctx (first %)) (blank? (second %))) items)))]
     (cond
       (not (or (kinds :add) (kinds :del))) nil
@@ -1040,6 +1047,7 @@
       :else
       (let [side (fn [k] (mapv second (filter #(#{k :ctx} (first %)) items)))
             old (side :del) new (side :add)
+            _ (check-rendered-ethos! lang new)
             old-h (or (highlight-lines lang old) (mapv esc old))
             new-h (or (highlight-lines lang new) (mapv esc new))
             rows (loop [[[k [a b]] & more] (paired-runs items :del :add) o 0 n 0 out []]
@@ -1136,7 +1144,8 @@
   (let [body (if (and *module-fig* (not= "-" sign) (= :code (first body)) (= "mermaid" (first (second body))))
                [:fig (*module-fig* (second (second body)))]
                body)
-        inner (body-html body)]
+        inner (binding [*validate-rendered-ethos* (and *validate-rendered-ethos* (not= sign "-"))]
+                (body-html body))]
     (case (if (= :fig (first body)) (str "fig" sign) sign)
       ;; a figure keeps its own colours: only a surround marks it as added or removed
       "fig+" (str "<div class=\"figmark fig-add\">" inner "</div>")
@@ -1832,48 +1841,6 @@
     (when (and (seq ls) (every? signed-line? ls))
       (mapv #(if (signed-line? %) (if (< (count %) 2) "" (subs % 2)) %) lines))))
 
-(defn ethos-fence-kind
-  "How an Ethos fence is authored: a coherent marked fragment, a context-only
-  change, malformed marked text, or a whole Ethos document. Blank lines carry
-  no mark; two spaces carry unchanged diff context."
-  [lines]
-  (let [nonblank (remove blank? lines)
-        signed? #(boolean (or (= % "+") (= % "-")
-                              (str/starts-with? % "+ ")
-                              (str/starts-with? % "- ")))
-        context? #(str/starts-with? % "  ")
-        has-change? (some signed? nonblank)]
-    (cond
-      (and has-change? (every? #(or (signed? %) (context? %)) nonblank)) :fragment
-      has-change? :malformed-fragment
-      (and (seq nonblank) (every? #(str/starts-with? % " ") nonblank)) :context-only
-      :else :whole)))
-
-(defn ethos-fragment-kept-text
-  "The text a marked Ethos fragment leaves in the source: minus lines kept, plus
-  lines dropped, markers and the two-space context indent stripped."
-  [lines]
-  (str/join "\n"
-            (for [l lines
-                  :when (not (str/starts-with? l "+"))]
-              (cond (= l "-") ""
-                    (str/starts-with? l "- ") (subs l 2)
-                    (str/starts-with? l "  ") (subs l 2)
-                    :else l))))
-
-(defn ethos-fragment-whole-text
-  "The kept text of a marked Ethos fragment whose source starts with a root head,
-  else nil. A wholly removed fragment is historical text, highlighted without
-  checking; a context or added line makes the fragment subject to the check."
-  [lines]
-  (let [kept (ethos-fragment-kept-text lines)
-        head (some-> (first (split-ethos-declarations (strip-ethos-comments kept)))
-                     (str/split #"[^A-Za-z0-9_]" 2) first)]
-    (when (and (ethos-roots head)
-               (some #(or (str/starts-with? % "  ")
-                          (= % "+") (str/starts-with? % "+ ")) lines))
-      kept)))
-
 (defn guess-code-language
   "An unlabelled fence's language read from its text: \"ethos\" when it opens
   with a root word or declares Name.{ } / Name.[ ] with Vector<>, \"datom\" when
@@ -1882,7 +1849,7 @@
   (let [text (str/join "\n" lines)
         code (str/join "\n" (remove #(str/starts-with? (strip %) ";") lines))]
     (cond
-      (re-find #"(?m)^\s*(Library|Signal|Operation|Memory)\b" code) "ethos"
+      (re-find #"(?m)^\s*(Library|Signal|Operation|Memory|Emission)\b" code) "ethos"
       (and (re-find #"\b[A-Z]\w*\.[\{\[]" code) (re-find #"Vector<" code)) "ethos"
       (and (re-find #"\b[A-Z]\w*\.[\{\[]" code) (re-find #"(?m)^\s*\[\s*$|\]\s*;" text) (not (re-find #"«" code))) "ethos"
       (datom-text? lines) "datom")))
@@ -1925,6 +1892,14 @@
                         {:kind :validator-unavailable}))
         (throw (ex-info (str "ethos rejected: " result) {:kind :ethos-rejected}))))
     true))
+
+(defn check-rendered-ethos!
+  "Every rendered Ethos fence passes through this boundary, whether authored
+  as a whole fence, a signed fence or a fence inside an outer change. Removed
+  history and authenticated module views retain their explicit exemptions."
+  [language lines]
+  (when (and *enforce-ethos* *validate-rendered-ethos* (= language "ethos"))
+    (check-ethos! (or *rendered-ethos-reference* *ethos-zero*) (str/join "\n" lines))))
 
 (defn comment-html
   "The proposal author's reason, apart from the module text it explains."
@@ -2239,19 +2214,10 @@
               code-file? (and @in-module (not @module-md) (not= raw-lang "figure"))
               lang (cond md? "text"
                          (and code-file? (= raw-lang "text")) (file-language @module-file)
-                         :else raw-lang)
-              ethos-kind (when (and (= lang "ethos") (or @in-article *move-context*) (not code-file?))
-                           (ethos-fence-kind lines))
-              ;; a fragment whose source starts with a root head is a whole document losing lines
-              fragment-whole (when (= ethos-kind :fragment) (ethos-fragment-whole-text lines))]
-          ;; A module view is the module as it stands, authenticated as source by the
-          ;; checker; its fences are not whole Ethos documents (one may use a type another declares).
-          (when (and *enforce-ethos* (= lang "ethos") (not= ethos-kind :fragment)
-                     (not (and @in-module (not @in-article))))
-            (check-ethos! (if code-file? *ethos-zero-real* *ethos-zero*)
-                          (str/join "\n" lines)))
-          (when (and *enforce-ethos* fragment-whole)
-            (check-ethos! *ethos-zero* fragment-whole))
+                         :else raw-lang)]
+          (binding [*validate-rendered-ethos* (and *validate-rendered-ethos*
+                                                (not (and @in-module (not @in-article))))
+                    *rendered-ethos-reference* (if (or @in-article *move-context*) *ethos-zero* *ethos-zero-real*)]
           (when (and @rulings @pending-close) (close-rulings true))
           (cond
             ;; a removed Mermaid fence is its source, as any removed code block: nothing is drawn
@@ -2336,7 +2302,7 @@
             (let [shown (if (= "" lang)
                           (or (some-> (unsign-lines lines) guess-code-language) "text")
                           lang)]
-              (emit (or (signed-code-html shown lines) (code-html shown lines))))))
+              (emit (or (signed-code-html shown lines) (code-html shown lines)))))))
         :else
         (render-prose i (second b))))
     (close-rulings false)

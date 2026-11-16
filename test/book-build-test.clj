@@ -463,15 +463,15 @@
                                            body "\n```\n") "")))
         fragment "  Library\n  []\n- [ Old.Integer ]\n+ [ New.Integer ]\n\n  []\n  []"]
     (let [html (render fragment)]
-      (is (= ["Library\n[]\n[ Old.Integer ]\n\n[]\n[]"] @calls)
-          "a root-headed fragment is checked as the source it leaves: minus lines kept, plus lines dropped")
+      (is (= ["Library\n[]\n[ New.Integer ]\n\n[]\n[]"] @calls)
+          "a root-headed change checks the standing and added text, not removed history")
       (is (str/includes? html "class=\"language-ethos\""))
       (is (str/includes? html "ts-keyword") "the stripped sides are highlighted as Ethos")
       (is (str/includes? html "ln-replace"))
       (is (str/includes? html "<del>")))
     (reset! calls [])
     (render "  [ Kept.Integer ]\n- [ Old.Integer ]\n+ [ New.Integer ]")
-    (is (empty? @calls) "a fragment with no root head never reaches the whole-document checker")
+    (is (= 1 (count @calls)) "a fragment without a root is also checked through the implied Library")
     (reset! calls [])
     (render accepted-ethos)
     (is (= [accepted-ethos] @calls) "a root at column zero remains a whole Ethos document")
@@ -483,8 +483,6 @@
     (reset! calls [])
     (render "\n")
     (is (= ["\n"] @calls) "an empty fence is not a fragment and reaches the whole checker")
-    (is (= :context-only (book-build/ethos-fence-kind ["  Library" "  []"])))
-    (is (= :malformed-fragment (book-build/ethos-fence-kind ["+ Library" "[]"])))
     (let [datom (binding [book-build/*enforce-ethos* true
                           book-build/*ethos-check* (fn [& _] (throw (Exception. "Ethos checker called")))]
                   (book-build/build (str "### Proposal 1: Datom · repo › x.datom\n\n"
@@ -493,7 +491,7 @@
       (is (str/includes? datom "class=\"code-add\"")))))
 
 ;; A fragment whose source starts with a root head is a whole document losing lines.
-(deftest root-headed-ethos-fragment-is-checked-as-the-source-it-leaves
+(deftest root-headed-ethos-fragment-checks-the-standing-and-added-text
   (let [calls (atom [])
         check (fn [text] (swap! calls conj text) (when (str/includes? text "Broken") "Rejected.Broken"))
         build (fn [md] (binding [book-build/*enforce-ethos* true book-build/*ethos-check* check]
@@ -508,7 +506,7 @@
   []
 ```
 "
-        kept "Library\n[]\n[ Old.Integer ]\n[ Kept.Integer ]\n[]\n[]"]
+        kept "Library\n[]\n[ Kept.Integer ]\n[ New.Integer ]\n[]\n[]"]
     (testing "in a proposal, accepted"
       (build (str "### Proposal 1: Ethos · repo › x.ethos\n\n" fence))
       (is (= [kept] @calls)))
@@ -516,7 +514,7 @@
     (testing "inside a move, accepted"
       (build (str "### Proposal 1: Move · repo › a.md\n\n::: move proposed\nfrom: repo › a.ethos\nto: repo › b.ethos\n\n" fence ":::\n"))
       (is (= [kept] @calls)))
-    (testing "whose kept text is not valid Ethos, refused by name"
+    (testing "whose standing text is not valid Ethos, refused by name"
       (doseq [md [(str "### Proposal 1: Ethos · repo › x.ethos\n\n"
                        "```ethos\n  Library\n  Broken\n- [ Old.Integer ]\n```\n")
                   (str "### Proposal 1: Move · repo › a.md\n\n::: move proposed\nfrom: repo › a.ethos\nto: repo › b.ethos\n\n"
@@ -536,9 +534,8 @@
         (is (str/includes? html "language-ethos"))
         (is (str/includes? html "code-del"))))
     (is (empty? @calls))
-    (is (nil? (book-build/ethos-fragment-whole-text ["- Memory" "- []"])))
-    (is (= "Memory\n[]" (book-build/ethos-fragment-whole-text ["  Memory" "- []"])))
-    (is (= "Memory\n[]" (book-build/ethos-fragment-whole-text ["- Memory" "- []" "+ Library"])))))
+    (is (str/includes? (render "### Proposal 1: Historical · repo › a.md\n\n- ```ethos\n- Memory\n- []\n- ```\n") "language-ethos"))
+    (is (empty? @calls))))
 
 ;; A module view is the module as it stands, authenticated as source by book-check; its
 ;; fences are not whole Ethos documents, so one may use a type another fence declares.
