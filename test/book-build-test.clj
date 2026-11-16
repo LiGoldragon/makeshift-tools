@@ -1126,6 +1126,18 @@
     (is (str/includes? el "<text>unpainted</text>") "unpainted text inherits the root's ink")
     (is (re-find #"<svg [^>]*style=\"color:var\(--fg\);fill:var\(--fg\);" el) "the root's ink is the page text colour")))
 
+(deftest a-figures-style-sheet-follows-its-prefixed-ids
+  (let [svg (str "<svg xmlns=\"http://www.w3.org/2000/svg\" id=\"my-svg\" viewBox=\"0 0 9 9\">"
+                 "<style>#my-svg{fill:#000}#my-svg .node rect,#my-svg .x{fill:#ffffff;stroke:#000000}#other .y{fill:#fff}</style>"
+                 "<g class=\"node\"><rect/></g></svg>")
+        el (book-build/illustration-el svg "f1-")]
+    (is (str/includes? el "id=\"f1-my-svg\""))
+    (is (str/includes? el "#f1-my-svg{") "the root selector names the prefixed id")
+    (is (str/includes? el "#f1-my-svg .node rect,#f1-my-svg .x{fill:var(--chip);stroke:var(--fg)}")
+        "every selector of a rule names the prefixed id")
+    (is (str/includes? el "#other .y{") "an id the figure does not have is left")
+    (is (not (str/includes? el "#my-svg")))))
+
 (deftest every-figure-on-a-page-has-its-own-ids
   (let [svg "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 9 9\"><marker id=\"a\"/><line marker-end=\"url(#a)\"/></svg>"
         src (str "# B\n\n```mermaid\nflowchart TB\n  a --> b\n```\n\n```mermaid\nflowchart TB\n  c --> d\n```\n")

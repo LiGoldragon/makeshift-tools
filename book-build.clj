@@ -574,7 +574,15 @@
       (-> svg
           (str/replace #"(\sid\s*=\s*\")([^\"]+)\"" (fn [[_ pre id]] (str pre prefix id "\"")))
           (str/replace #"url\(\s*#([^)\s]+)\s*\)" (fn [[whole id]] (if (ids id) (str "url(#" prefix id ")") whole)))
-          (str/replace #"((?:xlink:)?href\s*=\s*\")#([^\"]+)\"" (fn [[whole pre id]] (if (ids id) (str pre "#" prefix id "\"") whole)))))))
+          (str/replace #"((?:xlink:)?href\s*=\s*\")#([^\"]+)\"" (fn [[whole pre id]] (if (ids id) (str pre "#" prefix id "\"") whole)))
+          ;; a style sheet's selectors name the figure's elements by id (Mermaid's `#my-svg .node`)
+          (str/replace #"(?is)(<style\b[^>]*>)(.*?)(</style\s*>)"
+                       (fn [[_ open css close]]
+                         (str open
+                              (str/replace css #"([^{}]*)\{"
+                                           (fn [[_ sel]]
+                                             (str (str/replace sel #"#([\w-]+)" (fn [[whole id]] (if (ids id) (str "#" prefix id) whole))) "{")))
+                              close)))))))
 
 (defn illustration-el
   "The figure container of an illustrator's SVG, held to its aspect ratio by padding, which
