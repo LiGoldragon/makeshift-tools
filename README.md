@@ -12,8 +12,9 @@ It reads `book-code.html` (page code), `book-grammars.json` and
 
 A signed Ethos fence can be an excerpt of a larger declaration: both sides
 are highlighted as written. A signed fence beginning with an Ethos root
-(`Library`, `Signal`, `Operation`, `Memory` or `Emission`) is still checked as
-a whole document; a rootless excerpt makes no whole-file validity claim.
+(`Library`, `Signal`, `Operation`, `Memory`, `Emission`, `Types`, `Traits` or
+`SelfContainedLibrary`) is still checked as that document; a rootless excerpt
+makes no whole-file validity claim.
 Unsigned Ethos fences retain their validation.
 
 **book-check.clj** checks the structure of a book source (`/abs/SOURCE.md`),

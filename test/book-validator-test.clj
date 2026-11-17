@@ -43,4 +43,12 @@
    (let [html (book-build/build (str "### Proposal 1: Fragment · repo › a.md\n\n```ethos\n" body "\n```\n") "")]
     (is (clojure.string/includes? html "language-ethos"))
     (is (clojure.string/includes? html "ts-type"))))))
+(deftest signed-fragment-roots-retain-validation
+ (binding [book-build/*enforce-ethos* true book-build/*highlight* false]
+  (doseq [root ["Types" "Traits" "SelfContainedLibrary"]]
+   (let [calls (atom [])]
+    (binding [book-build/*ethos-check* (fn [text] (swap! calls conj text) "Rejected.invalid")]
+     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected"
+           (book-build/signed-code-html "ethos" [(str "+ " root) "+ []"]))))
+    (is (= 1 (count @calls)) root)))))
 (let [{:keys [fail error]} (run-tests 'book-validator-test)] (System/exit (if (zero? (+ fail error)) 0 1)))

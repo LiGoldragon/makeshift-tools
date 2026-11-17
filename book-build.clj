@@ -1929,11 +1929,12 @@
 
 (defn check-signed-ethos!
   "A signed excerpt is highlighted as authored. Only a root-headed document
-  claims whole-file validity; nested fragments have no implied Library shape."
+  claims whole-file validity, including Types, Traits and SelfContainedLibrary;
+  rootless nested fragments have no implied Library shape."
   [language lines]
   (let [head (some-> (str/join "\n" lines) strip-ethos-comments str/trim
                      (str/split #"[^A-Za-z0-9_]" 2) first)]
-    (when (ethos-roots head)
+    (when (or (ethos-roots head) (ethos-fragment-heads head))
       (check-rendered-ethos! language lines))))
 
 (defn comment-html
