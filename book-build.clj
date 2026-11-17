@@ -1432,14 +1432,18 @@
         shown-open-re #"^::: shown(?:\s+.*)?$"
         shown-location-re #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)$"
         description-open-re #"^::: description(?:\s+.*)?$"
-        container-open-re #"^::: (?:comment|move|shown|description)(?:\s+.*)?$"
+        container-open-re #"^::: (?:comment|move|moved|shown|description)(?:\s+.*)?$"
+        moved-open-re #"^::: moved(?:\s+.*)?$"
         flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))
         ;; A proposal in place opens at its heading and closes where its module resumes.
         in-place (book-check/source-in-place-proposals src)
         in-place-ends (set (map :end (vals in-place)))
+        ;; A new module's view is its proposal: every line in it is a change.
+        new-views (filter :new? (book-check/module-views (book-check/source-lines src)))
+        new-module (fn [i] (when (some #(< (:heading %) i (:end %)) new-views) "New module"))
         close-in-place (fn [i out para proposal]
                          (if (in-place-ends i)
-                           [(-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-close])) [] nil]
+                           [(-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-close])) [] (new-module i)]
                            [out para proposal]))]
     (loop [i 0 out* [] para* [] proposal* nil]
       (if (>= i n)
@@ -1451,12 +1455,23 @@
         (let [l (lines i)
               before proposal
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
+                             (and (empty? para) (:new? (book-check/module-view-heading l))) "New module"
                              (and (empty? para) (str/starts-with? l "## ")) nil
                              :else proposal)]
           (if (= l "::: proposed")
             (do (when-not proposal
                   (throw (ex-info (str "proposed marker outside proposal at source line " (inc i)) {})))
                 (recur (inc i) (conj (cond-> out (seq para) (into (flush para proposal))) [:proposed]) [] proposal))
+          (if (re-find moved-open-re l)
+            ;; a placeholder where a passage left: its state and the module it entered
+            (let [line-no (inc i)
+                  state (second (re-matches #"::: moved (proposed|landed)" l))
+                  end (first (filter #(= ":::" (lines %)) (range (inc i) n)))
+                  body (when end (remove blank? (subvec lines (inc i) end)))
+                  to (some->> (first body) (re-matches #"to: (.+)") second)]
+              (when-not (and state end (= 1 (count body)) to)
+                (throw (ex-info (str "malformed moved placeholder at source line " line-no) {})))
+              (recur (inc end) (conj (cond-> out (seq para) (into (flush para proposal))) [:moved state to]) [] proposal))
           (if (re-find shown-open-re l)
             (let [line-no (inc i)
                   _ (when-not (= l "::: shown")
@@ -1565,7 +1580,7 @@
               (re-find questions-heading l)
               (recur (inc i) (-> out (cond-> (seq para) (into (flush para before))) (conj [:para [l]])) [] nil)
               (re-find skip l) (recur (inc i) out para proposal)
-              :else (recur (inc i) out (conj para l) proposal)))))))))))))))
+              :else (recur (inc i) out (conj para l) proposal))))))))))))))))
 
 (defn parse-list [lines]
   (reduce (fn [items l]
@@ -1629,11 +1644,6 @@
   [path]
   (get target-langs (some-> path (str/split #"\.") rest last) "text"))
 
-(defn- module-path-text
-  "A module heading's text with a trailing change-kind suffix (\" — …\" or \" - …\") stripped."
-  [heading]
-  (str/trim (str/replace (strip heading) #"\s+[—-]\s+.*$" "")))
-
 (def ^:private file-langs
   (merge target-langs {"js" "javascript" "mjs" "javascript" "py" "python" "nix" "nix" "toml" "toml"
                        "json" "json" "yaml" "yaml" "yml" "yaml" "html" "html" "ts" "typescript"
@@ -1673,13 +1683,22 @@
          (str "<h2>" (inline title) "</h2>"))
        "</header>"))
 
+(defn module-anchor
+  "The id of the module view of a `repo › path` location, which a placeholder links to."
+  [location]
+  (str "module-" (str/replace (str/lower-case location) #"[^a-z0-9]+" "-")))
+
 (defn module-header
   "Open a proposal authored as the whole module, with its path and no badge or
-  state label. `heading` is the text of a \"## repo › path\" heading."
-  [heading]
-  (str "<article class=\"module diff\"><header>"
-       "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace heading "`" "")) "</code></h2>"
-       "</header>"))
+  state label. `heading` is the text of a \"## repo › path\" heading. A new
+  module's view carries the state New; a view a placeholder links to carries
+  its anchor."
+  ([heading] (module-header heading false nil))
+  ([heading new? anchor]
+   (str "<article class=\"module diff\"><header" (when anchor (str " id=\"" anchor "\"")) ">"
+        "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace heading "`" "")) "</code></h2>"
+        (when new? "<span class=\"module-state\">New</span>")
+        "</header>")))
 
 ;; ------------------------------------------------------------- ethos check
 ;;
@@ -2020,6 +2039,13 @@
         in-module (volatile! false)
         module-md (volatile! false)
         module-file (volatile! nil)
+        ;; the view's module, `repo › path`, and whether the view creates it
+        module-location (volatile! nil)
+        module-new (volatile! false)
+        ;; the modules a placeholder links to
+        linked (set (keep (fn [b] (when (= :moved (first b)) (nth b 2))) bs))
+        ;; inside a proposal, or a new module's view, a signed line is a change
+        in-change? (fn [] (or @in-article (and @in-module @module-new)))
         module-first (volatile! false)
         after-title (volatile! false)
         rulings (volatile! false)
@@ -2053,7 +2079,7 @@
             (if (and @in-module (next lines)
                      (re-find #"^#{1,3} " first-line)
                      (not (re-find #"^#{2,3} Proposal " first-line))
-                     (not (re-find #"(?U)^## \S+ › .+$" first-line)))
+                     (not (book-check/module-view-heading first-line)))
               (do (render-prose i [first-line])
                   (render-prose i (vec (rest lines))))
           (let [_ (vreset! module-first false)
@@ -2105,17 +2131,21 @@
               (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i)))
               (vreset! in-article true))
 
-            (re-find #"(?U)^## \S+ › .+$" first-line)
-            (do (close-rulings false)
-                (close-record)
-                (vreset! glue false)
-                (when @in-article (append! "</article>") (vreset! in-article false))
-                (when @in-module (append! "</article>"))
-                (append! (module-header (strip (subs first-line 3))))
-                (vreset! module-md (str/ends-with? (module-path-text (subs first-line 3)) ".md"))
-                (vreset! module-file (last (str/split (module-path-text (subs first-line 3)) #" › " 2)))
-                (vreset! module-first true)
-                (vreset! in-module true))
+            (book-check/module-view-heading first-line)
+            (let [{:keys [repository path new?]} (book-check/module-view-heading first-line)
+                  location (str repository " › " path)]
+              (close-rulings false)
+              (close-record)
+              (vreset! glue false)
+              (when @in-article (append! "</article>") (vreset! in-article false))
+              (when @in-module (append! "</article>"))
+              (append! (module-header location new? (when (linked location) (module-anchor location))))
+              (vreset! module-md (str/ends-with? path ".md"))
+              (vreset! module-file path)
+              (vreset! module-location location)
+              (vreset! module-new new?)
+              (vreset! module-first true)
+              (vreset! in-module true))
 
             ;; the closing Questions section: ordinary prose under its heading, outside every sheet
             (re-find questions-heading first-line)
@@ -2237,13 +2267,20 @@
                                     (str "<div class=\"add\">" html "</div>")
                                     html))))]
           (emit (str "<section class=\"move move-" state "\"><header><h2>From "
-                     (esc from) " → To " (esc to) "</h2><span class=\"move-state\">"
+                     (esc from) (when-not (and @in-module (= to @module-location)) (str " → To " (esc to)))
+                     "</h2><span class=\"move-state\">"
                      (str/capitalize state) "</span></header>" inner "</section>")))
+
+        ;; a placeholder: one small block in the move colour, linking the view the passage entered
+        (= :moved (first b))
+        (let [[_ state to] b]
+          (emit (str "<section class=\"move move-" state " move-placeholder\"><p>Moved to "
+                     "<a href=\"#" (module-anchor to) "\">" (esc to) "</a></p></section>")))
 
         (= :fence (first b))
         (let [[_ raw-lang lines per-line] b
               md? (boolean (markdown-languages raw-lang))
-              module-sheet? (and @module-md @module-first (not @in-article) (not (:bare (meta b)))
+              module-sheet? (and @module-md @module-first (not (in-change?)) (not (:bare (meta b)))
                                  (or md? (= raw-lang "text")))
               _ (vreset! module-first false)
               ;; A module view of a code file holds the file as it stands, in its language.
@@ -2257,11 +2294,11 @@
           (when (and @rulings @pending-close) (close-rulings true))
           (cond
             ;; a removed Mermaid fence is its source, as any removed code block: nothing is drawn
-            (and @in-article (removed-mermaid lang lines))
+            (and (in-change?) (removed-mermaid lang lines))
             (emit (code-html "mermaid" (removed-mermaid lang lines) "-"))
 
             ;; a figure proposed for the module it will live in: all + is added, all - removed
-            (and @in-article (signed-figure lang lines))
+            (and (in-change?) (signed-figure lang lines))
             (let [[sign stripped] (signed-figure lang lines)]
               (emit (str "<div class=\"diff\">"
                          (panel sign [:fig ((if (= lang "mermaid") show-mermaid show-fig) stripped)])
@@ -2305,7 +2342,7 @@
                        (code-html lang lines)))
 
             (or (and module-sheet? (or md? (not (diagram? lines))))
-                (and md? (or (not @in-article) (not-any? signed-line? lines))))
+                (and md? (or (not (in-change?)) (not-any? signed-line? lines))))
             (emit (str "<div class=\"markdown\">"
                        (binding [*module-fig* show-fig] (markdown-html lines)) "</div>"))
 

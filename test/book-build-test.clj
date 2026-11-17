@@ -1362,5 +1362,53 @@
            (at "<ins>better</ins>") (at "</section>\n</section>") (at "The rule"))
         "the proposal closes after its description, and the module resumes")))
 
+;; A move read where it lands: in the view of the module it enters, headed by the
+;; module it leaves alone; a placeholder in the view of the module it leaves.
+(deftest a-move-lands-in-its-view-and-a-placeholder-links-to-it
+  (let [md (str "# B\n\n## repo › old.md\n\n## Old\n\nStays.\n\n"
+                "#### Proposal 2: Move · repo › old.md\n\n"
+                "::: moved proposed\nto: repo › new.md\n:::\n\nAfter.\n\n"
+                "## repo › new.md\n\n## New\n\nExisting.\n\n"
+                "#### Proposal 2: Move · repo › new.md\n\n"
+                "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved [-old-][+new+] line.\n:::\n")
+        html (book-build/build md "")
+        at #(str/index-of html %)]
+    (is (= 2 (count (re-seq #"<article class=\"module diff\">" html))))
+    (is (str/includes? html (str "<section class=\"move move-proposed move-placeholder\"><p>Moved to "
+                                 "<a href=\"#module-repo-new-md\">repo › new.md</a></p></section>"))
+        "the placeholder is one small block in the move colour, linking the module the passage entered")
+    (is (str/includes? html "<header id=\"module-repo-new-md\"><h2 class=\"target\">")
+        "the linked view carries the anchor")
+    (is (str/includes? html "<h2>From repo › old.md</h2>")
+        "in the module it enters, the move is headed by the module it leaves alone")
+    (is (< (at "Stays.") (at "move-placeholder") (at "After.") (at "Existing.") (at "Moved <del>old</del><ins>new</ins> line."))
+        "each stands at its place in its module's view")
+    (is (= 1 (count (re-seq #"class=\"move move-proposed\"" html))) "the passage is drawn once")))
+
+(deftest a-landed-placeholder-takes-the-landed-shade
+  (let [html (book-build/build (str "Presentation.{ «B» Review }\n\n# B\n\n## repo › old.md\n\nStays.\n\n"
+                                    "#### Proposal 2: Move · repo › old.md\n\n"
+                                    "::: moved landed\nto: repo › new.md\n:::\n") "")]
+    (is (str/includes? html "<section class=\"move move-landed move-placeholder\"><p>Moved to "))))
+
+;; A new module, as one view: its sheet marked New, every line under the addition margin.
+(deftest a-new-module-is-one-view
+  (let [md (str "# B\n\n## repo › intent/sonnet.md, a new file\n\n"
+                "::: description\n+ A Sonnet flow takes a piece of work.\n:::\n\n"
+                "+ Sonnet does large plain work and designs nothing.\n\n"
+                "#### Proposal 2: Move · repo › intent/sonnet.md\n\n"
+                "::: move proposed\nfrom: repo › old.md\nto: repo › intent/sonnet.md\n\nA moved line.\n:::\n\n"
+                "+ After the move.\n")
+        html (book-build/build md "")]
+    (is (str/includes? html (str "<article class=\"module diff\"><header><h2 class=\"target\"><code style=\"font-size:.95rem\">"
+                                 "repo › intent/sonnet.md</code></h2><span class=\"module-state\">New</span></header>"))
+        "one sheet, headed by the module's path and marked New")
+    (is (str/includes? html "<div class=\"add\"><p>Sonnet does large plain work and designs nothing.</p></div>")
+        "its lines stand under the addition margin")
+    (is (str/includes? html "<div class=\"add\"><p>After the move.</p></div>")
+        "after a proposal in place too")
+    (is (str/includes? html "<h2>From repo › old.md</h2>") "a move lands in it")
+    (is (not (str/includes? html "+ Sonnet")) "no sign is shown as text")))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

@@ -778,5 +778,157 @@
                 (reasons source {:read-module (fn [_ _] (str/replace module gap "\n"))}))
           "authentication still detects missing source spacing"))))
 
+;; A move read where it lands: written in the view of the module it enters, a
+;; placeholder standing in the view of the module it leaves.
+(def ^:private move-modules
+  {"old.md" "## Old\n\nStays.\n\nMoved line.\n\nAfter.\n"
+   "new.md" "## New\n\nExisting.\n"})
+
+(defn- modules-opts [modules]
+  {:read-module (fn [repo path] (same! "repo" repo) (or (get modules path) (throw (Exception. "absent"))))})
+
+(def ^:private source-view
+  (str "## repo › old.md\n\n## Old\n\nStays.\n\n"
+       "#### Proposal 2: Move · repo › old.md\n\n"
+       "::: comment\nIt belongs with the new rule.\n:::\n\n"
+       "::: moved proposed\nto: repo › new.md\n:::\n\nAfter.\n\n"))
+
+(def ^:private entering-view
+  (str "## repo › new.md\n\n## New\n\nExisting.\n\n"
+       "#### Proposal 2: Move · repo › new.md\n\n"
+       "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved line.\n:::\n"))
+
+(deftest a-move-is-written-where-it-lands-and-its-placeholder-where-it-left
+  (let [opts (modules-opts move-modules)]
+    (is (= [] (check (str "# B\n\n" source-view entering-view) opts))
+        "the placeholder stands for the passage in the module it leaves, as it stands")
+    (is (= [] (check (str "# B\n\n" entering-view "\n" source-view) opts))
+        "the placeholder may come before or after the move on the page")
+    (is (= [] (check (str "# B\n\n" (str/replace source-view "#### Proposal 2: Move · repo › old.md"
+                                                 "#### Proposal 2: Move · repo › old.md, and repo › new.md")
+                          (str/replace entering-view "#### Proposal 2: Move · repo › new.md"
+                                       "#### Proposal 2: Move · repo › old.md, and repo › new.md"))
+                     opts))
+        "either heading may name both modules")
+    (is (= ["move-without-placeholder"]
+           (reasons (str "# B\n\n" (str/replace source-view #"(?s)#### Proposal 2.*?:::\n\n::: moved.*?:::\n\n" "")
+                         entering-view)
+                    (modules-opts (assoc move-modules "old.md" "## Old\n\nStays.\n\nAfter.\n"))))
+        "with both modules on the page, a move has its placeholder")
+    (is (= ["context-module-differs" "moved-without-move"]
+           (sort (reasons (str "# B\n\n" source-view
+                               (str/replace entering-view #"(?s)#### Proposal 2.*" ""))
+                          opts)))
+        "a placeholder without its move stands for nothing")
+    (is (= ["context-module-differs" "move-without-placeholder" "moved-without-move"]
+           (sort (reasons (str "# B\n\n" (str/replace source-view "Proposal 2" "Proposal 3") entering-view) opts)))
+        "a placeholder pairs with its move by the proposal number")
+    (is (= ["context-module-differs"]
+           (reasons (str "# B\n\n" source-view (str/replace entering-view "Moved line." "Another line.")) opts))
+        "the passage the placeholder stands for is authenticated in the module it leaves")
+    (is (= ["malformed-moved-placeholder" "move-without-placeholder"]
+           (reasons (str "# B\n\n" (str/replace source-view "to: repo › new.md" "to: repo › old.md") entering-view)
+                    (modules-opts (assoc move-modules "old.md" "## Old\n\nStays.\n\nAfter.\n"))))
+        "a placeholder names a module other than its own")
+    (is (= ["moved-outside-module-view"]
+           (reasons "# B\n\n### Proposal 1: X · repo › old.md\n\n+ A.\n\n::: moved proposed\nto: repo › new.md\n:::\n"))
+        "a placeholder stands only inside a module view")))
+
+(deftest a-move-entering-a-view-checks-its-passage-against-the-module-it-leaves
+  (let [opts (modules-opts move-modules)
+        source (str "# B\n\n" entering-view)]
+    (is (= [] (check source opts)) "the module it leaves is not on the page: its file holds the passage")
+    (is (= ["move-source-text-absent"]
+           (reasons (str/replace source "Moved line." "Not there.") opts)))
+    (is (= [] (check (str/replace source "Moved line." "Moved [+and edited+] line.") opts))
+        "an edit made on its way is undone for the comparison")
+    (is (= ["move-source-unavailable"]
+           (reasons source (modules-opts (dissoc move-modules "old.md")))))))
+
+(deftest a-landed-move-is-the-module-it-enters
+  (let [opts (modules-opts {"old.md" "## Old\n\nStays.\n\nAfter.\n"
+                            "new.md" "## New\n\nExisting.\n\nMoved line, edited.\n"})
+        source (str "Presentation.{ «B» Review }\n\n# B\n\n"
+                    (str/replace source-view "::: moved proposed" "::: moved landed")
+                    (str/replace entering-view "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved line."
+                                 "::: move landed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved line[+, edited+]."))]
+    (is (= [] (check source opts))
+        "landed, the placeholder stands for nothing and the passage, its edit made, is in the module it enters")
+    (is (= ["context-module-differs"]
+           (reasons (str/replace source "line[+, edited+]." "line.") opts)))))
+
+(deftest a-placeholder-can-stand-for-the-end-of-a-current-line
+  (let [opts (modules-opts {"old.md" "## Routes\n\nThe route definition leaves. Field reaches Psyche through Mind.\n\nAfter.\n"
+                            "new.md" "## Destination\n"})
+        source (str "# B\n\n## repo › old.md\n\n"
+                    "#### Proposal 6: Routes · repo › old.md\n\n"
+                    "- ## Routes\n-\n- The route definition leaves.\n"
+                    "::: moved proposed\nto: repo › new.md\n:::\n-\nAfter.\n\n"
+                    "## repo › new.md\n\n## Destination\n\n"
+                    "#### Proposal 6: Routes · repo › new.md\n\n"
+                    "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nField reaches Psyche through Mind.\n:::\n")]
+    (is (= [] (check source opts)) "the passage joins the removed line before the placeholder")
+    (is (= ["context-module-differs"]
+           (reasons (str/replace source "- The route definition leaves.\n::: moved" "- The route definition leaves.\n\n::: moved") opts))
+        "a blank line before the placeholder makes the passage a whole line")))
+
+(deftest several-moves-of-one-proposal-pair-in-the-order-written
+  (let [opts (modules-opts {"old.md" "First moved.\n\nKept.\n\nSecond moved.\n" "new.md" "Existing.\n"})
+        placeholder "#### Proposal 1: Out · repo › old.md\n\n::: moved proposed\nto: repo › new.md\n:::\n\n"
+        move (fn [text] (str "#### Proposal 1: In · repo › new.md\n\n::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+                             text "\n:::\n\n"))
+        source (fn [a b] (str "# B\n\n## repo › old.md\n\n" placeholder "Kept.\n\n" placeholder
+                              "## repo › new.md\n\nExisting.\n\n" (move a) (move b)))]
+    (is (= [] (check (source "First moved." "Second moved.") opts)))
+    (is (= ["context-module-differs"] (reasons (source "Second moved." "First moved.") opts)))))
+
+;; A new module, as one view: every line added, its description required.
+(def ^:private new-module-view
+  (str "## repo › intent/sonnet.md, a new file\n\n"
+       "::: description\n+ A Sonnet flow takes a piece of work.\n:::\n\n"
+       "+ ## Sonnet\n+\n+ Sonnet does large plain work and designs nothing.\n\n"
+       "```ethos\n+ Library\n+ [ sonnet:[ Work ] ]\n```\n"))
+
+(deftest a-new-module-is-one-view-every-line-added
+  (let [opts (modules-opts {})]
+    (is (= [] (check (str "# B\n\n" new-module-view) opts)) "one view is the whole proposal; no file is read")
+    (is (= ["new-module-line-not-added"]
+           (reasons (str "# B\n\n" new-module-view "\nAn unmarked line.\n") opts)))
+    (is (= ["new-module-line-not-added"]
+           (reasons (str "# B\n\n" (str/replace new-module-view "+ Library" "  Library")) opts))
+        "a fence in it holds added lines alone")
+    (is (= ["new-module-line-not-added"]
+           (reasons (str "# B\n\n" (str/replace new-module-view "+ A Sonnet flow" "A Sonnet flow")) opts))
+        "its description is added too")
+    (is (= ["new-module-without-description"]
+           (reasons (str "# B\n\n" (str/replace new-module-view #"(?s)::: description.*?:::\n\n" "")) opts)))
+    (is (= [] (check (str "# B\n\n" (str/replace new-module-view "intent/sonnet.md" "a.ethos")
+                          ) opts))
+        "a new code file needs no description"))
+  (testing "a move may land in it"
+    (let [opts (modules-opts {"old.md" "Stays.\n\nSonnet does large plain work.\n"})
+          source (str "# B\n\n## repo › old.md\n\nStays.\n\n"
+                      "#### Proposal 2: Move · repo › old.md\n\n::: moved proposed\nto: repo › intent/sonnet.md\n:::\n\n"
+                      new-module-view "\n"
+                      "#### Proposal 2: Move · repo › intent/sonnet.md\n\n"
+                      "::: move proposed\nfrom: repo › old.md\nto: repo › intent/sonnet.md\n\nSonnet does large plain work.\n:::\n")]
+      (is (= [] (check source opts)))
+      (is (= ["move-without-placeholder"]
+             (reasons (str/replace source "#### Proposal 2: Move · repo › old.md\n\n::: moved proposed\nto: repo › intent/sonnet.md\n:::\n\n" "")
+                      (modules-opts {"old.md" "Stays.\n"})))))))
+
+;; A module view of a span module, a whole module with its own headings and code, and a proposal in place.
+(deftest a-span-module-view-with-a-proposal-in-place
+  (doseq [path ["vision/flow-nexus/0-1.md" "vision/protos/0.md" "vision/flow-nexus/all.md"]]
+    (let [module (str "---\ndescription: What the versions hold in common.\ndependencies: []\n---\n\n"
+                      "A rule.\n\n## A section\n\nIts text.\n\n```ethos\nLibrary\n[]\n```\n")
+          opts {:read-module (fn [_ p] (same! path p) module)}
+          source (str "Presentation.{ «Span» }\n\n# Span\n\n## psyche-belief › " path "\n\n"
+                      "::: description\nWhat the versions hold in common.\n:::\n\n"
+                      "A rule.\n\n## A section\n\n"
+                      "#### Proposal 1: More · psyche-belief › " path "\n\n+ An added line.\n\n"
+                      "Its text.\n\n```ethos\nLibrary\n[]\n```\n")]
+      (is (= [] (check source opts)) path))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

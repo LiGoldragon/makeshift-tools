@@ -55,12 +55,29 @@
                (not-any? #(or (= % ".") (= % "..")) (str/split relative-path #"/" -1)))))))
 
 (def module-location #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)\z")
+;; A module view is headed `## repo › path`, or `## repo › path, a new file` for a
+;; module the view creates. This is the one definition of that heading: the
+;; checker and the builder both match it through these.
+(def ^:private module-view-pattern "([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\\s,›·]+)(, a new file)?")
+;; A module view heading's text, after `## `: groups repository, path, new-file suffix.
+(def module-view-text (re-pattern (str "^" module-view-pattern "\\z")))
+;; A module view heading line, as the renderer reads it.
+(def module-view-line (re-pattern (str "^## " module-view-pattern "\\s*\\z")))
+
+(defn module-view-heading
+  "The module view a line heads: {:repository :path :new? :location}, or nil when
+  the line heads none or names an invalid location."
+  [line]
+  (when-let [[_ repository path new-file] (re-matches module-view-line line)]
+    (when (valid-location? repository path)
+      {:repository repository :path path :new? (boolean new-file) :location [repository path]})))
+
 ;; The closing Questions section of a Proposal, Review or Account page opens at
 ;; this heading and runs, plain prose, to the end of the source.
 (def questions-heading #"^## Questions\s*\z")
 ;; The renderer recognizes module views only as level-two headings, and
 ;; proposal headings only at levels two and three.
-(def next-section #"^ {0,3}(?:##\s+(?:Proposal\b|Questions\s*\z|[A-Za-z0-9][A-Za-z0-9_.-]* › [^\s,›·]+\s*\z)|###\s+Proposal\b)")
+(def next-section (re-pattern (str "^ {0,3}(?:##\\s+(?:Proposal\\b|Questions\\s*\\z|" module-view-pattern "\\s*\\z)|###\\s+Proposal\\b)")))
 
 (defn read-context-module
   "A file of one of the living's repositories as origin main has it; a context
@@ -167,16 +184,17 @@
           opener (recur (inc k) opener out)
           :else (recur (inc k) nil (into out (map (fn [r] [k r]) (distinct (word-mark-errors line))))))))))
 
-(defn moved-source-line
-  "A moved line as its source module holds it: removed words kept, added words
-  left out, and the space an added word stood between written once."
-  [line]
+(defn- moved-line-side
+  "A moved line with the words of one side kept, group 1 (removed) or group 2
+  (added), the other side's words left out, and the space a left-out word stood
+  between written once."
+  [line kept]
   (let [m (re-matcher #"\[-(.+?)-\]|\[\+(.+?)\+\]" (code-spans-held line))
         sb (StringBuilder.)]
     (loop [pos 0]
       (if (.find m)
         (do (.append sb (subs line pos (.start m)))
-            (.append sb (if (.group m 1) (subs line (.start m 1) (.end m 1)) "\u0000"))
+            (.append sb (if (.group m kept) (subs line (.start m kept) (.end m kept)) "\u0000"))
             (recur (.end m)))
         (.append sb (subs line pos))))
     (-> (str sb)
@@ -184,6 +202,18 @@
       (str/replace #"^\u0000+ | \u0000+$" "")
       (str/replace #" \u0000+(?=[^\p{L}\p{N}\s`*\[(])" "")
       (str/replace "\u0000" ""))))
+
+(defn moved-source-line
+  "A moved line as its source module holds it: removed words kept, added words
+  left out, and the space an added word stood between written once."
+  [line]
+  (moved-line-side line 1))
+
+(defn moved-landed-line
+  "A moved line as the module it enters holds it: added words kept, removed
+  words left out, and the space a removed word stood between written once."
+  [line]
+  (moved-line-side line 2))
 
 ;; ---------------------------------------------------------- in place
 ;;
@@ -262,6 +292,37 @@
         (and gap (str/blank? (body k)) (or (empty? out) (str/blank? (peek out)))) (recur (inc k) out gap)
         :else (recur (inc k) (conj out (body k)) (and gap (str/blank? (body k))))))))
 
+(declare plain-fence-close-re)
+
+(defn- outside-fences
+  "lines with f applied to each line outside a code fence; a fence's own lines
+  and its body stay as written, since a line in a code fence carries no marks."
+  [f lines]
+  (loop [k 0 fence nil out []]
+    (if (>= k (count lines))
+      out
+      (let [line (lines k)
+            opener (second (re-find #"^ {0,3}(`{3,}|~{3,})" line))]
+        (cond
+          fence (recur (inc k) (when-not (re-find (plain-fence-close-re (subs fence 0 1) (count fence)) line) fence)
+                       (conj out line))
+          opener (recur (inc k) opener (conj out line))
+          :else (recur (inc k) nil (conj out (f line))))))))
+
+(defn move-source-lines
+  "A move body read as the module it leaves holds the passage: its added lines
+  left out and its word marks undone."
+  [body]
+  (outside-fences moved-source-line (move-passage-lines body)))
+
+(defn move-landed-lines
+  "A move body read as the module it enters holds the passage: its added lines
+  in place, their sign taken off, and its word marks applied."
+  [body]
+  (let [added (move-added-indices body)]
+    (outside-fences moved-landed-line
+                    (vec (map-indexed (fn [k l] (if (added k) (unsigned-change-line l) l)) body)))))
+
 ;; ---------------------------------------------------------- description
 ;;
 ;; A Markdown module's description, the `description` of its front matter, is
@@ -318,17 +379,34 @@
   (let [close (plain-fence-close-re ch size)]
     (first (filter #(re-find close (lines %)) (range (inc j) end)))))
 
+(defn- location-text [[repository path]] (str repository " › " path))
+
+(defn- location-of [text]
+  (some-> text (str/split #" › " 2) vec))
+
 (defn in-place-proposal
   "The in-place proposal whose heading is line h of the module view of
   [repository path] ending before line e: {:heading h :end k :number :title
-  :comment lines :current lines :errors [[index reason]]}, k being the line
-  where the module resumes, :proposed the index of its `::: proposed` line or
-  nil, and :current the lines this edit contributes to the module as it stands.
-  source-sign selects removed (proposed) or added (landed) lines; an explicitly
-  proposed part of a Review always contributes its removed lines."
+  :comment lines :current lines :moves :placeholders :errors [[index reason]]},
+  k being the line where the module resumes, :proposed the index of its
+  `::: proposed` line or nil, and :current the lines this edit contributes to
+  the module as it stands. source-sign selects removed (proposed) or added
+  (landed) lines; an explicitly proposed part of a Review always contributes its
+  removed lines.
+
+  A move stands in the view of the module it leaves or of the module it enters.
+  Read on the removed side, its passage is the module it leaves as it stands;
+  read on the added side, the module it enters. A placeholder, `::: moved
+  proposed|landed` holding one `to: repo › path` line, stands where a passage
+  written in the destination's view left: on the removed side it stands for
+  that passage, which `resolve-moved` gives as (fn [number from to]) -> the
+  move's record, or nil when no move is left to pair with it. Without
+  resolve-moved a placeholder stands for nothing and pairs with nothing."
   ([lines h e location] (in-place-proposal lines h e location :removed))
-  ([lines h e [repository path] source-sign]
-  (let [heading (re-matches in-place-heading (lines h))
+  ([lines h e location source-sign] (in-place-proposal lines h e location source-sign nil))
+  ([lines h e [repository path] source-sign resolve-moved]
+  (let [view [repository path]
+        heading (re-matches in-place-heading (lines h))
         [_ _ number title heading-repository heading-path to-repository to-path] heading
         locations (cond-> [] heading-repository (conj [heading-repository heading-path])
                           to-repository (conj [to-repository to-path]))
@@ -339,31 +417,45 @@
         start (if proposed (inc proposed) (inc h))
         source-sign (if proposed :removed source-sign)
         source-line? (case source-sign :removed removed-line? :added added-line?)
+        ;; A passage contributed after a nonblank line of the side read is the
+        ;; remainder of that current line; a blank line before it makes it a whole line.
+        joins? (fn [j] (and (> j h)
+                            (source-line? (lines (dec j)))
+                            (not (str/blank? (unsigned-change-line (lines (dec j)))))))
+        contribute (fn [current j passage]
+                     (cond
+                       (empty? passage) current
+                       (and (joins? j) (seq current))
+                       (into (conj (pop current) (str (peek current) " " (first passage))) (rest passage))
+                       :else (into current passage)))
         ;; its description container, read, with the index of its opening line
         description (volatile! nil)
         errors (cond-> []
                  (nil? heading) (conj [h "proposal-heading-without-location"])
-                 (and heading (not (some #{[repository path]} locations)))
+                 (and heading (not (some #{view} locations)))
                  (conj [h "in-place-proposal-elsewhere"]))]
-    (loop [j start comment nil changed false current [] move nil errors errors]
+    (loop [j start comment nil changed false current [] move nil moves [] placeholders [] errors errors]
       (let [done (fn [k]
                    {:heading h :end k :number number :title title :comment comment :proposed proposed
-                    :locations locations :current current :move move :description @description
+                    :locations locations :current current :move move :moves moves
+                    :placeholders placeholders :description @description :sign source-sign
                     :errors (cond-> errors
                               (not changed) (conj [h "no-change-in-proposal"])
-                              (and (= 2 (count locations)) (nil? move))
+                              (and (= 2 (count locations)) (nil? move) (empty? placeholders))
                               (conj [h "move-container-required"]))})]
         (if (>= j e)
           (done e)
           (let [l (lines j)
-                fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)]
+                fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)
+                move-open (re-matches #"::: move (proposed|landed)" l)
+                moved-open (re-matches #"::: moved (proposed|landed)" l)]
             (cond
               (str/blank? l) (recur (inc j) comment changed
-                                    (cond-> current (seq current) (conj l)) move errors)
+                                    (cond-> current (seq current) (conj l)) move moves placeholders errors)
               (or (added-line? l) (removed-line? l))
               (recur (inc j) comment true
-                     (cond-> current (source-line? l) (conj (unsigned-change-line l))) move errors)
-              (context-line? l) (recur (inc j) comment changed (conj current (subs l 2)) move errors)
+                     (cond-> current (source-line? l) (conj (unsigned-change-line l))) move moves placeholders errors)
+              (context-line? l) (recur (inc j) comment changed (conj current (subs l 2)) move moves placeholders errors)
               (re-find in-place-start l) (done j)
 
               (= l "::: comment")
@@ -375,7 +467,7 @@
                              comment (conj [j "second-comment-in-proposal"])
                              changed (conj [j "comment-after-change"]))]
                 (if close
-                  (recur (inc close) (or comment body) changed current move errors)
+                  (recur (inc close) (or comment body) changed current move moves placeholders errors)
                   (done e)))
 
               ;; A description changed in place: its removed lines then its added lines,
@@ -392,43 +484,72 @@
                              (conj [j "in-place-description-unchanged"]))]
                 (when (and close (nil? @description)) (vreset! description (assoc read :line j)))
                 (if close
-                  (recur (inc close) comment (or changed (boolean (:signed read))) current move errors)
+                  (recur (inc close) comment (or changed (boolean (:signed read))) current move moves placeholders errors)
                   (done e)))
 
-              (= l "::: move proposed")
+              ;; A move, in the view of the module it leaves or of the module it enters.
+              move-open
               (let [close (first (filter #(= ":::" (lines %)) (range (inc j) e)))
                     body (if close (subvec lines (inc j) close) [])
                     from (some->> (first body) (re-matches #"from: ([^,]+ › [^,]+)(?:,.*)?") second)
                     to (some->> (second body) (re-matches #"to: ([^,]+ › [^,]+)(?:,.*)?") second)
-                    ;; the passage as its source module holds it, any edit made on its way undone
-                    content (if (and (>= (count body) 4) (= "" (nth body 2)))
-                              (mapv moved-source-line (move-passage-lines (subvec body 3))) [])
-                    from-location (some-> from (str/split #" › " 2) vec)
-                    to-location (some-> to (str/split #" › " 2) vec)
-                    valid? (and close from to (seq content)
-                                (= locations [from-location to-location])
-                                (= [repository path] from-location))
-                    ;; A move container immediately after a nonblank removal is
-                    ;; the remainder of that current source line. A blank line
-                    ;; before the container makes it a whole line of its own.
-                    joins-previous? (and (> j h)
-                                         (removed-line? (lines (dec j)))
-                                         (not (str/blank? (unsigned-change-line (lines (dec j))))))
+                    passage (if (and (>= (count body) 4) (= "" (nth body 2))) (subvec body 3) [])
+                    ;; the passage as the module it leaves holds it, any edit made on its way undone
+                    source-lines (move-source-lines passage)
+                    ;; and as the module it enters holds it, the edit made
+                    landed-lines (move-landed-lines passage)
+                    from-location (location-of from)
+                    to-location (location-of to)
+                    side (cond (= view from-location) :from (= view to-location) :to)
+                    valid? (and close from to (seq source-lines) side
+                                (not= from-location to-location)
+                                (or (= locations [from-location to-location]) (= locations [view])))
                     errors (cond-> errors
                              (nil? close) (conj [j "unclosed-move-container"])
                              (not valid?) (conj [j "malformed-in-place-move"])
                              move (conj [j "second-move-in-proposal"]))
                     errors (into errors (map (fn [[k reason]] [(+ j 1 k) reason]))
                                  (concat (move-body-word-mark-errors body)
-                                         (move-added-line-errors body)))]
+                                         (move-added-line-errors body)))
+                    record {:line j :number number :state (second move-open) :from from-location :to to-location
+                            :side side :sign source-sign :source-lines source-lines :landed-lines landed-lines}]
                 (if close
                   (recur (inc close) comment true
-                         (if (and valid? joins-previous? (seq current))
-                           (into (conj (pop current)
-                                       (str (peek current) " " (first content)))
-                                 (rest content))
-                           (if valid? (into current content) current))
-                         (or move [from to]) errors)
+                         (cond
+                           (not valid?) current
+                           ;; the module it leaves holds the passage as it stands, before the move
+                           (and (= side :from) (= source-sign :removed)) (contribute current j source-lines)
+                           ;; the module it enters holds it once the move has landed
+                           (and (= side :to) (= source-sign :added)) (contribute current j landed-lines)
+                           :else current)
+                         (or move [from to])
+                         (cond-> moves valid? (conj record))
+                         placeholders errors)
+                  (done e)))
+
+              ;; A placeholder, where a passage written in the destination's view left.
+              moved-open
+              (let [close (first (filter #(= ":::" (lines %)) (range (inc j) e)))
+                    body (if close (vec (remove str/blank? (subvec lines (inc j) close))) [])
+                    to (when (= 1 (count body)) (second (re-matches #"to: ([^,]+ › [^,]+)" (first body))))
+                    to-location (location-of to)
+                    valid? (and close to-location
+                                (valid-location? (first to-location) (second to-location))
+                                (not= view to-location)
+                                (or (= locations [view to-location]) (= locations [view])))
+                    paired (when (and valid? resolve-moved) (resolve-moved number view to-location))
+                    errors (cond-> errors
+                             (nil? close) (conj [j "unclosed-moved-container"])
+                             (and close (not valid?)) (conj [j "malformed-moved-placeholder"])
+                             (and valid? resolve-moved (nil? paired)) (conj [j "moved-without-move"]))]
+                (if close
+                  (recur (inc close) comment true
+                         (if (and paired (= source-sign :removed))
+                           (contribute current j (:source-lines paired))
+                           current)
+                         move moves
+                         (cond-> placeholders valid? (conj {:line j :state (second moved-open) :to to-location}))
+                         errors)
                   (done e)))
 
               fence
@@ -451,7 +572,7 @@
                         current' (if (seq kept)
                                    (into current (concat [(str opener language)] kept [opener]))
                                    current)]
-                    (if close (recur (inc close) comment true current' move errors) (done e)))
+                    (if close (recur (inc close) comment true current' move moves placeholders errors) (done e)))
                   (done j)))
 
               :else (done j)))))))))
@@ -494,36 +615,74 @@
   "The in-place proposals of the module view of location, whose lines are
   [start, end); a heading inside the module's own fences is the module's."
   ([lines start end location] (in-place-proposals lines start end location :removed))
-  ([lines start end location source-sign]
+  ([lines start end location source-sign] (in-place-proposals lines start end location source-sign nil))
+  ([lines start end location source-sign resolve-moved]
   (loop [j start fence nil out []]
     (if (>= j end)
       out
       (let [l (lines j)]
         (cond
           fence (recur (inc j) (when-not (re-find (plain-fence-close-re (:char fence) (:size fence)) l) fence) out)
-          (re-find in-place-start l) (let [p (in-place-proposal lines j end location source-sign)]
+          (re-find in-place-start l) (let [p (in-place-proposal lines j end location source-sign resolve-moved)]
                                        (recur (:end p) nil (conj out p)))
           :else (let [open (re-find #"^ {0,3}(`{3,}|~{3,})" l)]
                   (recur (inc j) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out))))))))
 
+(defn source-lines [source]
+  (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1)))
+
+(defn source-kind
+  "The kind its Presentation line gives a source, before any heading: Proposal,
+  Review or Account; Proposal when it names none."
+  [lines]
+  (let [kind (some (fn [l]
+                     (cond (re-find #"^ {0,3}#" l) ::none
+                           (re-find #"^Presentation\.\{ «[^»]*»(?: \w+)? \}\z" l)
+                           (or (second (re-find #"»(?: (\w+))? \}\z" l)) "Proposal")))
+                   lines)]
+    (if (string? kind) kind "Proposal")))
+
+(defn- kind-sign [kind] (if (= "Review" kind) :added :removed))
+
+(defn module-views
+  "Every module view of a source's lines, in order: {:heading i :end k :location
+  [repository path] :new? bool :proposals [in-place proposals]}, each proposal
+  read with the side the kind gives."
+  ([lines] (module-views lines (source-kind lines)))
+  ([lines kind]
+   (do
+     (loop [i 0 fence nil out []]
+       (if (>= i (count lines))
+         out
+         (let [l (lines i)
+               view (when-not fence (module-view-heading l))]
+           (cond
+             fence (recur (inc i) (when-not (re-find (fence-close-re (:char fence) (:size fence)) l) fence) out)
+             view
+             (let [end (module-view-end lines i)]
+               (recur end nil (conj out (assoc view :heading i :end end
+                                               :proposals (in-place-proposals lines (inc i) end (:location view)
+                                                                              (kind-sign kind))))))
+             :else
+             (let [open (re-find (re-pattern (str "^" sign-prefix " {0,3}(`{3,}|~{3,})")) l)]
+               (recur (inc i) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out)))))))))
+
 (defn source-in-place-proposals
   "Every in-place proposal of a source, keyed by the index of its heading line."
   [source]
-  (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))]
-    (loop [i 0 fence nil out {}]
-      (if (>= i (count lines))
-        out
-        (let [l (lines i)
-              view (when-not fence (re-matches #"## ([^\s›·]+) › ([^\s,›·]+)\s*" l))]
-          (cond
-            fence (recur (inc i) (when-not (re-find (fence-close-re (:char fence) (:size fence)) l) fence) out)
-            (and view (valid-location? (nth view 1) (nth view 2)))
-            (let [end (module-view-end lines i)]
-              (recur end nil (into out (map (juxt :heading identity)
-                                            (in-place-proposals lines (inc i) end [(nth view 1) (nth view 2)])))))
-            :else
-            (let [open (re-find (re-pattern (str "^" sign-prefix " {0,3}(`{3,}|~{3,})")) l)]
-              (recur (inc i) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out))))))))
+  (into {} (for [view (module-views (source-lines source)) p (:proposals view)] [(:heading p) p])))
+
+(defn- passage-in-module?
+  "Whether passage is one contiguous excerpt of a module's lines, its first line
+  allowed to be the remainder of a current line."
+  [module passage]
+  (let [n (count passage)]
+    (and (pos? n)
+         (some (fn [k]
+                 (and (let [line (module k)]
+                        (or (= line (first passage)) (str/ends-with? line (str " " (first passage)))))
+                      (= (rest passage) (subvec module (inc k) (+ k n)))))
+               (range (inc (- (count module) n)))))))
 
 (defn check-book
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
@@ -535,6 +694,35 @@
                    :proposals 0 :title false :presentation false :kind "Proposal" :signature nil :shown #{}})
          module-cache (atom {})
          err! (fn [line reason] (swap! st update :errors conj {:line line :reason reason}))
+         ;; Every module view, read before any is checked: a move written in the
+         ;; view of the module it enters pairs with the placeholder in the view of
+         ;; the module it leaves, by the proposal number the two share and the pair
+         ;; of modules, several of them in the order written.
+         views (module-views lines (source-kind lines))
+         viewed (set (map :location views))
+         entering-moves (vec (for [v views p (:proposals v) m (:moves p) :when (= :to (:side m))] m))
+         unpaired (atom (reduce (fn [acc m] (update acc [(:number m) (:from m) (:to m)] (fnil conj []) m))
+                                {} entering-moves))
+         resolve-moved (fn [number from to]
+                         (let [k [number from to]]
+                           (when-let [m (first (get @unpaired k))]
+                             (swap! unpaired update k (comp vec rest))
+                             m)))
+         check-moves!
+         (fn []
+           ;; With both modules on the page, a move has its placeholder.
+           (doseq [m (sort-by :line (apply concat (vals @unpaired))) :when (viewed (:from m))]
+             (err! (inc (:line m)) "move-without-placeholder"))
+           ;; With the module it leaves not on the page, a proposed passage is that
+           ;; module's text as it stands.
+           (doseq [m entering-moves :when (and (not (viewed (:from m))) (= :removed (:sign m)))]
+             (let [[repository path] (:from m)
+                   module (try (vec (str/split (module-body (read-module repository path)) #"\n" -1))
+                               (catch Throwable _ ::unavailable))]
+               (cond
+                 (= ::unavailable module) (err! (inc (:line m)) "move-source-unavailable")
+                 (not (passage-in-module? module (vec (drop-while str/blank? (:source-lines m)))))
+                 (err! (inc (:line m)) "move-source-text-absent")))))
          section #(:section @st)
          set-section! (fn [f] (swap! st update :section f))
          mark-changed! (fn [] (set-section! #(assoc % :changed true)))
@@ -625,14 +813,17 @@
                    (plain! line number))
                  (when (str/blank? line) (flush-plain!)))
          handle-module-view!
-         (fn [i number heading-text [_ repo path]]
-           (let [end (module-view-end lines i)
+         (fn [i number {:keys [repository path new?]}]
+           (let [repo repository
+                 end (module-view-end lines i)
+                 review? (= "Review" (:kind @st))
                  in-place (in-place-proposals lines (inc i) end [repo path]
-                                              (if (= "Review" (:kind @st)) :added :removed))
+                                              (if review? :added :removed) resolve-moved)
                  _ (doseq [p in-place [index reason] (:errors p)] (err! (inc index) reason))
-                 _ (doseq [p in-place :when (and (:proposed p) (not= "Review" (:kind @st)))]
+                 _ (doseq [p in-place :when (and (:proposed p) (not review?))]
                      (err! (inc (:proposed p)) "proposed-outside-review"))
-                 _ (swap! st update :proposals + (count in-place))
+                 ;; a new module's view is itself a proposal: the module, every line added
+                 _ (swap! st update :proposals + (count in-place) (if new? 1 0))
                  ;; The module as it stands: unsigned view lines, with each edit
                  ;; replaced by the current lines it carries (its removals, or a
                  ;; moved passage at the source).
@@ -646,9 +837,15 @@
                  head-read (when head-close
                              (let [read (description-sides (subvec lines (inc head) head-close))]
                                (doseq [r (:errors read)] (err! (inc head) r))
-                               (when (:signed read) (err! (inc head) "description-change-outside-proposal"))
-                               (when (and (empty? (:errors read)) (not (:signed read)))
-                                 (assoc read :line head))))
+                               (if new?
+                                 ;; a new module's description is its added lines alone
+                                 (do (when (and (empty? (:errors read)) (or (not (:signed read)) (:current read)))
+                                       (err! (inc head) "new-module-line-not-added"))
+                                     (when (and (empty? (:errors read)) (:signed read) (nil? (:current read)))
+                                       (assoc read :line head)))
+                                 (do (when (:signed read) (err! (inc head) "description-change-outside-proposal"))
+                                     (when (and (empty? (:errors read)) (not (:signed read)))
+                                       (assoc read :line head))))))
                  head-proposal-read (when-let [d (:description (by-heading head))]
                                       (when (empty? (:errors d)) d))
                  view-description (or head-read head-proposal-read)
@@ -666,11 +863,31 @@
                        (and markdown (front-matter-line? (lines k)))
                        (err! (inc k) "description-as-front-matter")))
                  front-matter? (some #(and markdown (front-matter-line? (lines %))) book-text)
+                 ;; A new module's view, outside its proposals in place, holds added
+                 ;; lines and fences of added lines alone.
+                 _ (when new?
+                     (loop [j (inc i)]
+                       (when (< j end)
+                         (let [l (lines j)
+                               opener (re-find #"^ {0,3}(`{3,}|~{3,})" l)]
+                           (cond
+                             (and head-close (= j head)) (recur (inc head-close))
+                             (by-heading j) (recur (:end (by-heading j)))
+                             (or (str/blank? l) (added-line? l)) (recur (inc j))
+                             opener
+                             (let [fence (second opener)
+                                   close (fence-close-index lines j end (subs fence 0 1) (count fence))
+                                   body (remove str/blank? (subvec lines (inc j) (or close end)))]
+                               (when-not (and close (seq body) (every? added-line? body))
+                                 (err! (inc j) "new-module-line-not-added"))
+                               (recur (if close (inc close) end)))
+                             :else (do (err! (inc j) "new-module-line-not-added") (recur (inc j))))))))
                  raw-lines (loop [j (inc i) out []]
                              (cond
                                (>= j end) out
                                (and head-close (= j head)) (recur (inc head-close) out)
                                (by-heading j) (recur (:end (by-heading j)) (into out (:current (by-heading j))))
+                               (and new? (added-line? (lines j))) (recur (inc j) (conj out (unsigned-change-line (lines j))))
                                :else (recur (inc j) (conj out (lines j)))))
                  raw (str/join "\n" raw-lines)
                  shown (str/trim raw)
@@ -680,27 +897,37 @@
                            (re-find #"^(`{3,}|~{3,})(?:markdown|md|text)\s*\n((?s:.*))\n\1\z" shown)
                            (re-find #"^(`{3,}|~{3,})[^\n`]*\n((?s:.*))\n\1\z" (str/trim raw)))
                  shown (if literal (nth literal 2) shown)]
-             (try
-               (let [file (str/replace (read-module repo path) "\r\n" "\n")]
-                 ;; a Markdown module that has a description shows it at the head of its view
-                 (when (and markdown (not described) (module-description file)
-                            (not (re-find #"\A---\n" shown)))
-                   (err! number "module-view-without-description"))
-                 (when (and view-description
-                            (not= (if (and (= "Review" (:kind @st))
-                                           (:signed view-description)
-                                           (not (:proposed (by-heading head))))
-                                    (:added view-description)
-                                    (:current view-description))
-                                  (module-description file)))
-                   (err! (inc (:line view-description)) "module-description-differs"))
-                 (when (not= shown (if markdown (module-body file) (str/replace file #"\n+\z" "")))
-                   (cond
-                     ;; front matter is never shown raw: its description is a description container
-                     (and markdown (re-find #"\A---\n" shown)) (err! number "front-matter-in-module-view")
-                     (or front-matter? (and head-open (nil? head-close))) nil
-                     :else (err! number "context-module-differs"))))
-               (catch Throwable _ (err! number "context-module-unavailable")))
+             (cond
+               ;; A new module proposed does not stand yet: its view adds every line,
+               ;; and nothing in it is the module as it stands.
+               (and new? (not review?))
+               (do (when (and markdown (not described))
+                     (err! number "new-module-without-description"))
+                   (doseq [p in-place :when (some (complement str/blank?) (:current p))]
+                     (err! (inc (:heading p)) "new-module-line-not-added")))
+
+               :else
+               (try
+                 (let [file (str/replace (read-module repo path) "\r\n" "\n")]
+                   ;; a Markdown module that has a description shows it at the head of its view
+                   (when (and markdown (not described) (or new? (module-description file))
+                              (not (re-find #"\A---\n" shown)))
+                     (err! number (if new? "new-module-without-description" "module-view-without-description")))
+                   (when (and view-description
+                              (not= (if (and review?
+                                             (:signed view-description)
+                                             (not (:proposed (by-heading head))))
+                                      (:added view-description)
+                                      (:current view-description))
+                                    (module-description file)))
+                     (err! (inc (:line view-description)) "module-description-differs"))
+                   (when (not= shown (if markdown (module-body file) (str/replace file #"\n+\z" "")))
+                     (cond
+                       ;; front matter is never shown raw: its description is a description container
+                       (and markdown (re-find #"\A---\n" shown)) (err! number "front-matter-in-module-view")
+                       (or front-matter? (and head-open (nil? head-close))) nil
+                       :else (err! number "context-module-differs"))))
+                 (catch Throwable _ (err! number "context-module-unavailable"))))
              (swap! st update :shown into (range (inc i) end))))]
      (doseq [i (range (count lines))]
        (let [line (lines i)
@@ -723,7 +950,7 @@
                (re-find #"^::: comment(?:\s|$)" line) (err! number "comment-in-questions")
                (re-find #"^::: shown(?:\s|$)" line) (err! number "shown-in-questions")
                (re-find #"^::: description(?:\s|$)" line) (err! number "description-in-questions")
-               (re-find #"^::: move(?:\s|$)" line) (err! number "move-in-questions")
+               (re-find #"^::: moved?(?:\s|$)" line) (err! number "move-in-questions")
                (re-find #"^::: proposed(?:\s|$)" line) (err! number "proposed-in-questions")
                (or (change? line) (added-line? line) (removed-line? line))
                (err! number "change-in-questions")
@@ -746,7 +973,7 @@
                                               (move-added-line-errors (vec (:lines container))))]
                      (err! (+ (:line container) 1 k) reason)))
                  (swap! st assoc :container nil))
-             (re-find #"^::: (?:comment|move|shown|description)(?:\s|$)" line)
+             (re-find #"^::: (?:comment|move|moved|shown|description)(?:\s|$)" line)
              (err! number "nested-container")
              :else
              (swap! st (fn [s] (-> s
@@ -858,6 +1085,12 @@
                malformed-move?
                (do (flush-plain!) (err! number "malformed-move-container"))
 
+               ;; A placeholder stands only where a passage left a module view.
+               (re-find #"^::: moved(?:\s|$)" line)
+               (do (flush-plain!)
+                   (err! number "moved-outside-module-view")
+                   (swap! st assoc :container {:kind :moved :line number :content false :lines []}))
+
                ;; `::: proposed`: the first nonblank line under a proposal heading of a
                ;; Review, one line with no closing; the proposal's marks show the single margin.
                proposed-open?
@@ -938,10 +1171,10 @@
 
                        (not (section))
                        (let [account? (= "Account" (:kind @st))
-                             location (when (= level 2) (re-find module-location text))]
+                             view (when (= level 2) (module-view-heading (str "## " text)))]
                          (cond
-                           (and location (valid-location? (nth location 1) (nth location 2)))
-                           (handle-module-view! i number text location)
+                           view
+                           (handle-module-view! i number view)
 
                            (and (= level 1) (not (re-find module-location text))
                                 (not (:title @st)) (zero? (:proposals @st)) (empty? (:shown @st)))
@@ -979,6 +1212,7 @@
                        (err! number "comment-container-required"))
                      (body! line number)))))))))
      (finish!)
+     (check-moves!)
      (when-let [c (:container @st)]
        (err! (:line c) (str "unclosed-" (name (:kind c)) "-container")))
      (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st))) (err! 1 "missing-proposal"))

@@ -99,6 +99,83 @@ book-build shows it as a labelled block, `<section class="description">`: as
 it stands, its text; changed, its removed text under the red margin and its
 added text under the green, each marking only its own changed words.
 
+A module view is headed `## repo › path`. The heading is defined once, in
+book-check (`module-view-pattern`), and the checker and the builder both match
+it through that definition. A module's file name may be a number, a span or
+`all` (`vision/flow-nexus/0-1.md`).
+
+A move is read where it lands. In the view of the module it enters, an
+in-place proposal holds the move container at the place the passage lands. Its
+heading names that module, or both modules. The builder heads the move with the
+module it leaves alone, since the reader is already in the module it enters:
+
+    ## psyche-belief › intent/energy/0.md
+
+    #### Proposal 2: What attention costs · psyche-belief › intent/energy/0.md
+
+    ::: move proposed
+    from: psyche-belief › vision/model-roles/0.md
+    to: psyche-belief › intent/energy/0.md
+
+    The system is understood energetically.
+    :::
+
+In the view of the module it leaves, a placeholder stands where the passage
+was. It holds the destination and no text, since the passage is written once,
+in the move:
+
+    ## psyche-belief › vision/model-roles/0.md
+
+    #### Proposal 2: What attention costs · psyche-belief › vision/model-roles/0.md
+
+    ::: moved proposed
+    to: psyche-belief › intent/energy/0.md
+    :::
+
+`::: moved proposed` and `::: moved landed` take the shade of a move. A
+placeholder is tied to its move by the proposal number the two in-place
+headings share and by the pair of modules. Several moves of one proposal
+between the same two modules pair in the order written. book-build draws the
+placeholder as one small block in the move colour, reading "Moved to repo ›
+path", with the path linking to that module's view (`<section class="move
+move-proposed move-placeholder">`).
+
+The two views are checked together. In a Proposal, the placeholder stands for
+the passage, as the module it leaves holds it: the edit made on its way is
+undone and its added lines are left out. In the view of the module it enters,
+the move stands for nothing. In a landed Review it is the other way round: the
+placeholder stands for nothing, and the move stands for its passage as the
+module it enters holds it, with its edit made and its added lines in. A move or
+placeholder that ends a current line (the line before it is a nonblank line of
+the side being read, with no blank line between) joins that line.
+
+When both modules are on the page, a move written in the view of the module it
+enters with no placeholder is refused (`move-without-placeholder`), and so is a
+placeholder with no move (`moved-without-move`). When the module it leaves is
+not on the page, a proposed passage must be an excerpt of that module's file as
+it stands; its first line may be the end of a current line
+(`move-source-text-absent`, `move-source-unavailable`). A malformed placeholder
+is refused (`malformed-moved-placeholder`), and so is one outside a module view
+(`moved-outside-module-view`). A move written in the view of the module it
+leaves, the earlier form, keeps working and needs no placeholder.
+
+A new module is one view, `## repo › path, a new file`. Every line in it is
+added, its description among them, and a Markdown module's description is
+required (`new-module-without-description`). An unsigned line, or a fence
+holding anything but added lines, is refused (`new-module-line-not-added`). The
+view counts as a proposal, and a move may land in it under an in-place heading
+that names the module without the suffix. In a Proposal no file is read. In a
+Review the view's added side is checked against the landed file. book-build
+marks the view's sheet New:
+
+    ## psyche-belief › intent/sonnet/0.md, a new file
+
+    ::: description
+    + A Sonnet flow takes a piece of work.
+    :::
+
+    + Sonnet does large plain work and designs nothing.
+
 **codex-usage** prints Codex usage left, its reset time and the available usage
 resets, from `codex app-server` with the `~/.codex` login. Read-only.
 `--json` prints the raw reply. `codex-app-server.clj` is the namespace it shares

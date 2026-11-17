@@ -10,8 +10,13 @@
            <del>…</del> / <ins>…</ins>               removed words (red highlight, never struck through) / added words (green), inline in one text
          </div>
          <section class="move move-proposed|move-landed"> a passage moved, read once under the third colour's margin; an edit made on
-                                                     its way is its <del>/<ins> words, in the move's shade
+                                                     its way is its <del>/<ins> words, in the move's shade; in the view of the
+                                                     module it enters, its header names the module it leaves alone
+         <section class="move move-proposed|move-landed move-placeholder"><p>Moved to <a href="#module-…">repo › path</a></p></section>
+                                                     where a passage left a module view: one small block in the move colour,
+                                                     linking the view it entered (<header id="module-…"> on that view)
        </article>
+       A new module, one view, every line added: <article class="module diff"><header><h2 class="target">…</h2><span class="module-state">New</span></header>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
        A module's description, at the head of its module view or proposal (a labelled block; changed, one passage
        under a change margin, with only its changed words marked inline):
@@ -74,6 +79,12 @@
 .move>.add>*{overflow-wrap:anywhere}
 .move>header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px}
 .move-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+/* A placeholder where a passage left: one small block under the move's margin, its link the view the passage entered. */
+.move-placeholder{padding:2px 0 2px 12px;margin:6px 0}
+.move-placeholder>p{margin:0;font-family:var(--f-label);font-size:.9rem;overflow-wrap:anywhere}
+.move-placeholder a{color:inherit}
+/* A new module's view: its sheet's state, beside its path. */
+.module-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#121815;--sheet:#1a211d;--fg:#e4e9e5;--muted:#93a199;--line:#2c3631;--chip:#25302a;
   --add-bg:#16301f;--add-proposed-edge:#5cc47a;--add-fg:#cdeed5;
