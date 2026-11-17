@@ -760,5 +760,23 @@
     (is (= [] (check (review "::: proposed\n\n::: description\n- Old description.\n+ New description.\n:::\n\n- Old.\n+ New.\n")
                      {:read-module (fn [_ _] "---\ndescription: Old description.\n---\nOld.\n")})))))
 
+(deftest in-place-replacements-preserve-source-blank-lines
+  (doseq [kind ["Proposal" "Review"]
+          gap ["\n\n" "\n\n\n"]
+          [change old new] [["- Old.\n+ New." "Old." "New."]
+                            ["```rust\n- fn old() {}\n+ fn new() {}\n```"
+                             "```rust\nfn old() {}\n```" "```rust\nfn new() {}\n```"]
+                            ["- ```rust\n- fn old() {}\n- ```\n+ ```rust\n+ fn new() {}\n+ ```"
+                             "```rust\nfn old() {}\n```" "```rust\nfn new() {}\n```"]]]
+    (let [source (str "Presentation.{ «B» " kind " }\n\n# B\n\n## repo › a.md\n\n"
+                      "Before.\n\n#### Proposal 1: Edit · repo › a.md\n\n"
+                      "::: comment\nWhy.\n:::\n\n" change gap "After.\n")
+          module (str "Before.\n\n" (if (= kind "Review") new old) gap "After.\n")]
+      (is (= [] (check source {:read-module (fn [_ _] module)}))
+          (str kind " preserves " (dec (count gap)) " blank lines"))
+      (is (some #{"context-module-differs"}
+                (reasons source {:read-module (fn [_ _] (str/replace module gap "\n"))}))
+          "authentication still detects missing source spacing"))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

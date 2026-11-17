@@ -358,7 +358,8 @@
           (let [l (lines j)
                 fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)]
             (cond
-              (str/blank? l) (recur (inc j) comment changed current move errors)
+              (str/blank? l) (recur (inc j) comment changed
+                                    (cond-> current (seq current) (conj l)) move errors)
               (or (added-line? l) (removed-line? l))
               (recur (inc j) comment true
                      (cond-> current (source-line? l) (conj (unsigned-change-line l))) move errors)

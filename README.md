@@ -66,6 +66,11 @@ In an in-place Review module view, landed changes are authenticated against
 the module's added side, including its changed description. A part marked
 `::: proposed` is authenticated against its removed side, as a Proposal is.
 
+An in-place replacement preserves the unsigned blank lines after its source
+passage exactly. Spacing around the proposal heading and its comment remains
+presentation structure; an addition absent from the authenticated side adds
+no spacing to that side.
+
 A Markdown module's description, the `description` of its front matter, is
 written in a `::: description` container at the head of its module view or
 proposal; front matter is never written in a book (`description-as-front-matter`,
