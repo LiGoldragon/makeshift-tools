@@ -34,4 +34,13 @@
             book-build/*ethos-check* (fn [text] (swap! calls conj text) nil)]
    (book-build/signed-code-html "ethos" ["  Library" "  []" "- [ Old.String ]" "+ [ New.String ]" "  []" "  []"]))
   (is (= ["Library\n[]\n[ New.String ]\n[]\n[]"] @calls))))
+(deftest signed-nested-ethos-fragments-render-without-a-manufactured-file
+ (binding [book-build/*enforce-ethos* true book-build/*highlight* true
+           book-build/*ethos-check* (fn [_] (throw (Exception. "fragment sent to file checker")))]
+  (doseq [body ["  [\n- Old.Integer\n+ New.Integer\n  ]"
+                "- Old.Integer\n+ New.Integer\n  ]"
+                "+ CommonProtocol:flow:ModuleName"]]
+   (let [html (book-build/build (str "### Proposal 1: Fragment · repo › a.md\n\n```ethos\n" body "\n```\n") "")]
+    (is (clojure.string/includes? html "language-ethos"))
+    (is (clojure.string/includes? html "ts-type"))))))
 (let [{:keys [fail error]} (run-tests 'book-validator-test)] (System/exit (if (zero? (+ fail error)) 0 1)))

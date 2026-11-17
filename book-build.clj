@@ -948,7 +948,7 @@
          (let [f (str (fs/path dir (str "block-" (hash [lang lines]))))]
            (spit f (str (str/join "\n" lines) "\n") :encoding "UTF-8")
            (let [{:keys [exit out]} (run "tree-sitter" "highlight" "--config-path" config
-                                         "--html" "--css-classes" "--scope" scope f)
+                                         "--html" "--layout" "line-numbers" "--css-classes" "--scope" scope f)
                  rows (mapv second (re-seq #"(?s)<td class=line>(.*?)\n?</td></tr>" out))]
              (fs/delete-if-exists f)
              (when (and (zero? exit) (= (count rows) (count lines)))
@@ -962,7 +962,7 @@
 
 (defn- code-class [lang] (get langs lang (if (= "" lang) "text" lang)))
 
-(declare check-rendered-ethos! guess-code-language)
+(declare check-rendered-ethos! check-signed-ethos! guess-code-language)
 (def ^:dynamic *validate-rendered-ethos* true)
 (def ^:dynamic *rendered-ethos-reference* nil)
 
@@ -974,7 +974,10 @@
   ([lang lines sign]
    (let [lines (vec lines)
          lang (if (= lang "") (or (guess-code-language lines) "text") lang)]
-     (when (not= sign "-") (check-rendered-ethos! lang lines))
+     (case sign
+       "-" nil
+       "+" (check-signed-ethos! lang lines)
+       (check-rendered-ethos! lang lines))
      (str "<pre" (case sign "+" " class=\"code-add\"" "-" " class=\"code-del\"" "")
           "><code class=\"language-" (code-class lang) "\">"
           (str/join "\n" (or (highlight-lines lang lines) (map esc lines)))
@@ -1056,7 +1059,7 @@
       :else
       (let [side (fn [k] (mapv second (filter #(#{k :ctx} (first %)) items)))
             old (side :del) new (side :add)
-            _ (check-rendered-ethos! lang new)
+            _ (check-signed-ethos! lang new)
             old-h (or (highlight-lines lang old) (mapv esc old))
             new-h (or (highlight-lines lang new) (mapv esc new))
             rows (loop [[[k [a b]] & more] (paired-runs items :del :add) o 0 n 0 out []]
@@ -1923,6 +1926,15 @@
   [language lines]
   (when (and *enforce-ethos* *validate-rendered-ethos* (= language "ethos"))
     (check-ethos! (or *rendered-ethos-reference* *ethos-zero*) (str/join "\n" lines))))
+
+(defn check-signed-ethos!
+  "A signed excerpt is highlighted as authored. Only a root-headed document
+  claims whole-file validity; nested fragments have no implied Library shape."
+  [language lines]
+  (let [head (some-> (str/join "\n" lines) strip-ethos-comments str/trim
+                     (str/split #"[^A-Za-z0-9_]" 2) first)]
+    (when (ethos-roots head)
+      (check-rendered-ethos! language lines))))
 
 (defn comment-html
   "The proposal author's reason, apart from the module text it explains."

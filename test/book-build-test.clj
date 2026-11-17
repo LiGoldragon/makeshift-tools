@@ -471,7 +471,7 @@
       (is (str/includes? html "<del>")))
     (reset! calls [])
     (render "  [ Kept.Integer ]\n- [ Old.Integer ]\n+ [ New.Integer ]")
-    (is (= 1 (count @calls)) "a fragment without a root is also checked through the implied Library")
+    (is (empty? @calls) "a signed nested fragment makes no whole-file claim")
     (reset! calls [])
     (render accepted-ethos)
     (is (= [accepted-ethos] @calls) "a root at column zero remains a whole Ethos document")

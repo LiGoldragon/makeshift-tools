@@ -10,6 +10,12 @@ It reads `book-code.html` (page code), `book-grammars.json` and
 
     bb book-build.clj SOURCE.md OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]
 
+A signed Ethos fence can be an excerpt of a larger declaration: both sides
+are highlighted as written. A signed fence beginning with an Ethos root
+(`Library`, `Signal`, `Operation`, `Memory` or `Emission`) is still checked as
+a whole document; a rootless excerpt makes no whole-file validity claim.
+Unsigned Ethos fences retain their validation.
+
 **book-check.clj** checks the structure of a book source (`/abs/SOURCE.md`),
 printing the errors as JSON on stderr and exiting 1 when there are any
 (2 on a bad invocation). As a library, `book-check/check-book` takes the
