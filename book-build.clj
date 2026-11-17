@@ -75,10 +75,19 @@
   (let [x (/ (Math/rint (* 100 (double x))) 100)]
     (if (== x (Math/floor x)) (str (long x)) (str x))))
 
+(declare module-anchor)
+
+(def ^:dynamic *inline-moved-state*
+  "The shade an inline moved mark takes: proposed or landed, that of the proposal it stands in."
+  "proposed")
+
+(def ^:private inline-moved-mark-re #"\[\[moved to: ([^\[\]]+)\]\]")
+
 (defn inline
   "Escape text; render proposal marks, `code`, links and **bold**. Proposal
   marks are [+added+], [-removed-], and [~moved from <module>: text~]; a
-  mark may hold a code span, which stands in it as one word."
+  mark may hold a code span, which stands in it as one word. `[[moved to:
+  repo › path]]` is the small \"Moved to\" block, inline in the line."
   [text]
   (let [spans (mapv second (re-seq #"`([^`]+)`" text))
         counter (volatile! -1)
@@ -88,6 +97,10 @@
         ;; the url is escaped by esc; the pattern excludes quotes, so it stays inside href
         (str/replace #"\[([^\]]+)\]\((https?://[^\s)\"'\uE000]+)\)"
                      (fn [[_ label url]] (str "<a href=\"" url "\">" label "</a>")))
+        (str/replace inline-moved-mark-re
+                     (fn [[_ location]]
+                       (str "<span class=\"move move-" *inline-moved-state* " move-placeholder move-inline\">Moved to "
+                            "<a href=\"#" (module-anchor location) "\">" location "</a></span>")))
         (str/replace #"\*\*(?=\S)(.+?)(?<=\S)\*\*" "<strong>$1</strong>")
         (str/replace #"\[~moved from ([^:\]]+):\s*(.+?)~\]"
                      "<span class=\"moved\"><span class=\"moved-origin\">from $1:</span> $2</span>")
@@ -756,9 +769,10 @@
 
 (defn tokens
   "Words (letters, digits, _ and -), single punctuation marks, whitespace
-  runs, and `code` spans; joined back with no separator they give the text."
+  runs, `code` spans and inline moved marks, each one token; joined back with no
+  separator they give the text."
   [s]
-  (vec (re-seq #"`[^`]*`|[\p{L}\p{N}_-]+|\s+|[^\s]" s)))
+  (vec (re-seq #"\[\[moved to: [^\[\]]+\]\]|`[^`]*`|[\p{L}\p{N}_-]+|\s+|[^\s]" s)))
 
 (defn word-diff
   "Longest-common-subsequence diff of two token vectors, as a vector of
@@ -2043,7 +2057,10 @@
         module-location (volatile! nil)
         module-new (volatile! false)
         ;; the modules a placeholder links to
-        linked (set (keep (fn [b] (when (= :moved (first b)) (nth b 2))) bs))
+        linked (into (set (keep (fn [b] (when (= :moved (first b)) (nth b 2))) bs))
+                     (map second (re-seq inline-moved-mark-re src)))
+        ;; whether the proposal being drawn declared itself proposed (`::: proposed`)
+        declared-proposed (volatile! false)
         ;; inside a proposal, or a new module's view, a signed line is a change
         in-change? (fn [] (or @in-article (and @in-module @module-new)))
         module-first (volatile! false)
@@ -2115,7 +2132,8 @@
                 (vreset! heading-where nil)
                 (when @in-article (append! "</article>"))
                 (if-let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)]
-                  (append! (proposal-header (m 1) (m 2) false (proposed-next? i)))
+                  (do (vreset! declared-proposed (proposed-next? i))
+                      (append! (proposal-header (m 1) (m 2) false (proposed-next? i))))
                   (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
                 (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text))))
 
@@ -2128,6 +2146,7 @@
               (vreset! heading-where (when-not (file-next? i) (str/replace (strip where) "`" "")))
               (when @in-module (append! "</article>") (vreset! in-module false))
               (when @in-article (append! "</article>"))
+              (vreset! declared-proposed (proposed-next? i))
               (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i)))
               (vreset! in-article true))
 
@@ -2226,10 +2245,13 @@
             )))
         ]
     (doseq [[i b] (map-indexed vector bs)]
+      ;; an inline moved mark takes the shade of the proposal it stands in
+      (binding [*inline-moved-state* (if (and (= "Review" kind) (not @declared-proposed)) "landed" "proposed")]
       (cond
         ;; a proposal in place: its heading, comment and added lines where they land
         (= :in-place-open (first b))
         (let [{:keys [number title]} (second b)]
+          (vreset! declared-proposed (proposed-next? i))
           (append! (str "<section class=\"proposal in-place" (when (proposed-next? i) " proposed") "\"><header><span class=\"pnum\">" number "</span>"
                         "<h3>" (inline (or title (str "Proposal " number))) "</h3></header>"))
           (vreset! in-article true))
@@ -2378,7 +2400,7 @@
                           lang)]
               (emit (or (signed-code-html shown lines) (code-html shown lines)))))))
         :else
-        (render-prose i (second b))))
+        (render-prose i (second b)))))
     (close-rulings false)
     (close-record)
     (when @in-module (append! "</article>"))

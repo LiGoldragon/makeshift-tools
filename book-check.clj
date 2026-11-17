@@ -215,6 +215,58 @@
   [line]
   (moved-line-side line 2))
 
+;; ---------------------------------------------------------- inline moved mark
+;;
+;; In the view of the module a sentence leaves, the line keeps its other words
+;; and holds, where the sentence left, `[[moved to: repo › path]]`. Read on the
+;; side that holds the passage, the mark is the passage, joined by the spaces
+;; around the mark; read on the side that does not, the mark is nothing.
+
+(def ^:private inline-moved-mark #"\[\[moved to: ([^\[\]]+)\]\]")
+(def ^:private inline-moved-opener "[[moved to:")
+
+(defn inline-moved-marks
+  "The marks in a line outside its code spans, in order: [{:start :end :to}], :to
+  the text after `moved to: `. :malformed is the number of openers no mark closes."
+  [line]
+  (let [held (code-spans-held line)
+        m (re-matcher inline-moved-mark held)
+        marks (loop [out []]
+                (if (.find m)
+                  (recur (conj out {:start (.start m) :end (.end m) :to (.group m 1)}))
+                  out))
+        openers (count (re-seq (re-pattern (java.util.regex.Pattern/quote inline-moved-opener)) held))]
+    {:marks marks :malformed (- openers (count marks))}))
+
+(defn expand-inline-marks
+  "A line with each of its marks replaced, in order, by the matching passage of
+  passages (a vector of lines), or by nothing where that passage is nil. A
+  passage's first line joins the text before the mark and its last line the text
+  after it. Where a mark is taken out, one space of the two around it is kept.
+  The result is a vector of lines."
+  [line marks passages]
+  (let [n (count marks)
+        segment (fn [i] (subs line
+                              (if (zero? i) 0 (:end (nth marks (dec i))))
+                              (if (= i n) (count line) (:start (nth marks i)))))]
+    (loop [i 0 passages passages acc [(segment 0)] taken-out false]
+      (if (= i n)
+        (if (and taken-out (str/blank? (segment n)))
+          (conj (pop acc) (str/trimr (peek acc)))
+          acc)
+        (let [passage (first passages) after (segment (inc i))]
+          (if (seq passage)
+            (recur (inc i) (rest passages)
+                   (let [joined (-> (pop acc) (conj (str (peek acc) (first passage))) (into (rest passage)))]
+                     (conj (pop joined) (str (peek joined) after)))
+                   false)
+            (let [before (peek acc)
+                  after (cond
+                          (and (str/ends-with? before " ") (str/starts-with? after " ")) (subs after 1)
+                          (str/blank? before) (str/triml after)
+                          :else after)]
+              (recur (inc i) (rest passages) (conj (pop acc) (str before after)) true))))))))
+
 ;; ---------------------------------------------------------- in place
 ;;
 ;; A proposal shown in place stands inside a module view, at the place its
@@ -428,6 +480,31 @@
                        (and (joins? j) (seq current))
                        (into (conj (pop current) (str (peek current) " " (first passage))) (rest passage))
                        :else (into current passage)))
+        ;; An inline moved mark in a line of the proposal: each pairs with its move as a
+        ;; placeholder does. Returns {:lines the line as the module holds it on the
+        ;; side read, nil when the line is of the other side :errors :placeholders}.
+        read-marks (fn [j text read?]
+                     (let [{:keys [marks malformed]} (inline-moved-marks text)
+                           reads (map (fn [{:keys [to]}]
+                                        (let [to-location (location-of to)
+                                              valid? (and to-location
+                                                          (valid-location? (first to-location) (second to-location))
+                                                          (not= view to-location)
+                                                          (or (= locations [view to-location]) (= locations [view])))
+                                              paired (when (and valid? resolve-moved) (resolve-moved number view to-location))]
+                                          {:to-location to-location :valid? valid? :paired paired}))
+                                      marks)]
+                       {:lines (when read?
+                                 (expand-inline-marks text marks
+                                                      (mapv #(when (= source-sign :removed) (:source-lines (:paired %))) reads)))
+                        :errors (-> []
+                                    (into (repeat malformed [j "malformed-moved-placeholder"]))
+                                    (into (mapcat (fn [{:keys [valid? paired]}]
+                                                    (cond (not valid?) [[j "malformed-moved-placeholder"]]
+                                                          (and resolve-moved (nil? paired)) [[j "moved-without-move"]]))
+                                                  reads)))
+                        :placeholders (vec (for [{:keys [to-location valid?]} reads :when valid?]
+                                             {:line j :inline true :to to-location}))}))
         ;; its description container, read, with the index of its opening line
         description (volatile! nil)
         errors (cond-> []
@@ -452,10 +529,15 @@
             (cond
               (str/blank? l) (recur (inc j) comment changed
                                     (cond-> current (seq current) (conj l)) move moves placeholders errors)
-              (or (added-line? l) (removed-line? l))
-              (recur (inc j) comment true
-                     (cond-> current (source-line? l) (conj (unsigned-change-line l))) move moves placeholders errors)
-              (context-line? l) (recur (inc j) comment changed (conj current (subs l 2)) move moves placeholders errors)
+              (or (added-line? l) (removed-line? l) (context-line? l))
+              (let [signed? (not (context-line? l))
+                    text (if signed? (unsigned-change-line l) (subs l 2))
+                    read? (or (not signed?) (source-line? l))
+                    marked (read-marks j text read?)
+                    marks? (boolean (or (seq (:placeholders marked)) (seq (:errors marked))))]
+                (recur (inc j) comment (or signed? marks? changed)
+                       (into current (or (:lines marked) (when read? [text])))
+                       move moves (into placeholders (:placeholders marked)) (into errors (:errors marked))))
               (re-find in-place-start l) (done j)
 
               (= l "::: comment")

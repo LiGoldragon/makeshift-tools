@@ -159,6 +159,28 @@ is refused (`malformed-moved-placeholder`), and so is one outside a module view
 (`moved-outside-module-view`). A move written in the view of the module it
 leaves, the earlier form, keeps working and needs no placeholder.
 
+A sentence that leaves a line is marked inside the line instead: the line keeps
+its other words and holds `[[moved to: repo › path]]` where the sentence left,
+in a signed or unchanged line of an in-place proposal (a code span or code fence
+holds no mark):
+
+    - First. [[moved to: psyche-belief › intent/energy/0.md]] Last.
+    + First. Last.
+
+The mark pairs with its move by proposal number and module pair, in the order
+written, as the placeholder does, and is refused as it is (`moved-without-move`,
+`malformed-moved-placeholder`, `move-without-placeholder`). Read on the side
+that holds the passage (a Proposal's removed and unchanged lines), the passage
+is put back at the mark, joined to the text around it by the spaces around the
+mark; read on the other side (a landed Review's added and unchanged lines), the
+mark is taken out and one of its two spaces is kept. A passage of several lines
+joins the text before the mark with its first line and the text after with its
+last. book-build draws the mark as the same "Moved to" block, small and inline
+in the line (`<span class="move move-proposed move-placeholder move-inline">`),
+in the shade of its proposal: landed in a Review unless the proposal declares
+itself `::: proposed`, else proposed. In the word marks of a changed line it is
+one token.
+
 A new module is one view, `## repo › path, a new file`. Every line in it is
 added, its description among them, and a Markdown module's description is
 required (`new-module-without-description`). An unsigned line, or a fence

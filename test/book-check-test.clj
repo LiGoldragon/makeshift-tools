@@ -882,6 +882,75 @@
     (is (= [] (check (source "First moved." "Second moved.") opts)))
     (is (= ["context-module-differs"] (reasons (source "Second moved." "First moved.") opts)))))
 
+;; An inline mark: a sentence left a line, which keeps its other words.
+(def ^:private inline-modules
+  {"old.md" "## Old\n\nFirst. Moved sentence. Last.\n\nAfter.\n"
+   "new.md" "## New\n\nExisting.\n"})
+
+(defn- inline-source
+  "The view the sentence leaves, its line `line`, and the view it enters."
+  [line & [move-passage]]
+  (str "# B\n\n## repo › old.md\n\n## Old\n\n"
+       "#### Proposal 2: Move · repo › old.md\n\n::: comment\nIt belongs with the new rule.\n:::\n\n"
+       line "\n\nAfter.\n\n"
+       "## repo › new.md\n\n## New\n\nExisting.\n\n"
+       "#### Proposal 2: Move · repo › new.md\n\n"
+       "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n" (or move-passage "Moved sentence.") "\n:::\n"))
+
+(def ^:private inline-line "- First. [[moved to: repo › new.md]] Last.\n+ First. Last.")
+
+(deftest an-inline-mark-stands-for-the-sentence-where-it-left
+  (let [opts (modules-opts inline-modules)]
+    (is (= [] (check (inline-source inline-line) opts))
+        "the passage is put back at the mark, joined by the spaces around it")
+    (is (= ["context-module-differs"]
+           (reasons (inline-source inline-line "Another sentence.") opts))
+        "a passage other than the module's is refused")
+    (is (= ["context-module-differs" "moved-without-move"]
+           (sort (reasons (str/replace (inline-source inline-line) #"(?s)\n#### Proposal 2: Move · repo › new.md.*" "\n") opts)))
+        "a mark without its move stands for nothing")
+    (is (= ["context-module-differs" "move-without-placeholder" "moved-without-move"]
+           (sort (reasons (str/replace (inline-source inline-line) "Proposal 2: Move · repo › old.md" "Proposal 3: Move · repo › old.md") opts)))
+        "a mark pairs with its move by the proposal number")
+    (is (= ["move-without-placeholder"]
+           (reasons (inline-source "- First. Moved sentence. Last.\n+ First. Last.") opts))
+        "with both modules on the page, a move has its placeholder")
+    (is (= ["malformed-moved-placeholder" "move-without-placeholder"]
+           (reasons (inline-source "- First. [[moved to: repo › old.md]] Last.\n+ First. Last.")
+                    (modules-opts (assoc inline-modules "old.md" "## Old\n\nFirst. Last.\n\nAfter.\n"))))
+        "a mark names a module other than its own")
+    (is (some #{"malformed-moved-placeholder"}
+              (reasons (inline-source "- First. [[moved to: repo › new.md Last.\n+ First. Last.") opts))
+        "a mark that does not close is refused")))
+
+(deftest inline-marks-take-their-spaces-from-the-line
+  (let [expand (fn [line passages] (let [{:keys [marks]} (book-check/inline-moved-marks line)]
+                                     (book-check/expand-inline-marks line marks passages)))]
+    (is (= ["First. Moved. Last."] (expand "First. [[moved to: r › p]] Last." [["Moved."]])))
+    (is (= ["Moved. Last."] (expand "[[moved to: r › p]] Last." [["Moved."]])))
+    (is (= ["First. Moved."] (expand "First. [[moved to: r › p]]" [["Moved."]])))
+    (is (= ["First. Last."] (expand "First. [[moved to: r › p]] Last." [nil])) "left out, one space is kept")
+    (is (= ["Last."] (expand "[[moved to: r › p]] Last." [nil])))
+    (is (= ["First."] (expand "First. [[moved to: r › p]]" [nil])))
+    (is (= ["A one. B two. C three."]
+           (expand "A [[moved to: r › p]]. [[moved to: r › q]] C three." [["one"] ["B two."]]))
+        "several marks take their passages in order")
+    (is (= ["First. Line one." "Line two. Last."]
+           (expand "First. [[moved to: r › p]] Last." [["Line one." "Line two."]]))
+        "a passage of lines joins the text before its first line and after its last")
+    (is (= ["Quote `[[moved to: r › p]]` as it is."] (expand "Quote `[[moved to: r › p]]` as it is." []))
+        "a code span holds no mark")))
+
+(deftest a-landed-inline-mark-stands-for-nothing
+  (let [opts (modules-opts {"old.md" "## Old\n\nFirst. Last.\n\nAfter.\n"
+                            "new.md" "## New\n\nExisting.\n\nMoved sentence.\n"})
+        source (str "Presentation.{ «B» Review }\n\n"
+                    (str/replace (inline-source "- First. Moved sentence. Last.\n+ First. [[moved to: repo › new.md]] Last.")
+                                 "::: move proposed" "::: move landed"))]
+    (is (= [] (check source opts)) "landed, the mark is taken out and the module holds the line without the sentence")
+    (is (= ["context-module-differs"]
+           (reasons (str/replace source "First. [[moved to: repo › new.md]] Last." "Other. [[moved to: repo › new.md]] Last.") opts)))))
+
 ;; A new module, as one view: every line added, its description required.
 (def ^:private new-module-view
   (str "## repo › intent/sonnet.md, a new file\n\n"

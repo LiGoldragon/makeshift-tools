@@ -1391,6 +1391,36 @@
                                     "::: moved landed\nto: repo › new.md\n:::\n") "")]
     (is (str/includes? html "<section class=\"move move-landed move-placeholder\"><p>Moved to "))))
 
+;; An inline mark: the small "Moved to" block inside the line a sentence left.
+(def ^:private inline-mark-book
+  (str "# B\n\n## repo › old.md\n\n## Old\n\n"
+       "#### Proposal 2: Move · repo › old.md\n\n"
+       "- First. [[moved to: repo › new.md]] Last.\n+ First. Last.\n\nAfter.\n\n"
+       "## repo › new.md\n\n## New\n\nExisting.\n\n"
+       "#### Proposal 2: Move · repo › new.md\n\n"
+       "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\nMoved sentence.\n:::\n"))
+
+(deftest an-inline-mark-is-a-small-block-inside-its-line
+  (let [html (book-build/build inline-mark-book "")
+        block (str "<span class=\"move move-proposed move-placeholder move-inline\">Moved to "
+                   "<a href=\"#module-repo-new-md\">repo › new.md</a></span>")]
+    (is (str/includes? html block) "one small block, in the move colour, linking the view the sentence entered")
+    (is (str/includes? html "<header id=\"module-repo-new-md\">") "the linked view carries the anchor")
+    (is (re-find #"First\. <del>.*?Moved to .*?</del>" html) "the mark is one unit in the word marks of its line")
+    (is (not (str/includes? html "[[moved to")) "the source form is not shown")
+    (is (str/includes? html "Moved sentence.") "the sentence stands where it landed")
+    (is (str/includes? (book-build/build inline-mark-book code) ".move-inline{") "the page code styles it")))
+
+(deftest an-inline-mark-takes-the-shade-of-its-proposal
+  (let [review (fn [declared]
+                 (book-build/build (str "Presentation.{ «B» Review }\n\n"
+                                        (str/replace inline-mark-book "#### Proposal 2: Move · repo › old.md\n\n"
+                                                     (str "#### Proposal 2: Move · repo › old.md\n\n" declared)))
+                                   ""))]
+    (is (str/includes? (review "") "move move-landed move-placeholder move-inline") "landed in a Review")
+    (is (str/includes? (review "::: proposed\n\n") "move move-proposed move-placeholder move-inline")
+        "proposed where the proposal declares it")))
+
 ;; A new module, as one view: its sheet marked New, every line under the addition margin.
 (deftest a-new-module-is-one-view
   (let [md (str "# B\n\n## repo › intent/sonnet.md, a new file\n\n"

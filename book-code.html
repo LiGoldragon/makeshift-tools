@@ -15,6 +15,8 @@
          <section class="move move-proposed|move-landed move-placeholder"><p>Moved to <a href="#module-…">repo › path</a></p></section>
                                                      where a passage left a module view: one small block in the move colour,
                                                      linking the view it entered (<header id="module-…"> on that view)
+         <span class="move move-proposed|move-landed move-placeholder move-inline">Moved to <a href="#module-…">repo › path</a></span>
+                                                     the same block inline in a line, where a sentence left it
        </article>
        A new module, one view, every line added: <article class="module diff"><header><h2 class="target">…</h2><span class="module-state">New</span></header>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
@@ -83,6 +85,8 @@
 .move-placeholder{padding:2px 0 2px 12px;margin:6px 0}
 .move-placeholder>p{margin:0;font-family:var(--f-label);font-size:.9rem;overflow-wrap:anywhere}
 .move-placeholder a{color:inherit}
+/* The same block, inline in a line a sentence left: small, in the move colour, its margin a rule beside it. */
+.move-inline{display:inline-block;margin:0 .15em;padding:0 .4em 0 .5em;font-family:var(--f-label);font-size:.8em;line-height:1.4;vertical-align:baseline}
 /* A new module's view: its sheet's state, beside its path. */
 .module-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
