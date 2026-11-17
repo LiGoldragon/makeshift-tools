@@ -882,6 +882,28 @@
     (is (= [] (check (source "First moved." "Second moved.") opts)))
     (is (= ["context-module-differs"] (reasons (source "Second moved." "First moved.") opts)))))
 
+(deftest a-proposal-may-hold-several-moves
+  (let [opts (modules-opts {"old.md" "First moved.\n\nSecond moved.\n\nKept.\n" "new.md" "Existing.\n"})
+        placeholder "::: moved proposed\nto: repo › new.md\n:::\n\n"
+        move (fn [text] (str "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n" text "\n:::\n\n"))
+        leaving (fn [n] (str "## repo › old.md\n\n#### Proposal 1: Out · repo › old.md\n\n"
+                             (apply str (repeat n placeholder))
+                             (when (= n 1) "Second moved.\n\n") "Kept.\n\n"))
+        entering (fn [& texts] (str "## repo › new.md\n\nExisting.\n\n#### Proposal 1: In · repo › new.md\n\n"
+                                    (apply str (map move texts))))
+        source (fn [leave enter] (str "# B\n\n" leave enter))]
+    (is (= [] (check (source (leaving 2) (entering "First moved." "Second moved.")) opts))
+        "two moves of one proposal, each with its placeholder")
+    (is (= ["context-module-differs"]
+           (reasons (source (leaving 2) (entering "Second moved." "First moved.")) opts))
+        "the first placeholder takes the first move written, the second the second")
+    (is (= ["context-module-differs" "moved-without-move"]
+           (sort (reasons (source (leaving 2) (entering "First moved.")) opts)))
+        "a placeholder with no move left to pair with is refused")
+    (is (= ["move-without-placeholder"]
+           (reasons (source (leaving 1) (entering "First moved." "Second moved.")) opts))
+        "a move with no placeholder left to pair with is refused")))
+
 ;; An inline mark: a sentence left a line, which keeps its other words.
 (def ^:private inline-modules
   {"old.md" "## Old\n\nFirst. Moved sentence. Last.\n\nAfter.\n"

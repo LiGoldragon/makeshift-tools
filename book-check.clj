@@ -588,8 +588,7 @@
                                 (or (= locations [from-location to-location]) (= locations [view])))
                     errors (cond-> errors
                              (nil? close) (conj [j "unclosed-move-container"])
-                             (not valid?) (conj [j "malformed-in-place-move"])
-                             move (conj [j "second-move-in-proposal"]))
+                             (not valid?) (conj [j "malformed-in-place-move"]))
                     errors (into errors (map (fn [[k reason]] [(+ j 1 k) reason]))
                                  (concat (move-body-word-mark-errors body)
                                          (move-added-line-errors body)))

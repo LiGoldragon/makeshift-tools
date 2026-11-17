@@ -134,8 +134,11 @@ in the move:
 
 `::: moved proposed` and `::: moved landed` take the shade of a move. A
 placeholder is tied to its move by the proposal number the two in-place
-headings share and by the pair of modules. Several moves of one proposal
-between the same two modules pair in the order written. book-build draws the
+headings share and by the pair of modules. A proposal may hold several moves;
+its placeholders pair with them, for the same pair of modules, in the order
+written: the first placeholder with the first move, and so on. A count that
+differs leaves a placeholder or a move unpaired, and it is refused
+(`moved-without-move`, `move-without-placeholder`). book-build draws the
 placeholder as one small block in the move colour, reading "Moved to repo ›
 path", with the path linking to that module's view (`<section class="move
 move-proposed move-placeholder">`).
