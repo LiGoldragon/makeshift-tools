@@ -1015,8 +1015,10 @@
         {:end offset :text (str/join " " texts)}))))
 
 (defn repeated-replacement-errors
-  "Adjacent removed/added runs that repeat most of either passage's words.
-  Covers prose blocks, code lines and table rows; names both passages."
+  "Adjacent removed/added runs that repeat most of both passages' words: the
+  shared words exceed half of the longer run's. A short removed sentence absorbed
+  into a much longer added passage is not a repeat. Covers prose blocks, code
+  lines and table rows; names both passages."
   [html]
   (let [matcher (re-matcher #"<(?:div class=\"del\"|span class=\"ln ln-del\"|tr class=\"row-del\")>" html)
         words #(frequencies (re-seq #"[\p{L}\p{N}]+" (str/lower-case %)))]
@@ -1031,10 +1033,10 @@
               removed (:text removed-run) added (:text added-run)
               old (words removed) new (words added)
               shared (reduce + 0 (map (fn [[word n]] (min n (get new word 0))) old))
-              shorter (min (reduce + 0 (vals old)) (reduce + 0 (vals new)))]
+              longer (max (reduce + 0 (vals old)) (reduce + 0 (vals new)))]
           (recur (max (inc start) (:end added-run))
                  (cond-> out
-                   (and (pos? shorter) (> (* 2 shared) shorter))
+                   (and (pos? longer) (> (* 2 shared) longer))
                    (conj {:line (inc (count (re-seq #"\n" (subs html 0 start))))
                           :reason "replaced-line-printed-twice"
                           :removed removed :added added}))))))))

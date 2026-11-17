@@ -22,7 +22,8 @@
     (is (= [{:line 1 :reason "replaced-line-printed-twice" :removed removed :added added}] errors)))
   (is (= [] (book-check/check-built-page "<div class=\"del\">Old unrelated words.</div><div class=\"add\">Fresh text.</div>")))
   (is (= [] (book-check/check-built-page "<div class=\"del\">The same words.</div><p>Separate passage.</p><div class=\"add\">The same words.</div>")))
-  (is (seq (book-check/check-built-page "<div class=\"del\">A much longer sentence with retained words.</div><div class=\"add\">retained words.</div>"))))
+  (is (= [] (book-check/check-built-page "<div class=\"del\">A much longer sentence with retained words.</div><div class=\"add\">retained words.</div>")))
+  (is (= [] (book-check/check-built-page "<div class=\"del\">The living skims it.</div><div class=\"add\">The living skims it, and the table row says so in full, at length, here.</div>"))))
 (deftest phone-replacement-has-inline-colours-strike-and-one-margin
   (let [binary (cdp/chromium-binary) dir (fs/create-temp-dir {:prefix "book-replacement-"})
         file (fs/path dir "page.html")]
