@@ -872,7 +872,7 @@
            (reasons (str/replace source "- The route definition leaves.\n::: moved" "- The route definition leaves.\n\n::: moved") opts))
         "a blank line before the placeholder makes the passage a whole line")))
 
-(deftest several-moves-of-one-proposal-pair-in-the-order-written
+(deftest several-moves-of-one-proposal-pair-by-their-passages
   (let [opts (modules-opts {"old.md" "First moved.\n\nKept.\n\nSecond moved.\n" "new.md" "Existing.\n"})
         placeholder "#### Proposal 1: Out · repo › old.md\n\n::: moved proposed\nto: repo › new.md\n:::\n\n"
         move (fn [text] (str "#### Proposal 1: In · repo › new.md\n\n::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
@@ -880,7 +880,19 @@
         source (fn [a b] (str "# B\n\n## repo › old.md\n\n" placeholder "Kept.\n\n" placeholder
                               "## repo › new.md\n\nExisting.\n\n" (move a) (move b)))]
     (is (= [] (check (source "First moved." "Second moved.") opts)))
-    (is (= ["context-module-differs"] (reasons (source "Second moved." "First moved.") opts)))))
+    (is (= [] (check (source "Second moved." "First moved.") opts))
+        "the moves written in another order than their placeholders still put the module back")
+    (is (= ["context-module-differs"] (reasons (source "First moved." "Third moved.") opts))
+        "a placeholder no move fits is refused")))
+
+(deftest moves-of-identical-passages-pair-in-the-order-written
+  (let [opts (modules-opts {"old.md" "Same.\n\nKept.\n\nSame.\n" "new.md" "Existing.\n"})
+        placeholder "#### Proposal 1: Out · repo › old.md\n\n::: moved proposed\nto: repo › new.md\n:::\n\n"
+        move (fn [text] (str "#### Proposal 1: In · repo › new.md\n\n::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n"
+                             text "\n:::\n\n"))
+        source (str "# B\n\n## repo › old.md\n\n" placeholder "Kept.\n\n" placeholder
+                    "## repo › new.md\n\nExisting.\n\n" (move "Same.") (move "Same."))]
+    (is (= [] (check source opts)))))
 
 (deftest a-proposal-may-hold-several-moves
   (let [opts (modules-opts {"old.md" "First moved.\n\nSecond moved.\n\nKept.\n" "new.md" "Existing.\n"})
@@ -894,9 +906,8 @@
         source (fn [leave enter] (str "# B\n\n" leave enter))]
     (is (= [] (check (source (leaving 2) (entering "First moved." "Second moved.")) opts))
         "two moves of one proposal, each with its placeholder")
-    (is (= ["context-module-differs"]
-           (reasons (source (leaving 2) (entering "Second moved." "First moved.")) opts))
-        "the first placeholder takes the first move written, the second the second")
+    (is (= [] (check (source (leaving 2) (entering "Second moved." "First moved.")) opts))
+        "the order the moves are written in is free")
     (is (= ["context-module-differs" "moved-without-move"]
            (sort (reasons (source (leaving 2) (entering "First moved.")) opts)))
         "a placeholder with no move left to pair with is refused")

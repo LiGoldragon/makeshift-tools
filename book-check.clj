@@ -753,6 +753,22 @@
   [source]
   (into {} (for [view (module-views (source-lines source)) p (:proposals view)] [(:heading p) p])))
 
+(defn- permutations
+  "Every order of the items of xs, the order given first."
+  [xs]
+  (let [v (vec xs)]
+    (if (<= (count v) 1)
+      [v]
+      (for [k (range (count v))
+            tail (permutations (concat (subvec v 0 k) (subvec v (inc k))))]
+        (vec (cons (v k) tail))))))
+
+(defn- distinct-by
+  "xs without the items whose key f repeats an earlier item's."
+  [f xs]
+  (let [seen (volatile! #{})]
+    (filter (fn [x] (let [k (f x)] (when-not (@seen k) (vswap! seen conj k) true))) xs)))
+
 (defn- passage-in-module?
   "Whether passage is one contiguous excerpt of a module's lines, its first line
   allowed to be the remainder of a current line."
@@ -786,17 +802,21 @@
                                 {} entering-moves))
          ;; A placeholder pairs by its proposal number and the pair of modules; an inline
          ;; mark, whose number is nil, by the pair of modules alone, the first move
-         ;; written of the pair.
-         resolve-moved (fn [number from to]
-                         (let [k (if number
-                                   [number from to]
-                                   (->> @unpaired
-                                        (filter (fn [[[_ f t] ms]] (and (= f from) (= t to) (seq ms))))
-                                        (sort-by (fn [[_ ms]] (:line (first ms))))
-                                        ffirst))]
-                           (when-let [m (and k (first (get @unpaired k)))]
-                             (swap! unpaired update k (comp vec rest))
-                             m)))
+         ;; written of the pair. Among the moves of one pair, the module view of the
+         ;; module they leave chooses the order whose passages put the module back;
+         ;; moves of identical passages, and a view no order fits, keep the order written.
+         pairing (fn [unpaired]
+                   (fn [number from to]
+                     (let [k (if number
+                               [number from to]
+                               (->> @unpaired
+                                    (filter (fn [[[_ f t] ms]] (and (= f from) (= t to) (seq ms))))
+                                    (sort-by (fn [[_ ms]] (:line (first ms))))
+                                    ffirst))]
+                       (when-let [m (and k (first (get @unpaired k)))]
+                         (swap! unpaired update k (comp vec rest))
+                         m))))
+         resolve-moved (pairing unpaired)
          check-moves!
          (fn []
            ;; With both modules on the page, a move has its placeholder.
@@ -906,6 +926,57 @@
            (let [repo repository
                  end (module-view-end lines i)
                  review? (= "Review" (:kind @st))
+                 ;; The view's description stands at its head, its first nonblank line.
+                 head (first (filter #(not (str/blank? (lines %))) (range (inc i) end)))
+                 head-open (and head (= "::: description" (lines head)))
+                 head-close (when head-open (first (filter #(= ":::" (lines %)) (range (inc head) end))))
+                 markdown (str/ends-with? path ".md")
+                 ;; The module as the view shows it: unsigned view lines, with each
+                 ;; edit replaced by the current lines it carries. A markdown module
+                 ;; may sit in a markdown or text fence; any other file is the content
+                 ;; of its one fence, in its language, kept to the character.
+                 shown-of (fn [in-place]
+                            (let [by-heading (into {} (map (juxt :heading identity) in-place))
+                                  raw-lines (loop [j (inc i) out []]
+                                              (cond
+                                                (>= j end) out
+                                                (and head-close (= j head)) (recur (inc head-close) out)
+                                                (by-heading j) (recur (:end (by-heading j)) (into out (:current (by-heading j))))
+                                                (and new? (added-line? (lines j))) (recur (inc j) (conj out (unsigned-change-line (lines j))))
+                                                :else (recur (inc j) (conj out (lines j)))))
+                                  raw (str/join "\n" raw-lines)
+                                  shown (str/trim raw)
+                                  literal (if markdown
+                                            (re-find #"^(`{3,}|~{3,})(?:markdown|md|text)\s*\n((?s:.*))\n\1\z" shown)
+                                            (re-find #"^(`{3,}|~{3,})[^\n`]*\n((?s:.*))\n\1\z" (str/trim raw)))]
+                              (if literal (nth literal 2) shown)))
+                 ;; Moves of one pair that leave this module, their passages differing:
+                 ;; the placeholders here take the order whose passages put the module
+                 ;; back; the order written is tried first and kept where none fits.
+                 expected (try (let [file (str/replace (read-module repo path) "\r\n" "\n")]
+                                 (if markdown (module-body file) (str/replace file #"\n+\z" "")))
+                               (catch Throwable _ nil))
+                 ambiguous (when expected
+                             (for [[[_ from _ :as k] ms] @unpaired
+                                   :when (and (= from [repo path])
+                                              (< 1 (count (distinct (map :source-lines ms))) )
+                                              (<= (count ms) 6))]
+                               [k ms]))
+                 _ (when (seq ambiguous)
+                     (let [orders (fn orders [[[k ms] & more]]
+                                    (if k
+                                      (for [perm (distinct-by #(mapv :source-lines %) (permutations ms))
+                                            rest-orders (orders more)]
+                                        (assoc rest-orders k perm))
+                                      [{}]))
+                           fits (first (filter (fn [order]
+                                                 (let [trial (atom (merge @unpaired order))]
+                                                   (= expected
+                                                      (shown-of (in-place-proposals lines (inc i) end [repo path]
+                                                                                    (if review? :added :removed)
+                                                                                    (pairing trial))))))
+                                               (orders ambiguous)))]
+                       (when fits (swap! unpaired merge fits))))
                  in-place (in-place-proposals lines (inc i) end [repo path]
                                               (if review? :added :removed) resolve-moved)
                  _ (doseq [p in-place [index reason] (:errors p)] (err! (inc index) reason))
@@ -917,11 +988,6 @@
                  ;; replaced by the current lines it carries (its removals, or a
                  ;; moved passage at the source).
                  by-heading (into {} (map (juxt :heading identity) in-place))
-                 ;; The view's description stands at its head, its first nonblank line:
-                 ;; a container as it stands, or one changed by a proposal in place there.
-                 head (first (filter #(not (str/blank? (lines %))) (range (inc i) end)))
-                 head-open (and head (= "::: description" (lines head)))
-                 head-close (when head-open (first (filter #(= ":::" (lines %)) (range (inc head) end))))
                  _ (when (and head-open (nil? head-close)) (err! (inc head) "unclosed-description-container"))
                  head-read (when head-close
                              (let [read (description-sides (subvec lines (inc head) head-close))]
@@ -941,7 +1007,6 @@
                  described (or head-open (boolean (:description (by-heading head))))
                  placed (into (if head-open #{head} #{})
                               (keep #(some-> % :description :line) in-place))
-                 markdown (str/ends-with? path ".md")
                  _ (doseq [p in-place :when (and (:description p) (not= head (:heading p)))]
                      (err! (inc (:line (:description p))) "description-not-at-head"))
                  book-text (unfenced-indices lines (inc i) end)
@@ -971,21 +1036,7 @@
                                  (err! (inc j) "new-module-line-not-added"))
                                (recur (if close (inc close) end)))
                              :else (do (err! (inc j) "new-module-line-not-added") (recur (inc j))))))))
-                 raw-lines (loop [j (inc i) out []]
-                             (cond
-                               (>= j end) out
-                               (and head-close (= j head)) (recur (inc head-close) out)
-                               (by-heading j) (recur (:end (by-heading j)) (into out (:current (by-heading j))))
-                               (and new? (added-line? (lines j))) (recur (inc j) (conj out (unsigned-change-line (lines j))))
-                               :else (recur (inc j) (conj out (lines j)))))
-                 raw (str/join "\n" raw-lines)
-                 shown (str/trim raw)
-                 ;; A markdown module may sit in a markdown or text fence; any other file is the
-                 ;; content of its one fence, in its language, kept to the character.
-                 literal (if markdown
-                           (re-find #"^(`{3,}|~{3,})(?:markdown|md|text)\s*\n((?s:.*))\n\1\z" shown)
-                           (re-find #"^(`{3,}|~{3,})[^\n`]*\n((?s:.*))\n\1\z" (str/trim raw)))
-                 shown (if literal (nth literal 2) shown)]
+                 shown (shown-of in-place)]
              (cond
                ;; A new module proposed does not stand yet: its view adds every line,
                ;; and nothing in it is the module as it stands.
