@@ -909,9 +909,9 @@
     (is (= ["context-module-differs" "moved-without-move"]
            (sort (reasons (str/replace (inline-source inline-line) #"(?s)\n#### Proposal 2: Move · repo › new.md.*" "\n") opts)))
         "a mark without its move stands for nothing")
-    (is (= ["context-module-differs" "move-without-placeholder" "moved-without-move"]
-           (sort (reasons (str/replace (inline-source inline-line) "Proposal 2: Move · repo › old.md" "Proposal 3: Move · repo › old.md") opts)))
-        "a mark pairs with its move by the proposal number")
+    (is (= []
+           (check (str/replace (inline-source inline-line) "Proposal 2: Move · repo › old.md" "Proposal 3: Move · repo › old.md") opts))
+        "a mark pairs with its move by module pair, whatever block its line stands in")
     (is (= ["move-without-placeholder"]
            (reasons (inline-source "- First. Moved sentence. Last.\n+ First. Last.") opts))
         "with both modules on the page, a move has its placeholder")
@@ -922,6 +922,45 @@
     (is (some #{"malformed-moved-placeholder"}
               (reasons (inline-source "- First. [[moved to: repo › new.md Last.\n+ First. Last.") opts))
         "a mark that does not close is refused")))
+
+(deftest inline-marks-of-different-moves-stand-in-one-block
+  (let [modules {"old.md" "## Old\n\nFirst. Alpha sentence. Middle. Beta sentence. Then. Gamma sentence. Last.\n\nAfter.\n"
+                 "a.md" "## A\n\nExisting.\n"
+                 "b.md" "## B\n\nExisting.\n"
+                 "c.md" "## C\n\nExisting.\n"}
+        opts (modules-opts modules)
+        line (str "- First. [[moved to: repo › a.md]] Middle. [[moved to: repo › b.md]] Then. [[moved to: repo › c.md]] Last.\n"
+                  "+ First. Middle. Then. Last.")
+        view (fn [file number passage]
+               (str "## repo › " file "\n\n## " (str/upper-case (subs file 0 1)) "\n\nExisting.\n\n"
+                    "#### Proposal " number ": Move · repo › " file "\n\n"
+                    "::: move proposed\nfrom: repo › old.md\nto: repo › " file "\n\n" passage "\n:::\n\n"))
+        source (fn [line a b c]
+                 (str "# B\n\n## repo › old.md\n\n## Old\n\n"
+                      "#### Proposal 5: The line is taken apart · repo › old.md\n\n"
+                      line "\n\nAfter.\n\n"
+                      (view "a.md" 2 a) (view "b.md" 3 b) (view "c.md" 4 c)))]
+    (is (= [] (check (source line "Alpha sentence." "Beta sentence." "Gamma sentence.") opts))
+        "each mark pairs with the move of its own module, whatever the proposal numbers")
+    (is (= ["context-module-differs"]
+           (reasons (source line "Alpha sentence." "Gamma sentence." "Beta sentence.") opts))
+        "the marks read the passages of their own moves: b and c swapped no longer rebuild the line")))
+
+(deftest inline-marks-of-one-pair-pair-in-the-order-written
+  (let [opts (modules-opts {"old.md" "## Old\n\nFirst. One. Middle. Two. Last.\n\nAfter.\n"
+                            "new.md" "## New\n\nExisting.\n"})
+        source (fn [first-passage second-passage]
+                 (str "# B\n\n## repo › old.md\n\n## Old\n\n"
+                      "#### Proposal 7: Taken apart · repo › old.md\n\n"
+                      "- First. [[moved to: repo › new.md]] Middle. [[moved to: repo › new.md]] Last.\n"
+                      "+ First. Middle. Last.\n\nAfter.\n\n"
+                      "## repo › new.md\n\n## New\n\nExisting.\n\n"
+                      "#### Proposal 3: First move · repo › new.md\n\n"
+                      "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n" first-passage "\n:::\n\n"
+                      "#### Proposal 4: Second move · repo › new.md\n\n"
+                      "::: move proposed\nfrom: repo › old.md\nto: repo › new.md\n\n" second-passage "\n:::\n"))]
+    (is (= [] (check (source "One." "Two.") opts)) "the first mark takes the first move written, the second the second")
+    (is (= ["context-module-differs"] (reasons (source "Two." "One.") opts)) "the order is the order written")))
 
 (deftest inline-marks-take-their-spaces-from-the-line
   (let [expand (fn [line passages] (let [{:keys [marks]} (book-check/inline-moved-marks line)]

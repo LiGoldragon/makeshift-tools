@@ -167,8 +167,10 @@ holds no mark):
     - First. [[moved to: psyche-belief › intent/energy/0.md]] Last.
     + First. Last.
 
-The mark pairs with its move by proposal number and module pair, in the order
-written, as the placeholder does, and is refused as it is (`moved-without-move`,
+The mark pairs with its move by module pair alone, the module its view leaves
+and the module the mark names, in the order written, whatever proposal block its
+line stands in (a placeholder pairs by proposal number and module pair), and is
+refused as a placeholder is (`moved-without-move`,
 `malformed-moved-placeholder`, `move-without-placeholder`). Read on the side
 that holds the passage (a Proposal's removed and unchanged lines), the passage
 is put back at the mark, joined to the text around it by the spaces around the

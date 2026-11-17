@@ -491,7 +491,7 @@
                                                           (valid-location? (first to-location) (second to-location))
                                                           (not= view to-location)
                                                           (or (= locations [view to-location]) (= locations [view])))
-                                              paired (when (and valid? resolve-moved) (resolve-moved number view to-location))]
+                                              paired (when (and valid? resolve-moved) (resolve-moved nil view to-location))]
                                           {:to-location to-location :valid? valid? :paired paired}))
                                       marks)]
                        {:lines (when read?
@@ -785,9 +785,17 @@
          entering-moves (vec (for [v views p (:proposals v) m (:moves p) :when (= :to (:side m))] m))
          unpaired (atom (reduce (fn [acc m] (update acc [(:number m) (:from m) (:to m)] (fnil conj []) m))
                                 {} entering-moves))
+         ;; A placeholder pairs by its proposal number and the pair of modules; an inline
+         ;; mark, whose number is nil, by the pair of modules alone, the first move
+         ;; written of the pair.
          resolve-moved (fn [number from to]
-                         (let [k [number from to]]
-                           (when-let [m (first (get @unpaired k))]
+                         (let [k (if number
+                                   [number from to]
+                                   (->> @unpaired
+                                        (filter (fn [[[_ f t] ms]] (and (= f from) (= t to) (seq ms))))
+                                        (sort-by (fn [[_ ms]] (:line (first ms))))
+                                        ffirst))]
+                           (when-let [m (and k (first (get @unpaired k)))]
                              (swap! unpaired update k (comp vec rest))
                              m)))
          check-moves!
