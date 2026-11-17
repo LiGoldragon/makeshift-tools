@@ -51,4 +51,14 @@
      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ethos rejected"
            (book-build/signed-code-html "ethos" [(str "+ " root) "+ []"]))))
     (is (= 1 (count @calls)) root)))))
+(deftest an-ethos-sketch-fence-is-highlighted-as-ethos-and-never-checked
+ (binding [book-build/*enforce-ethos* true book-build/*highlight* true
+           book-build/*ethos-check* (fn [_] (throw (Exception. "sketch sent to ethos-zero")))]
+  (let [html (book-build/build (str "### Proposal 1: Sketch · repo › a.md\n\n```ethos sketch\n" invalid-emission "\n```\n") "")]
+   (is (clojure.string/includes? html "language-ethos"))
+   (is (not (clojure.string/includes? html "language-ethos sketch")))
+   (is (clojure.string/includes? html "ts-type"))
+   (is (clojure.string/includes? html "Outcome") "the sketch text is shown, not refused"))
+  (binding [book-build/*ethos-check* (fn [_] nil)]
+   (is (= (book-build/code-html "ethos" ["Traits [ A.[ b ] ]"]) (book-build/code-html "ethos sketch" ["Traits [ A.[ b ] ]"]))))))
 (let [{:keys [fail error]} (run-tests 'book-validator-test)] (System/exit (if (zero? (+ fail error)) 0 1)))

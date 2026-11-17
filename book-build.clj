@@ -617,7 +617,7 @@
   lines between two added lines belong to the run; the rest stay with the passage."
   [body]
   (let [body (vec body)
-        fence-open-re #"(?U)^(`{3,}|~{3,})(\w*)\s*$"
+        fence-open-re #"(?U)^(`{3,}|~{3,})(\w*(?: sketch)?)\s*$"
         added? (fn [l] (or (= l "+") (str/starts-with? l "+ ")))
         marks (loop [k 0 fence nil out []]
                 (if (>= k (count body))
@@ -710,7 +710,7 @@
 (defn fence-open
   "The language of a code fence opening line, or nil."
   [l]
-  (some-> (re-find #"^(?:`{3,}|~{3,})(\w*)\s*$" l) second))
+  (some-> (re-find #"^(?:`{3,}|~{3,})(\w*(?: sketch)?)\s*$" l) second))
 
 (defn fence-close?
   "A line that closes a code fence of backticks or tildes."
@@ -938,6 +938,12 @@
         (.deleteOnExit (fs/file dir))
         {:config cfg :dir (str dir) :scopes ok}))))
 
+(defn- sketch-base
+  "The language a fence's info string names: `ethos sketch` is ethos, drawn as
+  ethos and not checked by ethos-zero."
+  [lang]
+  (str/replace lang #" sketch$" ""))
+
 (def ^:private warned (atom #{}))
 
 (defn- ts-classes [html]
@@ -951,7 +957,7 @@
 (def ^:private highlight-lines*
   (memoize
    (fn [lang lines]
-     (let [grammar (get (book-grammars "languages") lang)
+     (let [grammar (get (book-grammars "languages") (sketch-base lang))
            {:keys [config dir scopes]} @ts-env
            scope (get scopes grammar)]
        (if-not scope
@@ -974,7 +980,7 @@
   [lang lines]
   (when *highlight* (highlight-lines* lang (vec lines))))
 
-(defn- code-class [lang] (get langs lang (if (= "" lang) "text" lang)))
+(defn- code-class [lang] (let [lang (sketch-base lang)] (get langs lang (if (= "" lang) "text" lang))))
 
 (declare check-rendered-ethos! check-signed-ethos! guess-code-language)
 (def ^:dynamic *validate-rendered-ethos* true)
@@ -1440,7 +1446,7 @@
   (let [lines (vec (str/split src #"\n" -1))
         n (count lines)
         skip #"(?U)^(<!--.*-->|Presentation\.\{.*\})\s*$"
-        fence-open-re #"(?U)^(`{3,}|~{3,})(\w*)\s*$"
+        fence-open-re #"(?U)^(`{3,}|~{3,})(\w*(?: sketch)?)\s*$"
         move-open-re #"^::: move(?:\s+.*)?$"
         comment-open-re #"^::: comment(?:\s+.*)?$"
         shown-open-re #"^::: shown(?:\s+.*)?$"

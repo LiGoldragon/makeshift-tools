@@ -523,7 +523,7 @@
         (if (>= j e)
           (done e)
           (let [l (lines j)
-                fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)
+                fence (re-find #"^(`{3,}|~{3,})\s*(\S*(?: sketch)?)\s*\z" l)
                 move-open (re-matches #"::: move (proposed|landed)" l)
                 moved-open (re-matches #"::: moved (proposed|landed)" l)]
             (cond
@@ -1178,7 +1178,7 @@
                  malformed-move? (re-find #"^::: move(?:\s|$)" line)
                  proposed-open? (= line "::: proposed")
                  malformed-proposed? (re-find #"^::: proposed(?:\s|$)" line)
-                 opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*)")) line)
+                 opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*(?: sketch)?)")) line)
                  opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
              (cond
                comment-open?
