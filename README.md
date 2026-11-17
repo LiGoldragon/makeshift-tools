@@ -206,6 +206,29 @@ marks the view's sheet New:
 
     + Sonnet does large plain work and designs nothing.
 
+**book-label.clj** gives a source its page label, a letter and a number before
+the title: `V7 · the title`. It is run by the publisher at publication, before
+the source is built or checked, and prints the label.
+
+    bb book-label.clj /abs/SOURCE.md [--labels LABELS.datom]
+
+The letter follows the page: V a Proposal whose changed modules (proposal
+headings, new modules, move ends) are all in the configured vision directories
+of the configured repository, K any other Proposal, A an Account, R a Review. The
+label is written into the head title and the H1, so every rebuild keeps it, and
+the letter's next number is increased. A source that already carries a label
+(`^[A-Z]\d+ · ` in either title) keeps it, takes no number and has the other
+title made to match. The configuration is one datom, read from `--labels`, else
+`$BOOK_LABELS`, else `/home/li/primary/flows/book/labels.datom`; its count is
+changed under a file lock, and reset only by editing it:
+
+    { Labels
+      [ { V VisionProposal 1 }
+        { K KnowledgeProposal 1 }
+        { A Account 1 }
+        { R Review 1 } ]
+      VisionModules { psyche-belief [ spirit intent vision ] } }
+
 **codex-usage** prints Codex usage left, its reset time and the available usage
 resets, from `codex app-server` with the `~/.codex` login. Read-only.
 `--json` prints the raw reply. `codex-app-server.clj` is the namespace it shares
