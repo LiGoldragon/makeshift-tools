@@ -1,30 +1,44 @@
-;; book-label.clj gives a presentation source its page label, `V7 · title`.
-;; Run: bb book-label.clj SOURCE.md [--labels LABELS.datom]
+;; book-label.clj gives a presentation source its page label, `Panel.1 · title`:
+;; a Pascal-case name that says the subject, a dot, and the page's revision
+;; counting from 1.
+;; Run: bb book-label.clj SOURCE.md [--name Name] [--revise] [--labels LABELS.datom]
 (ns book-label
-  (:require [clojure.string :as str]
-            [babashka.fs :as fs]))
+  (:require [clojure.string :as str]))
 
 (def default-labels-path "/home/li/primary/flows/book/labels.datom")
 (def labels-environment-variable "BOOK_LABELS")
 
-(def label-pattern #"^([A-Z])(\d+) · ")
+(def pascal-case-pattern #"[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)*")
+(def label-pattern #"^([A-Z][A-Za-z0-9]*)\.(\d+) · ")
+(def old-label-pattern #"^[A-Z]\d+ · ")
 (def presentation-pattern #"^Presentation\.\{ «([^»]*)»(?: (\w+))? \}$")
-(def proposal-heading-pattern #"^#{3,4} Proposal \d+: .* · ([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)\s*$")
-(def new-module-heading-pattern #"^## ([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+), a new file\s*$")
-(def move-end-pattern #"^(?:from|to): ([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)\s*$")
 
-;; The configuration: one datom, the labels with their next numbers and the
-;; modules that make a proposal a vision one.
-;;   { Labels [ { V VisionProposal 1 } ... ] VisionModules { psyche-belief [ spirit intent vision ] } }
-(def label-entry-pattern #"\{\s*([A-Z])\s+(\w+)\s+(\d+)\s*\}")
-(def vision-modules-pattern #"VisionModules\s*\{\s*(\S+)\s*\[([^\]]*)\]\s*\}")
+;; The configuration: one datom, the highest revision published per name.
+;;   { Revisions [ { Panel 2 } { Purification 3 } ] }
+(def revision-entry-pattern #"\{\s*([A-Z][A-Za-z0-9]*)\s+(\d+)\s*\}")
 
-(defn parse-config [text]
-  (let [[_ repository directories] (re-find vision-modules-pattern text)]
-    {:labels (vec (for [[_ letter kind next] (re-seq label-entry-pattern text)]
-                    {:letter letter :kind kind :next (parse-long next)}))
-     :vision-repository repository
-     :vision-directories (vec (str/split (str/trim (or directories "")) #"\s+"))}))
+(defn pascal-case? [name] (boolean (and name (re-matches pascal-case-pattern name))))
+
+(defn parse-config
+  "The revisions of a configuration, an ordered vector of [name revision]."
+  [text]
+  (vec (for [[_ name revision] (re-seq revision-entry-pattern text)]
+         [name (parse-long revision)])))
+
+(defn config-text [revisions]
+  (str "{ Revisions ["
+       (if (empty? revisions) "" (str " " (str/join " " (map (fn [[n r]] (str "{ " n " " r " }")) revisions)) " "))
+       "] }\n"))
+
+(defn recorded-revision [revisions name]
+  (or (some (fn [[n r]] (when (= n name) r)) revisions) 0))
+
+(defn record-revision
+  "The revisions with the name's highest revision at least `revision`."
+  [revisions name revision]
+  (if (some #(= name (first %)) revisions)
+    (mapv (fn [[n r]] (if (= n name) [n (max r revision)] [n r])) revisions)
+    (conj revisions [name revision])))
 
 (defn source-lines [source] (vec (str/split source #"\n" -1)))
 
@@ -46,44 +60,19 @@
                   {:title (m 1) :kind (or (m 2) "Proposal")}))
         (take-while #(not (re-find #"^#" %)) (remove str/blank? lines))))
 
-(defn changed-modules
-  "The modules a source's proposals change: each proposal heading's, each new
-  module's, each move's two ends."
-  [lines]
-  (->> (outside-fences lines)
-       (keep (fn [l] (when l
-                       (when-let [m (or (re-find proposal-heading-pattern l)
-                                        (re-find new-module-heading-pattern l)
-                                        (re-find move-end-pattern l))]
-                         [(m 1) (m 2)]))))
-       distinct vec))
-
-(defn vision-module? [config [repository path]]
-  (and (= repository (:vision-repository config))
-       (some #(str/starts-with? path (str % "/")) (:vision-directories config))))
-
-(defn page-kind
-  "VisionProposal, KnowledgeProposal, Account or Review."
-  [source config]
-  (let [lines (source-lines source)
-        kind (:kind (presentation lines))]
-    (case kind
-      "Account" "Account"
-      "Review" "Review"
-      (let [modules (changed-modules lines)]
-        (if (and (seq modules) (some #(vision-module? config %) modules))
-          "VisionProposal"
-          "KnowledgeProposal")))))
-
 (defn existing-label
-  "The label a source already carries in its head title or its H1, or nil."
+  "The label of the new form a source carries in its head title or its H1, as
+  {:name :revision}, or nil. An old-form label (`V7 · `) is no label."
   [lines]
   (let [h1 (some #(when (and % (str/starts-with? % "# ")) (subs % 2)) (outside-fences lines))]
-    (or (some->> (:title (presentation lines)) (re-find label-pattern) (#(str (% 1) (% 2))))
-        (some->> h1 (re-find label-pattern) (#(str (% 1) (% 2)))))))
+    (some->> (or (some->> (:title (presentation lines)) (re-find label-pattern))
+                 (some->> h1 (re-find label-pattern)))
+             ((fn [m] {:name (m 1) :revision (parse-long (m 2))})))))
+
+(defn label-text [{:keys [name revision]}] (str name "." revision))
 
 (defn- titled [label title]
-  (if (re-find label-pattern title) title (str label " · " title)))
+  (str label " · " (-> title (str/replace-first label-pattern "") (str/replace-first old-label-pattern ""))))
 
 (defn- relabel-lines [lines label]
   (let [fences (outside-fences lines)
@@ -95,51 +84,59 @@
 
 (defn label-source
   "Label a source: its head title and its H1, or the H1 alone of a source with
-  no Presentation line, which is a Proposal. Returns {:label \"V7\" :source text :config text :new? bool}.
-  A source that carries a label keeps it, takes no number, and leaves the
-  configuration as it was."
-  [source config-text]
-  (let [config (parse-config config-text)
-        lines (source-lines source)]
+  no Presentation line. Returns {:label \"Panel.1\" :source text :config text :new? bool}.
+  options: {:name \"Panel\" :revise bool}.
+  A source that carries a Name.N label keeps it and leaves the configuration as
+  it was; with :revise its revision is raised by one and recorded. A source
+  with no label of the new form takes :name, one more than the highest revision
+  recorded for it, or 1."
+  [source config-text-in {:keys [name revise]}]
+  (let [revisions (parse-config config-text-in)
+        lines (source-lines source)
+        existing (existing-label lines)]
     (when-not (or (presentation lines) (some #(and % (str/starts-with? % "# ")) (outside-fences lines)))
       (throw (ex-info "the source has no title to label" {})))
-    (if-let [label (existing-label lines)]
-      {:label label :source (str/join "\n" (relabel-lines lines label)) :config config-text :new? false}
-      (let [kind (page-kind source config)
-            entry (first (filter #(= kind (:kind %)) (:labels config)))]
-        (when-not entry
-          (throw (ex-info (str "the configuration has no label for " kind) {})))
-        (let [label (str (:letter entry) (:next entry))]
-          {:label label
-           :source (str/join "\n" (relabel-lines lines label))
-           :config (str/replace config-text
-                                (re-pattern (str "\\{\\s*" (:letter entry) "\\s+" kind "\\s+" (:next entry) "\\s*\\}"))
-                                (str "{ " (:letter entry) " " kind " " (inc (:next entry)) " }"))
-           :new? true})))))
+    (let [labelled (fn [label recorded]
+                     {:label (label-text label)
+                      :source (str/join "\n" (relabel-lines lines (label-text label)))
+                      :config (if recorded (config-text (record-revision revisions (:name label) (:revision label))) config-text-in)
+                      :new? (boolean recorded)})]
+      (cond
+        (and existing (not revise)) (labelled existing false)
+        existing (labelled (update existing :revision inc) true)
+        :else
+        (do
+          (when-not name
+            (throw (ex-info "the source carries no label of the form Name.N; give --name Name" {})))
+          (when-not (pascal-case? name)
+            (throw (ex-info (str "the name " name " is not Pascal case") {})))
+          (labelled {:name name :revision (inc (recorded-revision revisions name))} true))))))
 
 (defn label-files!
   "Label the source file, counting in the configuration file under its lock."
-  [source-path labels-path]
+  [source-path labels-path options]
   (with-open [file (java.io.RandomAccessFile. (str labels-path) "rw")
               lock (.lock (.getChannel file))]
-    (let [config-text (slurp (str labels-path) :encoding "UTF-8")
-          result (label-source (slurp (str source-path) :encoding "UTF-8") config-text)]
+    (let [text (slurp (str labels-path) :encoding "UTF-8")
+          result (label-source (slurp (str source-path) :encoding "UTF-8") text options)]
       (when (:new? result)
         (spit (str labels-path) (:config result) :encoding "UTF-8"))
       (spit (str source-path) (:source result) :encoding "UTF-8")
       result)))
 
+(defn- option [args flag]
+  (let [i (.indexOf args flag)] (when (>= i 0) (get args (inc i)))))
+
 (defn -main [& args]
   (let [args (vec args)
-        li (.indexOf args "--labels")
-        labels-path (cond (>= li 0) (get args (inc li))
-                          (System/getenv labels-environment-variable) (System/getenv labels-environment-variable)
-                          :else default-labels-path)
-        source-path (first (remove #{"--labels" labels-path} args))]
+        labels-path (or (option args "--labels") (System/getenv labels-environment-variable) default-labels-path)
+        name (option args "--name")
+        revise (boolean (some #{"--revise"} args))
+        source-path (first (remove (set (concat ["--labels" "--name" "--revise"] (keep #(option args %) ["--labels" "--name"]))) args))]
     (when-not source-path
-      (binding [*out* *err*] (println "usage: bb book-label.clj SOURCE.md [--labels LABELS.datom]"))
+      (binding [*out* *err*] (println "usage: bb book-label.clj SOURCE.md [--name Name] [--revise] [--labels LABELS.datom]"))
       (System/exit 2))
-    (try (println (:label (label-files! source-path labels-path)))
+    (try (println (:label (label-files! source-path labels-path {:name name :revise revise})))
          (catch Exception e
            (binding [*out* *err*] (println (str "book-label: " (ex-message e))))
            (System/exit 1)))))

@@ -8,90 +8,92 @@
 (load-file (str (fs/path tools-dir "book-label.clj")))
 (load-file (str (fs/path tools-dir "book-check.clj")))
 
-(def config
-  "{ Labels
-  [ { V VisionProposal 1 }
-    { K KnowledgeProposal 4 }
-    { A Account 1 }
-    { R Review 1 } ]
-  VisionModules { psyche-belief [ spirit intent vision ] } }
-")
+(def config "{ Revisions [ { Panel 2 } { Purification 3 } ] }\n")
+(def empty-config "{ Revisions [] }\n")
 
-(defn proposal [kind & modules]
-  (str "Presentation.{ «A title» " kind " }\n\n# A title\n\nCreated by Fable.\n\n"
-       (str/join "\n"
-                 (map-indexed (fn [i [repository path]]
-                                (str "### Proposal " (inc i) ": Part · " repository " › " path
-                                     "\n\n::: comment\nWhy.\n:::\n\n+ Added.\n"))
-                              modules))))
+(defn proposal [title]
+  (str "Presentation.{ «" title "» Proposal }\n\n# " title "\n\nCreated by Fable.\n\n"
+       "### Proposal 1: Part · psyche-belief › vision/a.md\n\n::: comment\nWhy.\n:::\n\n+ Added.\n"))
 
-(defn kind-of [source] (book-label/page-kind source (book-label/parse-config config)))
+(defn label [source options & [cfg]] (book-label/label-source source (or cfg config) options))
+(defn refused? [source options & [cfg]]
+  (try (label source options cfg) false (catch clojure.lang.ExceptionInfo _ true)))
 
-(deftest letter-decision
-  (testing "a proposal into spirit, intent or vision modules of psyche-belief is a vision one"
-    (is (= "VisionProposal" (kind-of (proposal "Proposal" ["psyche-belief" "vision/book/0.md"]))))
-    (is (= "VisionProposal" (kind-of (proposal "Proposal" ["psyche-belief" "spirit/core/0.md"] ["psyche-belief" "intent/energy/0.md"])))))
-  (testing "any other module makes it a knowledge proposal"
-    (is (= "KnowledgeProposal" (kind-of (proposal "Proposal" ["psyche-belief" "knowledge/book/0.md"]))))
-    (is (= "KnowledgeProposal" (kind-of (proposal "Proposal" ["other-repo" "vision/x.md"]))))
-    (is (= "VisionProposal" (kind-of (proposal "Proposal" ["psyche-belief" "vision/a.md"] ["psyche-belief" "mind/b.md"])))))
-  (testing "a Presentation naming no kind is a Proposal"
-    (is (= "VisionProposal" (kind-of (str/replace (proposal "Proposal" ["psyche-belief" "vision/a.md"]) " Proposal }" " }")))))
-  (testing "an account and a review are their own"
-    (is (= "Account" (kind-of (proposal "Account"))))
-    (is (= "Review" (kind-of (proposal "Review" ["psyche-belief" "vision/a.md"])))))
-  (testing "a move's two ends and a new module count as changed modules"
-    (let [source (str "Presentation.{ «T» Proposal }\n\n# T\n\n## psyche-belief › vision/a.md\n\n"
-                      "#### Proposal 1: P · psyche-belief › vision/a.md\n\n::: move proposed\n"
-                      "from: psyche-belief › vision/a.md\nto: psyche-belief › knowledge/b.md\n\nText.\n:::\n")]
-      (is (= "VisionProposal" (kind-of source))))
-    (is (= [["psyche-belief" "intent/new/0.md"]]
-           (book-label/changed-modules (book-label/source-lines "## psyche-belief › intent/new/0.md, a new file\n")))))
-  (testing "a heading in a code fence is no module"
-    (is (= [] (book-label/changed-modules
-               (book-label/source-lines "```text\n### Proposal 1: P · psyche-belief › vision/a.md\n```\n"))))))
+(deftest the-name-is-required
+  (is (refused? (proposal "A title") {}))
+  (is (refused? (proposal "A title") {:revise true}))
+  (testing "an old-form label counts as none"
+    (is (refused? (proposal "V7 · A title") {}))))
 
-(deftest counting
-  (let [source (proposal "Proposal" ["psyche-belief" "knowledge/book/0.md"])
-        first-page (book-label/label-source source config)]
-    (is (= "K4" (:label first-page)))
-    (is (str/starts-with? (:source first-page) "Presentation.{ «K4 · A title» Proposal }\n\n# K4 · A title\n"))
-    (is (str/includes? (:config first-page) "{ K KnowledgeProposal 5 }"))
-    (is (str/includes? (:config first-page) "{ V VisionProposal 1 }") "the other counts stay")
-    (let [second-page (book-label/label-source source (:config first-page))]
-      (is (= "K5" (:label second-page))))
-    (is (= "V1" (:label (book-label/label-source (proposal "Proposal" ["psyche-belief" "vision/a.md"]) config))))
-    (is (= "A1" (:label (book-label/label-source (proposal "Account") config))))
-    (is (= "R1" (:label (book-label/label-source (proposal "Review" ["psyche-belief" "vision/a.md"]) config))))))
+(deftest the-name-is-pascal-case
+  (doseq [bad ["panel" "Two words" "Panel_One" "PANEL" "Panel.1" "" "1Panel"]]
+    (is (refused? (proposal "A title") {:name bad}) bad))
+  (doseq [good ["Panel" "Purification" "BookLabel" "Panel2"]]
+    (is (not (refused? (proposal "A title") {:name good})) good)))
 
-(deftest existing-label-is-kept
-  (let [labelled (:source (book-label/label-source (proposal "Proposal" ["psyche-belief" "knowledge/book/0.md"]) config))
-        again (book-label/label-source labelled config)]
-    (is (= "K4" (:label again)))
+(deftest the-first-revision-is-one
+  (let [result (label (proposal "A title") {:name "Account"})]
+    (is (= "Account.1" (:label result)))
+    (is (str/starts-with? (:source result) "Presentation.{ «Account.1 · A title» Proposal }\n\n# Account.1 · A title\n")))
+  (is (= "Panel.1" (:label (label (proposal "A title") {:name "Panel"} empty-config)))))
+
+(deftest a-known-name-takes-one-more-than-its-highest
+  (is (= "Panel.3" (:label (label (proposal "A title") {:name "Panel"}))))
+  (is (= "Purification.4" (:label (label (proposal "A title") {:name "Purification"})))))
+
+(deftest counts-are-recorded
+  (let [first-page (label (proposal "A title") {:name "Account"})]
+    (is (:new? first-page))
+    (is (= [["Panel" 2] ["Purification" 3] ["Account" 1]] (book-label/parse-config (:config first-page))))
+    (is (= "Account.2" (:label (label (proposal "A title") {:name "Account"} (:config first-page)))))
+    (is (= "{ Revisions [ { Panel 3 } { Purification 3 } ] }\n"
+           (:config (label (proposal "A title") {:name "Panel"}))))
+    (is (= "{ Revisions [ { Panel 1 } ] }\n"
+           (:config (label (proposal "A title") {:name "Panel"} empty-config))))))
+
+(deftest a-rebuild-keeps-the-label
+  (let [labelled (:source (label (proposal "A title") {:name "Panel"}))
+        again (label labelled {})
+        with-name (label labelled {:name "Other"})]
+    (is (= "Panel.3" (:label again)))
     (is (= labelled (:source again)))
     (is (= config (:config again)) "no number is taken")
-    (is (not (:new? again))))
+    (is (not (:new? again)))
+    (is (= "Panel.3" (:label with-name)) "a name given to a labelled source changes nothing"))
   (testing "a label on the head alone is carried to the H1"
-    (let [half (str/replace (proposal "Proposal" ["psyche-belief" "vision/a.md"]) "«A title»" "«V9 · A title»")
-          result (book-label/label-source half config)]
-      (is (= "V9" (:label result)))
-      (is (str/includes? (:source result) "# V9 · A title"))
-      (is (= config (:config result)))))
+    (let [half (str/replace (proposal "A title") "«A title»" "«Panel.9 · A title»")
+          result (label half {})]
+      (is (= "Panel.9" (:label result)))
+      (is (str/includes? (:source result) "# Panel.9 · A title"))
+      (is (= config (:config result))))))
+
+(deftest revise-raises-the-label
+  (let [labelled (:source (label (proposal "A title") {:name "Panel"}))
+        revised (label labelled {:revise true})]
+    (is (= "Panel.4" (:label revised)))
+    (is (str/starts-with? (:source revised) "Presentation.{ «Panel.4 · A title» Proposal }\n\n# Panel.4 · A title\n"))
+    (is (= [["Panel" 4] ["Purification" 3]] (book-label/parse-config (:config revised))))
+    (is (:new? revised))
+    (is (= "Panel.5" (:label (label (:source revised) {:revise true} (:config revised)))))))
+
+(deftest an-old-form-label-is-replaced
+  (let [result (label (proposal "V7 · A title") {:name "Panel"})]
+    (is (= "Panel.3" (:label result)))
+    (is (str/starts-with? (:source result) "Presentation.{ «Panel.3 · A title» Proposal }\n\n# Panel.3 · A title\n")))
   (testing "a title that only begins like a label is labelled"
-    (is (= "V1" (:label (book-label/label-source
-                         (str/replace (proposal "Proposal" ["psyche-belief" "vision/a.md"]) "A title" "V7 title") config))))))
+    (is (str/includes? (:source (label (proposal "V7 title") {:name "Panel"})) "# Panel.3 · V7 title"))))
 
 (deftest a-source-without-presentation
-  (testing "is a proposal, labelled in its H1 alone"
-    (let [result (book-label/label-source "# Title\n\n### Proposal 1: P · psyche-belief › vision/a.md\n" config)]
-      (is (= "V1" (:label result)))
-      (is (str/starts-with? (:source result) "# V1 · Title\n"))))
+  (testing "is labelled in its H1 alone"
+    (let [result (label "# Title\n\n### Proposal 1: P · psyche-belief › vision/a.md\n" {:name "Panel"})]
+      (is (= "Panel.3" (:label result)))
+      (is (str/starts-with? (:source result) "# Panel.3 · Title\n"))))
   (testing "with no title is refused"
-    (is (thrown? clojure.lang.ExceptionInfo (book-label/label-source "Text.\n" config)))))
+    (is (refused? "Text.\n" {:name "Panel"}))))
 
 (deftest the-checker-accepts-a-labelled-title
-  (let [source (proposal "Proposal" ["psyche-belief" "vision/a.md"])
-        labelled (:source (book-label/label-source source config))]
+  (let [source (proposal "A title")
+        labelled (:source (label source {:name "Panel"}))]
     (is (= (mapv :reason (book-check/check-book source))
            (mapv :reason (book-check/check-book labelled))))))
 
@@ -100,11 +102,12 @@
         source (str (fs/path dir "s.md"))
         labels (str (fs/path dir "labels.datom"))]
     (spit labels config)
-    (spit source (proposal "Proposal" ["psyche-belief" "vision/a.md"]))
-    (is (= "V1" (:label (book-label/label-files! source labels))))
-    (is (= "V1" (:label (book-label/label-files! source labels))))
-    (is (str/includes? (slurp labels) "{ V VisionProposal 2 }"))
-    (is (str/includes? (slurp source) "# V1 · A title"))))
+    (spit source (proposal "A title"))
+    (is (= "Panel.3" (:label (book-label/label-files! source labels {:name "Panel"}))))
+    (is (= "Panel.3" (:label (book-label/label-files! source labels {}))))
+    (is (= "Panel.4" (:label (book-label/label-files! source labels {:revise true}))))
+    (is (= "{ Revisions [ { Panel 4 } { Purification 3 } ] }\n" (slurp labels)))
+    (is (str/includes? (slurp source) "# Panel.4 · A title"))))
 
 (let [{:keys [fail error]} (run-tests 'book-label-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
