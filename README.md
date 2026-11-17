@@ -62,6 +62,10 @@ book-build gives the proposal's sheet the class `proposal proposed`
 (`proposal in-place proposed` in place), which sets the single margin for its
 margins; the marker draws nothing itself.
 
+In an in-place Review module view, landed changes are authenticated against
+the module's added side, including its changed description. A part marked
+`::: proposed` is authenticated against its removed side, as a Proposal is.
+
 A Markdown module's description, the `description` of its front matter, is
 written in a `::: description` container at the head of its module view or
 proposal; front matter is never written in a book (`description-as-front-matter`,

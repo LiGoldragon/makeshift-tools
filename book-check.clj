@@ -190,9 +190,9 @@
 ;; A proposal shown in place stands inside a module view, at the place its
 ;; edit lands. Its level-four heading names the view's module; a move names
 ;; the module it leaves and the module it enters. Signed lines are the edit:
-;; removals reconstruct the current module and additions do not. Thus the
-;; surrounding unsigned text plus every removed line is the module as it
-;; stands, to the character. A move container reconstructs its body only in
+;; proposed changes contribute removed lines; landed Review changes contribute
+;; added lines. The surrounding unsigned text and that side reconstruct the
+;; module as it stands, to the character. A move container reconstructs its body only in
 ;; the module named by from and is rendered once.
 
 (def in-place-heading
@@ -323,8 +323,11 @@
   [repository path] ending before line e: {:heading h :end k :number :title
   :comment lines :current lines :errors [[index reason]]}, k being the line
   where the module resumes, :proposed the index of its `::: proposed` line or
-  nil, and :current the lines this edit contributes to the module as it stands."
-  [lines h e [repository path]]
+  nil, and :current the lines this edit contributes to the module as it stands.
+  source-sign selects removed (proposed) or added (landed) lines; an explicitly
+  proposed part of a Review always contributes its removed lines."
+  ([lines h e location] (in-place-proposal lines h e location :removed))
+  ([lines h e [repository path] source-sign]
   (let [heading (re-matches in-place-heading (lines h))
         [_ _ number title heading-repository heading-path to-repository to-path] heading
         locations (cond-> [] heading-repository (conj [heading-repository heading-path])
@@ -334,6 +337,8 @@
         proposed (first (filter #(not (str/blank? (lines %))) (range (inc h) e)))
         proposed (when (and proposed (= "::: proposed" (lines proposed))) proposed)
         start (if proposed (inc proposed) (inc h))
+        source-sign (if proposed :removed source-sign)
+        source-line? (case source-sign :removed removed-line? :added added-line?)
         ;; its description container, read, with the index of its opening line
         description (volatile! nil)
         errors (cond-> []
@@ -354,8 +359,9 @@
                 fence (re-find #"^(`{3,}|~{3,})\s*(\S*)\s*\z" l)]
             (cond
               (str/blank? l) (recur (inc j) comment changed current move errors)
-              (added-line? l) (recur (inc j) comment true current move errors)
-              (removed-line? l) (recur (inc j) comment true (conj current (unsigned-change-line l)) move errors)
+              (or (added-line? l) (removed-line? l))
+              (recur (inc j) comment true
+                     (cond-> current (source-line? l) (conj (unsigned-change-line l))) move errors)
               (context-line? l) (recur (inc j) comment changed (conj current (subs l 2)) move errors)
               (re-find in-place-start l) (done j)
 
@@ -439,7 +445,7 @@
                                  (and (= "mermaid" (str/lower-case language))
                                       (not (coherent-signed-mermaid? body)))
                                  (conj [j "mixed-mermaid-change"]))
-                        kept (keep #(when (or (removed-line? %) (context-line? %))
+                        kept (keep #(when (or (source-line? %) (context-line? %))
                                       (unsigned-change-line %)) body)
                         current' (if (seq kept)
                                    (into current (concat [(str opener language)] kept [opener]))
@@ -447,7 +453,7 @@
                     (if close (recur (inc close) comment true current' move errors) (done e)))
                   (done j)))
 
-              :else (done j))))))))
+              :else (done j)))))))))
 
 (defn module-view-end
   "The line after the module view whose heading is line i: the next proposal or
@@ -486,17 +492,18 @@
 (defn in-place-proposals
   "The in-place proposals of the module view of location, whose lines are
   [start, end); a heading inside the module's own fences is the module's."
-  [lines start end location]
+  ([lines start end location] (in-place-proposals lines start end location :removed))
+  ([lines start end location source-sign]
   (loop [j start fence nil out []]
     (if (>= j end)
       out
       (let [l (lines j)]
         (cond
           fence (recur (inc j) (when-not (re-find (plain-fence-close-re (:char fence) (:size fence)) l) fence) out)
-          (re-find in-place-start l) (let [p (in-place-proposal lines j end location)]
+          (re-find in-place-start l) (let [p (in-place-proposal lines j end location source-sign)]
                                        (recur (:end p) nil (conj out p)))
           :else (let [open (re-find #"^ {0,3}(`{3,}|~{3,})" l)]
-                  (recur (inc j) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out)))))))
+                  (recur (inc j) (when open {:char (subs (second open) 0 1) :size (count (second open))}) out))))))))
 
 (defn source-in-place-proposals
   "Every in-place proposal of a source, keyed by the index of its heading line."
@@ -619,7 +626,8 @@
          handle-module-view!
          (fn [i number heading-text [_ repo path]]
            (let [end (module-view-end lines i)
-                 in-place (in-place-proposals lines (inc i) end [repo path])
+                 in-place (in-place-proposals lines (inc i) end [repo path]
+                                              (if (= "Review" (:kind @st)) :added :removed))
                  _ (doseq [p in-place [index reason] (:errors p)] (err! (inc index) reason))
                  _ (doseq [p in-place :when (and (:proposed p) (not= "Review" (:kind @st)))]
                      (err! (inc (:proposed p)) "proposed-outside-review"))
@@ -678,7 +686,12 @@
                             (not (re-find #"\A---\n" shown)))
                    (err! number "module-view-without-description"))
                  (when (and view-description
-                            (not= (:current view-description) (module-description file)))
+                            (not= (if (and (= "Review" (:kind @st))
+                                           (:signed view-description)
+                                           (not (:proposed (by-heading head))))
+                                    (:added view-description)
+                                    (:current view-description))
+                                  (module-description file)))
                    (err! (inc (:line view-description)) "module-description-differs"))
                  (when (not= shown (if markdown (module-body file) (str/replace file #"\n+\z" "")))
                    (cond

@@ -563,7 +563,10 @@
                             "## Questions\nIs it so?\n")))
           "with no blank line before the heading")
       (is (= [] (check (str (head kind) "## psyche-belief › vision/rule.md\n\n::: description\nA fixture.\n:::\n\n## The rule\n\nFirst line.\n\n"
-                            in-place-p1 "Second line.\n\n- a bullet\n" questions)
+                            (if (= kind "Review")
+                              (str/replace in-place-p1 "\n\n::: comment" "\n\n::: proposed\n\n::: comment")
+                              in-place-p1)
+                            "Second line.\n\n- a bullet\n" questions)
                        in-place-opts))
           "after a proposal in place, closing its module view")
       (is (= ["heading-after-questions"]
@@ -624,7 +627,8 @@
                       "::: comment\nWhy.\n:::\n\n+ Added line.\n\nSecond line.\n\n- a bullet\n"))
           module in-place-opts]
       (is (= [] (check (view " Review" "::: proposed\n\n") module)))
-      (is (= [] (check (view " Review" "") module)) "unmarked is landed")
+      (is (some #{"context-module-differs"} (reasons (view " Review" "") module))
+          "a landed addition must exist in the module; the unchanged source is refused")
       (is (= ["proposed-outside-review"] (reasons (view "" "::: proposed\n\n") module)))
       (is (= ["proposed-outside-review"] (reasons (view " Proposal" "::: proposed\n\n") module))))))
 
@@ -738,6 +742,23 @@
     (is (some #{"description-outside-proposal"} (reasons "# A book\n\n::: description\nText.\n:::\n")))
     (is (= ["description-in-questions"]
            (reasons (str (description-proposal-book "+ Added.\n") "\n## Questions\n\n::: description\n"))))))
+
+(deftest landed-in-place-reviews-authenticate-the-added-side
+  (let [review (fn [body] (str "Presentation.{ «B» Review }\n\n# B\n\n## repo › a.md\n\n"
+                              "#### Proposal 1: Edit · repo › a.md\n\n" body))
+        body "- Old.\n+ New.\n"
+        opts {:read-module (fn [_ _] "New.\n")}]
+    (is (= [] (check (review body) opts)))
+    (is (some #{"context-module-differs"}
+              (reasons (review body) {:read-module (fn [_ _] "Old.\n")})))
+    (is (= [] (check (review (str "::: proposed\n\n" body))
+                     {:read-module (fn [_ _] "Old.\n")})))
+    (is (= [] (check (review "```rust\n- fn old() {}\n+ fn new() {}\n```\n")
+                     {:read-module (fn [_ _] "```rust\nfn new() {}\n```\n")})))
+    (is (= [] (check (review "::: description\n- Old description.\n+ New description.\n:::\n\n- Old.\n+ New.\n")
+                     {:read-module (fn [_ _] "---\ndescription: New description.\n---\nNew.\n")})))
+    (is (= [] (check (review "::: proposed\n\n::: description\n- Old description.\n+ New description.\n:::\n\n- Old.\n+ New.\n")
+                     {:read-module (fn [_ _] "---\ndescription: Old description.\n---\nOld.\n")})))))
 
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
