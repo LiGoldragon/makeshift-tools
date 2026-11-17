@@ -34,7 +34,7 @@
   (testing "any other module makes it a knowledge proposal"
     (is (= "KnowledgeProposal" (kind-of (proposal "Proposal" ["psyche-belief" "knowledge/book/0.md"]))))
     (is (= "KnowledgeProposal" (kind-of (proposal "Proposal" ["other-repo" "vision/x.md"]))))
-    (is (= "KnowledgeProposal" (kind-of (proposal "Proposal" ["psyche-belief" "vision/a.md"] ["psyche-belief" "mind/b.md"])))))
+    (is (= "VisionProposal" (kind-of (proposal "Proposal" ["psyche-belief" "vision/a.md"] ["psyche-belief" "mind/b.md"])))))
   (testing "a Presentation naming no kind is a Proposal"
     (is (= "VisionProposal" (kind-of (str/replace (proposal "Proposal" ["psyche-belief" "vision/a.md"]) " Proposal }" " }")))))
   (testing "an account and a review are their own"
@@ -44,7 +44,7 @@
     (let [source (str "Presentation.{ «T» Proposal }\n\n# T\n\n## psyche-belief › vision/a.md\n\n"
                       "#### Proposal 1: P · psyche-belief › vision/a.md\n\n::: move proposed\n"
                       "from: psyche-belief › vision/a.md\nto: psyche-belief › knowledge/b.md\n\nText.\n:::\n")]
-      (is (= "KnowledgeProposal" (kind-of source))))
+      (is (= "VisionProposal" (kind-of source))))
     (is (= [["psyche-belief" "intent/new/0.md"]]
            (book-label/changed-modules (book-label/source-lines "## psyche-belief › intent/new/0.md, a new file\n")))))
   (testing "a heading in a code fence is no module"

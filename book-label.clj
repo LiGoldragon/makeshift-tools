@@ -71,7 +71,7 @@
       "Account" "Account"
       "Review" "Review"
       (let [modules (changed-modules lines)]
-        (if (and (seq modules) (every? #(vision-module? config %) modules))
+        (if (and (seq modules) (some #(vision-module? config %) modules))
           "VisionProposal"
           "KnowledgeProposal")))))
 

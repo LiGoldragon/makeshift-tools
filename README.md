@@ -212,9 +212,10 @@ the source is built or checked, and prints the label.
 
     bb book-label.clj /abs/SOURCE.md [--labels LABELS.datom]
 
-The letter follows the page: V a Proposal whose changed modules (proposal
-headings, new modules, move ends) are all in the configured vision directories
-of the configured repository, K any other Proposal, A an Account, R a Review. The
+The letter follows the page: V a Proposal that changes any module (a proposal
+heading, a new module, a move end) in the configured vision directories of the
+configured repository, since he reviews those line by line; K a Proposal that
+changes other modules alone, A an Account, R a Review. The
 label is written into the head title and the H1, so every rebuild keeps it, and
 the letter's next number is increased. A source that already carries a label
 (`^[A-Z]\d+ · ` in either title) keeps it, takes no number and has the other
