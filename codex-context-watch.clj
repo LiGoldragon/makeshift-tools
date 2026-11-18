@@ -124,7 +124,7 @@
        "the next step. Then ask for your own refresh: flow Refresh." address))
 
 (defn send-datom [{:keys [address]} priority text]
-  (str "Send." address " " priority ".Order.«" text "»"))
+  (str "Send.{ " address " " priority ".Order.«" text "» }"))
 
 (defn send! [configuration priority text tokens]
   (let [datom (send-datom configuration priority text)]
