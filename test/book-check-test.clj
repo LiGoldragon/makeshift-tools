@@ -1079,5 +1079,28 @@
                       "Its text.\n\n```ethos\nLibrary\n[]\n```\n")]
       (is (= [] (check source opts)) path))))
 
+;; A module deleted on main is read from the parent of its deleting commit; a path
+;; that never existed is still refused.
+(deftest a-deleted-module-is-read-from-before-its-deletion
+  (let [dir (str (fs/create-temp-dir))
+        git (fn [& args]
+              (let [r (apply sh "git" "-C" dir args)]
+                (when-not (zero? (:exit r)) (throw (ex-info "git failed" r)))
+                (:out r)))
+        read-at (partial (resolve 'book-check/module-text-at) git)]
+    (git "init" "-q")
+    (git "config" "user.email" "t@example.com")
+    (git "config" "user.name" "t")
+    (spit (str dir "/kept.md") "Kept.\n")
+    (spit (str dir "/gone.md") "Gone, once.\n")
+    (git "add" ".")
+    (git "commit" "-q" "-m" "add")
+    (git "rm" "-q" "gone.md")
+    (git "commit" "-q" "-m" "delete")
+    (let [head (str/trim (git "rev-parse" "HEAD"))]
+      (is (= "Kept.\n" (read-at head "kept.md")))
+      (is (= "Gone, once.\n" (read-at head "gone.md")))
+      (is (thrown? Exception (read-at head "never.md"))))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

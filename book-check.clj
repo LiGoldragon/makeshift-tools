@@ -79,9 +79,23 @@
 ;; proposal headings only at levels two and three.
 (def next-section (re-pattern (str "^ {0,3}(?:##\\s+(?:Proposal\\b|Questions\\s*\\z|" module-view-pattern "\\s*\\z)|###\\s+Proposal\\b)")))
 
+(defn module-text-at
+  "A module as the revision has it; a path the revision lacks is read from the
+  parent of the last commit that deleted it, so a deleted module still shows as it
+  stood. A path that never existed throws. `git` runs git in the repository."
+  [git revision relative-path]
+  (let [file? (fn [commit] (re-find #"^100(?:644|755) blob " (git "ls-tree" commit "--" relative-path)))
+        deletion (str/trim (git "log" "-1" "--diff-filter=D" "--format=%H" revision "--" relative-path))
+        commit (cond (file? revision) revision
+                     (re-find #"^[a-f0-9]{40}\z" deletion) (str deletion "^"))]
+    (when-not (and commit (file? commit))
+      (throw (ex-info "module-source-unavailable" {})))
+    (git "show" (str commit ":" relative-path))))
+
 (defn read-context-module
-  "A file of one of the living's repositories as origin main has it; a context
-  repository gives only its authored modules, never a generated skill."
+  "A file of one of the living's repositories as origin main has it, or as it stood
+  before origin main deleted it; a context repository gives only its authored
+  modules, never a generated skill."
   [repository relative-path]
   (when-not (valid-location? repository relative-path)
     (throw (ex-info "module-location-invalid" {})))
@@ -95,10 +109,9 @@
                 (:out r)))
         ;; Qualify main now; an unavailable revision refuses instead of using a stale copy.
         revision (first (str/split (str/trim (git "ls-remote" "origin" "refs/heads/main")) #"\s+"))]
-    (when (or (not (re-find #"^[a-f0-9]{40}\z" (or revision "")))
-              (not (re-find #"^100(?:644|755) blob " (git "ls-tree" revision "--" relative-path))))
+    (when-not (re-find #"^[a-f0-9]{40}\z" (or revision ""))
       (throw (ex-info "module-source-unavailable" {})))
-    (git "show" (str revision ":" relative-path))))
+    (module-text-at git revision relative-path)))
 
 (def ^:private sign-prefix "(?:[+-] |  )?")
 
