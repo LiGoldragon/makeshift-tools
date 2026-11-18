@@ -5,9 +5,9 @@
 ;; Each flow gets at most two handover orders, even if its rollout is reopened.
 ;;
 ;; Start one transient user unit per address (requires inotify-tools on PATH):
-;;   systemd-run --user --unit codex-context-watch-<topic>-<model> bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "<address>" <size> --margin <tokens>
+;;   systemd-run --user --unit codex-context-watch-<Aspect>-<topic>-<Model> bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "<address>" <size> --margin <tokens>
 ;; Example:
-;;   systemd-run --user --unit codex-context-watch-core-Sol bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "{ Mind core Sol }" 300000 --margin 50000
+;;   systemd-run --user --unit codex-context-watch-Mind-core-Sol bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "{ Mind core Sol }" 300000 --margin 50000
 ;;
 ;; Run: bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT]
 ;;        [--margin TOKENS] [--home DIR]... [--inotifywait COMMAND] [--dry]

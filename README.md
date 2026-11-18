@@ -255,8 +255,8 @@ There is no idle expiry or timer scan; stop it with SIGTERM.
     bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin N] [--home DIR]... [--inotifywait COMMAND] [--dry]
 
 Start one transient user unit per address, named
-`codex-context-watch-<topic>-<model>`; include the aspect in the name when two
-addresses share a topic and model. The complete start command is in the file
+`codex-context-watch-<Aspect>-<topic>-<Model>`, so every unit name holds the
+whole address. The complete start command is in the file
 header. SIZE and margin remain arguments (currently 300000 and 50000).
 `--home` is repeatable. ROLLOUT selects an initial recording for a `--dry`
 replay; dry mode prints readings and orders and sends nothing. Directory
