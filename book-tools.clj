@@ -138,6 +138,20 @@
                          (signed "+" new-body) "\n" tail))]
       (str/join "\n" (concat (subvec lines 0 (inc heading)) [changed] (subvec lines end))))))
 
+(defn replace-source [source spec anchor old new]
+  (when (empty? old) (refuse "Replacement old text is empty."))
+  (let [lines (lines-of source)
+        views (filter #(= spec (:module %)) (module-views lines))]
+    (when-not (= 1 (count views)) (refuse (str "Module view " spec " occurs " (count views) " times.")))
+    (let [{:keys [heading end]} (first views)
+          view (str/join "\n" (subvec lines (inc heading) end))
+          at (unique-position view anchor spec)
+          begin (inc (or (str/last-index-of view "\n" at) -1))
+          end (or (str/index-of view "\n" (+ at (count anchor))) (count view))
+          anchored-line (subs view begin end)]
+      (unique-position anchored-line old spec)
+      (edit-source source spec anchored-line :replace (str/replace-first anchored-line old new)))))
+
 (defn main [args]
   (try
     (let [[command path & more] args]
@@ -149,18 +163,16 @@
                         (let [errors (remove #(= "missing-proposal" (:reason %)) (book-check/check-book text))]
                           (when (seq errors) (refuse (str "Draft parse refused: " (pr-str errors))))))))
         "edit" (let [[spec anchor & options] more
-                     [mode replacement]
-                     (cond
-                       (= options ["--after"]) [:after (str/replace (slurp *in*) #"\n\z" "")]
-                       (and (= 4 (count options))
-                            (= "--replace-old" (first options))
-                            (= "--replace-new" (nth options 2)))
-                       (let [old (second options) new (nth options 3)]
-                         (when (empty? old) (refuse "Replacement old text is empty."))
-                         (unique-position anchor old spec)
-                         [:replace (str/replace-first anchor old new)])
-                       :else (refuse "Edit requires MODULE ANCHOR --after or --replace-old OLD --replace-new NEW."))]
-                 (write-source path (edit-source (slurp path) spec anchor mode replacement) checked))
+                     source (slurp path)
+                     edited (cond
+                              (= options ["--after"])
+                              (edit-source source spec anchor :after (str/replace (slurp *in*) #"\n\z" ""))
+                              (and (= 4 (count options))
+                                   (= "--replace-old" (first options))
+                                   (= "--replace-new" (nth options 2)))
+                              (replace-source source spec anchor (second options) (nth options 3))
+                              :else (refuse "Edit requires MODULE ANCHOR --after or --replace-old OLD --replace-new NEW."))]
+                 (write-source path edited checked))
         (refuse (str "Unknown command: " command)))
       (println (str "Written: " path)) 0)
     (catch Exception e (binding [*out* *err*] (println (ex-message e))) 1)))

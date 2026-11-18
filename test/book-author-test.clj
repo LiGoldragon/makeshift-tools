@@ -95,7 +95,7 @@
                              ["--after" "extra"]]]
               (is (= 1 (book-tools/main (into ["edit" path first-module "old anchor"] options))))
               (is (= original (slurp path)))))
-          (is (zero? (book-tools/main ["edit" path first-module "old anchor" "--replace-old" "old" "--replace-new" "new"])))
+          (is (zero? (book-tools/main ["edit" path first-module "old anchor" "--replace-old" "The old anchor is here." "--replace-new" "The new anchor is here."])))
           (is (= [] (checked (slurp path))))
           (is (str/includes? (slurp path) "+ The new anchor is here."))
           (is (str/includes? (slurp path) "The old anchor is here.") "other module is unchanged")

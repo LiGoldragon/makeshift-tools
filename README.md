@@ -21,7 +21,7 @@ Module locations use the checker's repository resolver and origin main.
 Start preserves an existing source; its draft deliberately has no changes yet,
 so the publication checker reports `missing-proposal` until an edit exists.
 After inserts stdin text after the anchor's containing line; replacement
-replaces OLD exactly once **within ANCHOR**, preserving surrounding text.
+replaces OLD exactly once within the anchor's containing line, preserving surrounding text.
 Edits become numbered in-place proposals with ordinary change marks.
 A missing or repeated anchor, an anchor already inside a proposal, invalid
 arguments, an empty change or a checker-invalid result preserves the source.
