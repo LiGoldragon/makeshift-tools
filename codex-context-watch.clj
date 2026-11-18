@@ -1,116 +1,123 @@
-;; codex-context-watch.clj: a stopgap watcher for one Codex flow. It follows the
-;; flow's rollout file and, when the context reaches the warning size, tells the
-;; flow to write its handover. The Flow Nexus learns nothing of a Codex flow's
-;; context growing, so the Codex flow never gets its context warning; the Codex
-;; Harness Nexus is the real fix, and this stands in until then.
+;; codex-context-watch.clj: a stopgap watcher for one Codex permaflow address.
+;; The Codex Harness Nexus is the real fix: Flow does not know context size yet.
+;; This watches session directories with inotify, follows the current rollout,
+;; and follows a fresh flow of the same address automatically after a refresh.
+;; Each flow gets at most two handover orders, even if its rollout is reopened.
 ;;
-;; Start by hand, as a transient user unit that survives the terminal:
-;;   systemd-run --user --unit codex-context-watch-<id> bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "<address>" <id> <size>
-;; e.g.
-;;   systemd-run --user --unit codex-context-watch-7a534b bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "{ Mind harnessNexus Sol }" 7a534b 200000
+;; Start one transient user unit per address (requires inotify-tools on PATH):
+;;   systemd-run --user --unit codex-context-watch-<topic>-<model> bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "<address>" <size> --margin <tokens>
+;; Example:
+;;   systemd-run --user --unit codex-context-watch-core-Sol bb /git/github.com/LiGoldragon/makeshift-tools/codex-context-watch.clj "{ Mind core Sol }" 300000 --margin 50000
 ;;
-;; Run: bb codex-context-watch.clj ADDRESS FLOW_ID SIZE [ROLLOUT]
-;;        [--margin TOKENS] [--idle-seconds SECONDS] [--home DIR]... [--dry]
-;;   ADDRESS  the flow's address, "{ Aspect topic Model }"
-;;   FLOW_ID  six hex characters
-;;   SIZE     the warning size in tokens
-;;   ROLLOUT  the rollout file; without it, the newest rollout-*.jsonl under
-;;            <home>/sessions holding the text "Flow: <FLOW_ID>"
-;;   --margin       tokens past SIZE at which the second, HardAbrupt send fires (25000)
-;;   --idle-seconds exit when the rollout has had no new line this long (21600, 6 hours)
-;;   --home         a Codex home (repeatable); defaults are the two in `flow-meta 'Configuration'`
-;;   --dry          print each reading and what would be sent; send nothing
+;; Run: bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT]
+;;        [--margin TOKENS] [--home DIR]... [--inotifywait COMMAND] [--dry]
+;; ADDRESS is "{ Aspect topic Model }". SIZE and margin are token counts.
+;; --home supplies Codex homes; defaults are the two used by Flow on this host.
+;; --margin defaults to 25000. --inotifywait defaults to inotifywait on PATH.
+;; ROLLOUT selects the initial recording, useful for a --dry replay. Otherwise
+;; herdr agent list supplies the current flow id, matched against rollout headers.
+;; --dry prints readings and orders without sending. Stop with SIGTERM.
 ;;
-;; The context size is `payload.info.last_token_usage.input_tokens` of a row whose
-;; `payload.type` is `token_count` (`info` may be null): the input of the last model
-;; call. The file is followed with `tail -n +1 -F` (inotify), line by line, from the
-;; first line. Each of the two sends fires once, at the first reading at or above its
-;; threshold. Exit on idle or SIGTERM. One line per send, and on exit, on stderr.
+;; Readings are payload.info.last_token_usage.input_tokens on token_count rows.
+;; Only complete JSONL lines are consumed. Directory creation, rollout creation,
+;; moves and appends wake the watcher; there is no idle timeout or timer scan.
+;; Identity comes from session_meta's Metaflow line and a standalone developer
+;; message "Flow: <id>", never from quoted messages or arbitrary rollout text.
 (ns codex-context-watch
   (:require [babashka.fs :as fs]
             [babashka.process :as process]
             [cheshire.core :as json]
             [clojure.string :as str])
-  (:import (java.util.concurrent LinkedBlockingQueue TimeUnit)))
+  (:import (java.io RandomAccessFile)
+           (java.util.concurrent LinkedBlockingQueue)))
 
 (def default-homes ["/home/li/.codex-next" "/home/li/.codex-next-5ck97j38j3sb"])
-(def default-margin 25000)
-(def default-idle-seconds (* 6 60 60))
-(def end-of-file ::end-of-file)
+(def usage "usage: bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin TOKENS] [--home DIR]... [--inotifywait COMMAND] [--dry]")
 
-(def usage
-  (str "usage: bb codex-context-watch.clj ADDRESS FLOW_ID SIZE [ROLLOUT] "
-       "[--margin TOKENS] [--idle-seconds SECONDS] [--home DIR]... [--dry]"))
-
-(defn fail [message]
-  (binding [*out* *err*] (println message) (println usage))
-  (System/exit 2))
-
-(defn parse-arguments [arguments]
-  (loop [remaining arguments
-         result {:positional [] :homes []}]
-    (if-let [argument (first remaining)]
-      (case argument
-        "--dry" (recur (rest remaining) (assoc result :dry true))
-        "--margin" (recur (drop 2 remaining) (assoc result :margin (second remaining)))
-        "--idle-seconds" (recur (drop 2 remaining) (assoc result :idle-seconds (second remaining)))
-        "--home" (recur (drop 2 remaining) (update result :homes conj (second remaining)))
-        (recur (rest remaining) (update result :positional conj argument)))
-      result)))
+(defn fail [message] (throw (ex-info (str message "\n" usage) {})))
 
 (defn parse-integer [text name]
-  (try (Long/parseLong (str text))
-       (catch Exception _ (fail (str name " is not an integer: " text)))))
+  (let [n (try (Long/parseLong (str text))
+               (catch Exception _ (fail (str name " is not an integer: " text))))]
+    (when (neg? n) (fail (str name " must be nonnegative")))
+    n))
 
 (defn configuration [arguments]
-  (let [{:keys [positional homes dry margin idle-seconds]} (parse-arguments arguments)
-        [address flow-id size rollout] positional]
-    (when-not (<= 3 (count positional) 4) (fail "expected ADDRESS FLOW_ID SIZE [ROLLOUT]"))
-    (when-not (re-matches #"\{ \w+ \w+ \w+ \}" address)
-      (fail (str "the address is not \"{ Aspect topic Model }\": " address)))
-    (when-not (re-matches #"[0-9a-f]{6}" flow-id)
-      (fail (str "the flow id is not six hex characters: " flow-id)))
-    {:address address
-     :flow-id flow-id
-     :size (parse-integer size "SIZE")
-     :rollout rollout
-     :margin (if margin (parse-integer margin "--margin") default-margin)
-     :idle-seconds (if idle-seconds (parse-integer idle-seconds "--idle-seconds") default-idle-seconds)
+  (let [options (loop [args arguments result {:positional [] :homes []}]
+                  (if-let [arg (first args)]
+                    (cond
+                      (= arg "--dry") (recur (rest args) (assoc result :dry true))
+                      (#{"--margin" "--home" "--inotifywait"} arg)
+                      (let [value (second args)]
+                        (when (or (nil? value) (str/starts-with? value "--"))
+                          (fail (str "missing value for " arg)))
+                        (recur (drop 2 args)
+                               (if (= arg "--home") (update result :homes conj value)
+                                   (assoc result (keyword (subs arg 2)) value))))
+                      (str/starts-with? arg "--") (fail (str "unknown option: " arg))
+                      :else (recur (rest args) (update result :positional conj arg)))
+                    result))
+        {:keys [positional homes margin inotifywait dry]} options
+        [address size rollout] positional]
+    (when-not (<= 2 (count positional) 3) (fail "expected ADDRESS SIZE [ROLLOUT]"))
+    (when-not (re-matches #"\{ (Psyche|Mind|Field) \w+ \w+ \}" address)
+      (fail (str "invalid address: " address)))
+    {:address address :size (parse-integer size "SIZE") :rollout rollout
+     :margin (parse-integer (or margin "25000") "--margin")
      :homes (if (seq homes) homes default-homes)
-     :dry (boolean dry)}))
+     :inotifywait (or inotifywait "inotifywait") :dry (boolean dry)}))
 
 (defn log [& parts]
   (binding [*out* *err*]
     (println (str (java.time.Instant/now)) "codex-context-watch" (str/join " " parts))))
 
-;; Finding the rollout
+(defn parse-row [line]
+  (try (json/parse-string line true) (catch Exception _ nil)))
 
-(defn holds-text? [path text]
+(defn context-size [line]
+  (let [payload (:payload (parse-row line))]
+    (when (= "token_count" (:type payload))
+      (get-in payload [:info :last_token_usage :input_tokens]))))
+
+(defn identity-part [{:keys [type payload]}]
+  (cond
+    (= type "session_meta")
+    {:address (second (re-find #"(?m)^Metaflow: (\{ (?:Psyche|Mind|Field) \w+ \w+ \})$"
+                               (get-in payload [:base_instructions :text] "")))
+     :started-at (:timestamp payload)}
+    (and (= type "response_item") (= "message" (:type payload)) (= "developer" (:role payload)))
+    (if-let [id (some #(second (re-matches #"Flow: ([0-9a-f]{6})" (get % :text "")))
+                     (:content payload))]
+      {:flow-id id} {})
+    :else {}))
+
+(defn rollout-identity [path]
   (with-open [reader (clojure.java.io/reader (str path))]
-    (boolean (some #(str/includes? % text) (line-seq reader)))))
+    (reduce (fn [identity line]
+              (let [identity (merge identity (identity-part (parse-row line)))]
+                (if (:flow-id identity) (reduced identity) identity)))
+            {} (line-seq reader))))
 
-(defn find-rollout [homes flow-id]
-  (let [text (str "Flow: " flow-id)
-        candidates (->> homes
-                        (map #(str % "/sessions"))
-                        (filter fs/directory?)
-                        (mapcat #(fs/glob % "**/rollout-*.jsonl"))
-                        (sort-by #(.toMillis (fs/last-modified-time %)) >))]
-    (some #(when (holds-text? % text) (str %)) candidates)))
+(defn rollout-paths [directory]
+  (if (fs/directory? directory)
+    (map str (fs/glob directory "**/rollout-*.jsonl")) []))
 
-;; Readings
+(defn current-flow [address]
+  (let [result (process/shell {:out :string :err :string :continue true} "herdr" "agent" "list")]
+    (when-not (zero? (:exit result)) (fail (str "herdr agent list: " (:err result))))
+    (some (fn [agent]
+            (let [title (:terminal_title_stripped agent)
+                  [_ aspect topic model id] (when title
+                                              (re-matches #"\{ (\w+) (\w+) (\w+) ([0-9a-f]{6}) \}" title))]
+              (when (= address (str "{ " aspect " " topic " " model " }")) id)))
+          (get-in (json/parse-string (:out result) true) [:result :agents]))))
 
-(defn context-size
-  "The input tokens of the last model call, from one rollout line; nil when the
-  line is no reading."
-  [line]
-  (when (str/includes? line "token_count")
-    (let [row (try (json/parse-string line true) (catch Exception _ nil))
-          payload (:payload row)]
-      (when (= "token_count" (:type payload))
-        (get-in payload [:info :last_token_usage :input_tokens])))))
-
-;; The two sends
+(defn find-rollout [homes address flow-id]
+  (some (fn [path]
+          (let [identity (rollout-identity path)]
+            (when (and (= address (:address identity)) (= flow-id (:flow-id identity))) path)))
+        (sort-by #(str (fs/file-name %)) #(compare %2 %1)
+                 (mapcat #(rollout-paths (fs/path % "sessions")) homes))))
 
 (defn order-text [{:keys [address flow-id]} tokens]
   (str "Your context has reached " tokens " tokens. Write your handover now at flows/" flow-id
@@ -151,57 +158,136 @@
           fired
           (thresholds configuration)))
 
-;; Following the file
+;; Directory events and incremental complete lines
 
-(defn follow
-  "Start `tail -n +1 -F` on the rollout; its lines arrive on the returned queue."
-  [path]
-  (let [tail (process/process {:err :inherit} "tail" "-n" "+1" "-F" path)
-        queue (LinkedBlockingQueue.)]
+(defn complete-lines [path offset consume state]
+  (with-open [file (RandomAccessFile. (str path) "r")]
+    (.seek file (if (< (.length file) offset) 0 offset))
+    (loop [state state offset (.getFilePointer file)]
+      (if-let [line (.readLine file)]
+        (let [end (.getFilePointer file)]
+          (.seek file (dec end))
+          (if (= 10 (.read file))
+            (recur (consume state (String. (.getBytes line "ISO-8859-1") "UTF-8")) end)
+            [state offset]))
+        [state offset]))))
+
+(defn select-rollout [configuration state path identity]
+  (let [{:keys [address flow-id started-at]} identity
+        current (:current state)
+        same-flow (= flow-id (:flow-id current))
+        newer (pos? (compare (or started-at "") (or (:started-at current) "")))
+        initial? (or (nil? (:initial-flow state))
+                     (= flow-id (:initial-flow state))
+                     (not (neg? (compare (or started-at "") (:waiting-since state)))))]
+    (if (and initial? (= address (:address configuration)) flow-id
+             (or (nil? current)
+                 (and same-flow (or (= path (:path current)) newer))
+                 (and newer (not (contains? (:seen state) flow-id)))))
+      (do
+        (when (not= path (:path current)) (log "following" flow-id path))
+        (-> state (dissoc :initial-flow :waiting-since)
+            (assoc :current (assoc identity :path path)) (update :seen conj flow-id)))
+      state)))
+
+(defn consume-line [configuration path state line]
+  (let [row (parse-row line)
+        identity (merge (get-in state [:files path :identity]) (identity-part row))
+        state (-> state
+                  (assoc-in [:files path :identity] identity)
+                  (update-in [:files path :lines] (fnil inc 0)))
+        state (select-rollout configuration state path identity)
+        payload (:payload row)
+        tokens (when (= "token_count" (:type payload))
+                 (get-in payload [:info :last_token_usage :input_tokens]))]
+    (if (and (= path (get-in state [:current :path])) (number? tokens))
+      (let [flow-id (:flow-id identity)]
+        (when (:dry configuration)
+          (println "DRY reading:" tokens "tokens, flow" flow-id "line" (get-in state [:files path :lines])))
+        (update-in state [:fired flow-id]
+                   #(react (assoc configuration :flow-id flow-id) (or % #{}) tokens)))
+      state)))
+
+(defn consume-path [configuration state path]
+  (if (and (fs/regular-file? path) (re-matches #"rollout-.*\.jsonl" (str (fs/file-name path))))
+    (let [[state offset] (complete-lines path (get-in state [:files path :offset] 0)
+                                         #(consume-line configuration path %1 %2) state)]
+      (assoc-in state [:files path :offset] offset))
+    state))
+
+(defn consume-event [configuration state path]
+  (reduce #(consume-path configuration %1 %2) state
+          (if (fs/directory? path) (sort (rollout-paths path)) [path])))
+
+(defn directory-events [configuration]
+  (let [directories (mapv #(str (fs/path % "sessions")) (:homes configuration))
+        _ (doseq [directory directories] (fs/create-dirs directory))
+        queue (LinkedBlockingQueue.)
+        watcher (apply process/process {:extra-env {"LC_ALL" "C"}}
+                       (:inotifywait configuration)
+                       "--monitor" "--recursive" "--event" "create,modify,moved_to,close_write"
+                       "--format" "%w%f" directories)]
     (future
-      (with-open [reader (clojure.java.io/reader (:out tail))]
-        (doseq [line (line-seq reader)] (.put queue line)))
-      (.put queue end-of-file))
-    {:tail tail :queue queue}))
+      (try
+        (with-open [reader (clojure.java.io/reader (:out watcher))]
+          (doseq [path (line-seq reader)] (.put queue [:path path])))
+        (finally (.put queue [:ended]))))
+    (future
+      (with-open [reader (clojure.java.io/reader (:err watcher))]
+        (doseq [line (line-seq reader)]
+          (if (= line "Watches established.") (.put queue [:ready])
+              (log "inotify:" line)))))
+    {:process watcher :queue queue}))
 
-(defn watch [configuration path]
-  (let [{:keys [tail queue]} (follow path)
-        reason (atom "tail ended")
-        lines (atom 0)
-        fired (atom #{})
-        stop (fn [why]
-               (log "exit:" why "after" @lines "lines of" path "; sends fired:"
-                    (pr-str (sort @fired)))
-               (process/destroy-tree tail))]
-    (.addShutdownHook (Runtime/getRuntime)
-                      (Thread. (fn [] (when (= "SIGTERM" @reason) (stop "SIGTERM")))))
-    (reset! reason "SIGTERM")
-    (loop []
-      (let [line (.poll queue (:idle-seconds configuration) TimeUnit/SECONDS)]
-        (cond
-          (nil? line) (do (reset! reason "idle")
-                          (stop (str "no new line for " (:idle-seconds configuration) " seconds")))
-          (= end-of-file line) (do (reset! reason "tail ended") (stop "tail ended"))
-          :else (do (swap! lines inc)
-                    (when-let [tokens (context-size line)]
-                      (when (:dry configuration)
-                        (println "DRY reading:" tokens "tokens, line" @lines))
-                      (swap! fired #(react configuration % tokens)))
-                    (recur)))))))
+(defn initial-rollout [configuration state queue]
+  ;; Install watches before discovery; retain every event during setup/scan.
+  (let [pending (loop [paths []]
+                  (let [[event path] (.take queue)]
+                    (case event
+                      :ready paths
+                      :ended (fail "inotify ended before watches were established")
+                      :path (recur (conj paths path)))))
+        waiting-since (str (java.time.Instant/now))
+        flow-id (when-not (:rollout configuration) (current-flow (:address configuration)))
+        path (or (:rollout configuration)
+                 (when flow-id (find-rollout (:homes configuration) (:address configuration) flow-id)))]
+    (when (:rollout configuration)
+      (when-not (fs/regular-file? path) (fail (str "rollout does not exist: " path)))
+      (when-not (= (:address configuration) (:address (rollout-identity path)))
+        (fail "the selected rollout names a different address")))
+    (let [state (if (:current state) state
+                    (assoc state :initial-flow flow-id :waiting-since waiting-since))
+          state (if path (consume-path configuration state path)
+                    (do (log "waiting for rollout of" (:address configuration) "current flow" flow-id) state))]
+      (reduce #(consume-event configuration %1 %2) state pending))))
+
+(defn watch [configuration]
+  (let [running (atom nil)
+        hook (Thread. #(do (log "exit: SIGTERM")
+                           (when-let [child @running] (process/destroy-tree child))))]
+    (.addShutdownHook (Runtime/getRuntime) hook)
+    (try
+      (loop [state {:files {} :seen #{} :fired {}}]
+        (let [{:keys [process queue]} (directory-events configuration)
+              _ (reset! running process)
+              state (initial-rollout configuration state queue)
+              state (loop [state state]
+                      (let [[event path] (.take queue)]
+                        (case event
+                          :path (recur (consume-event configuration state path))
+                          :ended state
+                          (recur state))))]
+          ;; A child ending is an event too. Reinstall its watches and discover
+          ;; the current rollout again, retaining all per-flow send accounting.
+          (log "inotify ended; reinstalling directory watches")
+          (process/destroy-tree process)
+          (recur state)))
+      (finally
+        (when-let [child @running] (process/destroy-tree child))
+        (.removeShutdownHook (Runtime/getRuntime) hook)))))
 
 (defn -main [& arguments]
-  (let [configuration (configuration arguments)
-        path (or (:rollout configuration)
-                 (find-rollout (:homes configuration) (:flow-id configuration)))]
-    (when-not (and path (fs/exists? path))
-      (log "no rollout found for flow" (:flow-id configuration) "under" (pr-str (:homes configuration)))
-      (System/exit 1))
-    (log "watching" path "for" (:address configuration) "warning at" (:size configuration)
-         "then" (+ (:size configuration) (:margin configuration))
-         (if (:dry configuration) "(dry)" ""))
-    (watch configuration path)
-    (shutdown-agents)
-    (System/exit 0)))
+  (watch (configuration arguments)))
 
 (when (= *file* (System/getProperty "babashka.file"))
   (apply -main *command-line-args*))
