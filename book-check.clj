@@ -124,13 +124,6 @@
        (remove str/blank?)
        set))
 
-(defn- contains-lines?
-  "Whether needle is one exact contiguous excerpt of lines."
-  [haystack needle]
-  (and (seq needle)
-       (some #(= needle (subvec haystack % (+ % (count needle))))
-             (range (inc (- (count haystack) (count needle)))))))
-
 ;; ---------------------------------------------------------- word marks
 ;;
 ;; A moved passage edited on its way is written once, inside its move
@@ -876,7 +869,7 @@
                                  (catch Throwable _ ::unavailable))]
                  (cond
                    (= ::unavailable source) (err! line "shown-module-unavailable")
-                   (not (contains-lines? source excerpt)) (err! line "shown-module-text-absent"))))))
+                   (not (passage-in-module? source excerpt)) (err! line "shown-module-text-absent"))))))
          check-description!
          (fn [{:keys [line lines]}]
            (let [read (description-sides (vec lines))
@@ -912,9 +905,13 @@
                  (when (and (section) (change? line))
                    (flush-plain!)
                    (mark-changed!))
+                 ;; A bare "+" is a blank line inside an added passage: it ends a
+                 ;; paragraph and is neither module text nor a change of its own.
+                 (when (and (section) (= line "+")) (flush-plain!))
                  (when (and (section)
                             (not (:deleted (section)))
                             (not (str/blank? line))
+                            (not= line "+")
                             (not (change? line))
                             (not (str/starts-with? line "  "))
                             (not (str/starts-with? line "**Comment**"))

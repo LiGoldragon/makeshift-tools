@@ -291,11 +291,19 @@
     (is (= [] (check (source "- A real list item.\nLast line.") opts))
         "an exact module list is current text, not a coloured change")
     (is (= ["shown-module-text-absent"] (reasons (source "First line.\nInvented.") opts)))
+    (is (= [] (check (source "line.\nSecond line.") opts))
+        "an excerpt may begin partway through its first line, at a word")
+    (is (= ["shown-module-text-absent"] (reasons (source "irst line.\nSecond line.") opts))
+        "a partial word is not an excerpt")
     (is (= ["shown-module-text-absent"] (reasons (source "+ Current change.") opts)))
     (is (= ["shown-location-invalid"]
            (reasons (str located "::: shown\nnot a location\nFirst line.\n:::\n\n+ New.\n") opts)))
     (is (= ["shown-excerpt-empty"]
            (reasons (str located "::: shown\npsyche-belief › vision/book.md\n:::\n\n+ New.\n") opts)))))
+
+(deftest a-bare-plus-is-a-blank-added-line
+  (is (= [] (check (str located "+ First added paragraph.\n+\n+ Second added paragraph.\n"))))
+  (is (= [] (check (str located "+ ```rust\n+ a\n+\n+ b\n+ ```\n")))))
 
 (def sig "Created by Opus, helped by Sonnet (the checking).\n")
 
