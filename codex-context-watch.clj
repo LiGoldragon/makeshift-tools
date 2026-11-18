@@ -114,14 +114,14 @@
 
 (defn order-text [{:keys [address flow-id]} tokens]
   (str "Your context has reached " tokens " tokens. Write your handover now at flows/" flow-id
-       "/handover.md, a page at most: what you are pursuing, where it stands, what works, "
-       "what does not, the next step. Then ask for your own refresh: flow Refresh." address))
+       "/handover.md: " "a map of the code for the flow that follows: the repositories, branches and files the work lives in, where each part of it sits, the types, traits and functions that carry it and how they connect, how it is built and tested, and where the work stands in that code with the next change to make. "
+       "Then ask for your own refresh: flow Refresh." address))
 
 (defn hard-order-text [{:keys [address flow-id]} tokens]
   (str "Your context has reached " tokens " tokens and your handover is still owed. Write your "
        "handover now at flows/" flow-id "/handover.md, or lose everything at the refresh. "
-       "A page at most: what you are pursuing, where it stands, what works, what does not, "
-       "the next step. Then ask for your own refresh: flow Refresh." address))
+       "It is " "a map of the code for the flow that follows: the repositories, branches and files the work lives in, where each part of it sits, the types, traits and functions that carry it and how they connect, how it is built and tested, and where the work stands in that code with the next change to make. "
+       "Then ask for your own refresh: flow Refresh." address))
 
 (defn send-datom [{:keys [address]} priority text]
   (str "Send.{ " address " " priority ".Order.«" text "» }"))
