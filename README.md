@@ -4,6 +4,31 @@ Small Babashka (`bb`, 1.13) tools. Run from the repository root.
 
 ## Tools
 
+**book-tools.clj** creates an authenticated Proposal draft from current module
+views and edits it at an exact, unique anchor. Install the author, builder and
+checker together into a directory on PATH:
+
+    ./install-book-tools ~/.local/bin
+    book-tools start SOURCE.md TITLE 'REPOSITORY › MODULE'...
+    printf '%s\n' 'Added paragraph.' | book-tools edit SOURCE.md 'REPOSITORY › MODULE' ANCHOR --after
+    book-tools edit SOURCE.md 'REPOSITORY › MODULE' ANCHOR --replace-old OLD --replace-new NEW
+    book-check /abs/SOURCE.md
+    book-build SOURCE.md OUT.html
+
+The installer takes `--repository CHECKOUT` and `--babashka EXECUTABLE`.
+Without installation, run `bb book-tools.clj` with the same arguments.
+Module locations use the checker's repository resolver and origin main.
+Start preserves an existing source; its draft deliberately has no changes yet,
+so the publication checker reports `missing-proposal` until an edit exists.
+After inserts stdin text after the anchor's containing line; replacement
+replaces OLD exactly once **within ANCHOR**, preserving surrounding text.
+Edits become numbered in-place proposals with ordinary change marks.
+A missing or repeated anchor, an anchor already inside a proposal, invalid
+arguments, an empty change or a checker-invalid result preserves the source.
+Markdown module views are editable; other views can be included by start.
+Other module views stay byte-identical. Validation precedes atomic replacement.
+
+
 **book-build.clj** builds a book's HTML page from its Markdown source.
 It reads `book-code.html` (page code), `book-grammars.json` and
 `book-fence-languages.json` from this directory.
