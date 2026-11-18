@@ -243,6 +243,14 @@ Defaults: `--min-used-percent 95`, `--expiry-window-minutes 90`. Without
 `--codex` the binary is `codex` on PATH, then the newest
 `/nix/store/*-codex-0.1*/bin/codex`.
 
+**codex-context-watch.clj** is a stopgap watcher, started by hand for one Codex
+flow. It follows the flow's rollout file (`tail -n +1 -F`) and sends the flow two
+orders to write its handover: MiddleAbrupt at the warning size, HardAbrupt a
+margin later, each once. The start command, as a transient user unit, is at the
+head of the file.
+
+    bb codex-context-watch.clj ADDRESS FLOW_ID SIZE [ROLLOUT] [--margin N] [--idle-seconds N] [--home DIR]... [--dry]
+
 ## Tests
 
     bb test
