@@ -802,6 +802,7 @@
          ;; the module it leaves, by the proposal number the two share and the pair
          ;; of modules, several of them in the order written.
          views (module-views lines (source-kind lines))
+         module-review? (and (= "Review" (source-kind lines)) (seq views))
          viewed (set (map :location views))
          entering-moves (vec (for [v views p (:proposals v) m (:moves p) :when (= :to (:side m))] m))
          unpaired (atom (reduce (fn [acc m] (update acc [(:number m) (:from m) (:to m)] (fnil conj []) m))
@@ -1300,7 +1301,7 @@
                        (do (finish!)
                            (cond
                              (:questions @st) (err! number "heading-after-questions")
-                             (and (zero? (:proposals @st)) (not= "Account" (:kind @st)))
+                             (and (zero? (:proposals @st)) (not= "Account" (:kind @st)) (not module-review?))
                              (err! number "questions-without-proposal"))
                            (swap! st update :questions #(or % {:line number})))
 
@@ -1365,7 +1366,7 @@
      (check-moves!)
      (when-let [c (:container @st)]
        (err! (:line c) (str "unclosed-" (name (:kind c)) "-container")))
-     (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st))) (err! 1 "missing-proposal"))
+     (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st)) (not module-review?)) (err! 1 "missing-proposal"))
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
      (vec (sort-by :line (:errors @st))))))
 

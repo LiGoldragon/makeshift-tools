@@ -33,6 +33,19 @@
     (is (thrown? Exception (book-tools/start-source "D»" [first-module])))
     (is (thrown? Exception (book-tools/start-source "D" ["mind-belief › ../secret.md"])))))
 
+(deftest a-started-draft-can-be-a-whole-module-review
+  (with-redefs [book-check/read-context-module reader]
+    (let [review (str/replace-first (source) " Proposal }" " Review }")
+          html (render review)]
+      (is (= [] (checked review)))
+      (is (= 2 (count (re-seq #"<article class=\"module diff\">" html))))
+      (is (str/includes? html "<h2>First</h2>"))
+      (is (str/includes? html "<h2>Second</h2>"))
+      (is (not (re-find #"<(?:del|ins)>|class=\"(?:proposal|add|del|replacement)" html)))
+      (is (str/includes? html "The old anchor is here."))
+      (is (str/includes? html "Second ending."))
+      (is (= [] (book-check/check-built-page html))))))
+
 (deftest both-edits-keep-the-authenticated-module-and-other-views
   (with-redefs [book-check/read-context-module reader]
     (doseq [[mode new] [[:after "New paragraph.\n\nA second paragraph."]

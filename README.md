@@ -52,7 +52,8 @@ source text and returns a vector of `{:line n :reason "..."}`.
 A Proposal, Review or Account book may close with a section headed
 `## Questions`, after the last proposal or module view, in the in-place form or
 the heading form: plain prose, typically a numbered list, to the end of the
-source. A Proposal or Review asks its questions after at least one proposal
+source. A Proposal asks its questions after at least one proposal; a Review
+after a proposal or a module view
 (`questions-without-proposal`); an Account may close its own prose with them. A heading, a proposal, a comment, shown or move container, a code fence
 or a change-marked line after that heading is refused (`heading-after-questions`,
 `proposal-after-questions`, `comment-in-questions`, `shown-in-questions`,
@@ -87,6 +88,10 @@ under the heading (`proposed-not-first-in-proposal`), with text after it
 book-build gives the proposal's sheet the class `proposal proposed`
 (`proposal in-place proposed` in place), which sets the single margin for its
 margins; the marker draws nothing itself.
+
+A Review may also show whole module views with no proposal and nothing marked,
+authenticated against each module as it stands and open to comments. An empty
+Review still requires a proposal or a module view.
 
 In an in-place Review module view, landed changes are authenticated against
 the module's added side, including its changed description. A part marked

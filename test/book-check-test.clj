@@ -21,6 +21,25 @@
 (def after-title (str/join "\n" (rest (str/split good #"\n"))))
 (def after-title* (str after-title "\n"))
 
+(deftest review-can-show-authenticated-whole-modules-without-proposals
+  (let [module "---\ndescription: A complete module.\n---\n\n# Its heading\n\nIts body.\n"
+        source (str "Presentation.{ «Modules» Review }\n\n# Modules\n\n"
+                    "## repo › first.md\n\n::: description\nA complete module.\n:::\n\n# Its heading\n\nIts body.\n\n"
+                    "## repo › second.md\n\n::: description\nA complete module.\n:::\n\n# Its heading\n\nIts body.\n")
+        opts {:read-module (fn [_ _] module)}]
+    (is (= [] (check source opts)))
+    (is (= [] (check (str source "\n## Questions\n\nWhat should change?\n") opts)))
+    (is (= ["missing-proposal"] (reasons (str/replace source " Review }" " Proposal }") opts)))
+    (is (= ["context-module-differs" "context-module-differs"]
+           (reasons (str/replace source "Its body." "Changed body.") opts)))
+    (is (= ["module-description-differs" "module-description-differs"]
+           (reasons (str/replace source "A complete module." "Changed description.") opts)))
+    (is (= ["context-module-unavailable" "context-module-unavailable"]
+           (reasons source {:read-module throwing})))
+    (is (= ["context-module-differs" "context-module-differs"]
+           (reasons (str/replace source "# Its heading\n\n" "") opts)))
+    (is (= ["missing-proposal"] (reasons "Presentation.{ «Empty» Review }\n\n# Empty\n")))))
+
 (deftest heading-carries-the-location
   (is (= [] (check good)))
   (is (= [] (check "### Proposal 2: The Library · signal-chronos › ethos/library.ethos, a new file\n+ Added.\n")))
