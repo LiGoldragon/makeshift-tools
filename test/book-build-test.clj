@@ -895,35 +895,19 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mixed Mermaid change"
           (built (str head "```mermaid\n+ flowchart LR\n\n+     a --> b\n```\n"))))))
 
-(deftest a-removed-mermaid-fence-is-its-source-as-code
-  (let [body "- flowchart LR\n-     a[\"a\"] -- \"to\" --> b[\"b\"]"
-        source "flowchart LR\n    a[\"a\"] -- \"to\" --&gt; b[\"b\"]</code></pre>"]
-    (doseq [[src margin]
-            [[(str head "```mermaid\n" body "\n```\n") "<pre class=\"code-del\">"]
-             [(str head "```text\n" body "\n```\n") "<pre class=\"code-del\">"]
-             [(str head "- ```mermaid\n" body "\n- ```\n") "<div class=\"del\"><pre>"]]]
-      (let [html (built src)]   ; no figures directory: nothing is drawn, nothing is refused
-        (is (str/includes? html (str margin "<code class=\"language-mermaid\">" source)) src)
-        (is (not (str/includes? html "<svg")))
-        (is (not (str/includes? html "figmark")))))))
-
-(deftest only-a-drawn-mermaid-fence-takes-a-figure-number
-  ;; a removed fence, however it is written, is code and takes no number: the
-  ;; added fence after it is fig-1, the only figure the page asks for
-  (let [removed "- flowchart TB\n-     r[\"gone\"] --> q[\"end\"]\n"
-        added "+ flowchart TB\n+     a[\"new\"] --> q[\"end\"]\n"
+(deftest removed-mermaid-fences-are-drawn-in-source-order
+  (let [removed "- flowchart TB\n-     r[gone] --> q[end]\n"
+        added "+ flowchart TB\n+     a[new] --> q[end]\n"
         pages [(str head "```mermaid\n" removed "```\n\n```mermaid\n" added "```\n")
                (str head "```text\n" removed "```\n\n```mermaid\n" added "```\n")
                (str head "- ```mermaid\n" removed "- ```\n\n+ ```mermaid\n" added "+ ```\n")]]
     (doseq [src pages]
-      (with-figures {"fig-1.svg" (faithful 1 "new")}
+      (with-figures {"fig-1.svg" (faithful 1 "gone") "fig-2.svg" (faithful 1 "new")}
         #(let [html (built src)]
-           (is (= 1 (count (re-seq #"class=\"figure\"" html))) src)
-           (is (str/includes? html ">new<") "the added fence is fig-1")
-           (is (str/includes? html "r[\"gone\"] --&gt;") "the removed fence is its source"))))
-    (with-figures {}
-      #(is (= "figure fig-1.svg not found; Mermaid fence 1 unrendered" (refusal (first pages)))
-           "the missing figure asked for is the added fence's fig-1"))))
+           (is (= 2 (count (re-seq #"class=\"figure\"" html))))
+           (is (< (str/index-of html ">gone<") (str/index-of html ">new<")))
+           (is (str/includes? html "figmark fig-del"))
+           (is (not (str/includes? html "language-mermaid"))))))))
 
 (deftest signed-code-fences-show-as-code
   (let [fence (fn [lang sign body] (str head "```" lang "\n" (str/join "\n" (map #(str sign " " %) body)) "\n```\n"))
@@ -1000,19 +984,18 @@
        "- ```mermaid\n- flowchart TB\n-     r[removed] --> q[end]\n- ```\n"))
 
 (deftest every-mermaid-margin-keeps-document-order-and-colour
-  (let [figures {"fig-1.svg" (faithful 1 "plain")
-                 "fig-2.svg" (faithful 1 "context")
-                 "fig-3.svg" (faithful 1 "added")}
-        html (str/replace (with-figures figures #(built mermaid-margin-src)) book-build/colour-key "")]
-    (is (= 3 (count (re-seq #"class=\"figure\"" html))) "a removed fence is not drawn")
-    (is (apply < (map #(str/index-of html %) [">plain<" ">context<" ">added<" "r[removed]"]))
-        "fig-N.svg follows source order across every margin")
-    (is (re-find #"class=\"ctx\"><div class=\"figure\"" html) "two-space context keeps its margin")
-    (is (re-find #"class=\"figmark fig-add\"><div class=\"figure\"" html) "added keeps green margin")
-    (is (not (str/includes? html "fig-del")) "a removed fence is no figure")
-    (is (re-find #"<div class=\"del\"><pre><code class=\"language-mermaid\">flowchart TB\n    r\[removed\]" html)
-        "removed is its source as code under the red margin")
-    (is (= 1 (count (re-seq #"flowchart TB" html))) "no other Mermaid fence is left as code")))
+  (let [src (str mermaid-margin-src "\n## repo › module.md\n\n# Module\n\n"
+                 "```mermaid\nflowchart TB\n    m[module] --> q[end]\n```\n")
+        names ["plain" "context" "added" "removed" "module"]
+        figures (into {} (map-indexed (fn [i name] [(str "fig-" (inc i) ".svg") (faithful 1 name)]) names))
+        html (str/replace (with-figures figures #(built src)) book-build/colour-key "")]
+    (is (= 5 (count (re-seq #"class=\"figure\"" html))) "every margin and whole module is drawn")
+    (is (apply < (map #(str/index-of html (str ">" % "<")) names)))
+    (is (re-find #"class=\"ctx\"><div class=\"figure\"" html))
+    (is (re-find #"class=\"figmark fig-add\"><div class=\"figure\"" html))
+    (is (re-find #"class=\"figmark fig-del\"><div class=\"figure\"" html))
+    (is (not (str/includes? html "language-mermaid")))
+    (is (not (str/includes? html "flowchart TB")))))
 
 (deftest an-unrendered-mermaid-names-the-ordered-figure
   (with-figures {"fig-1.svg" (faithful 1 "plain")
@@ -1465,23 +1448,24 @@
 
 (deftest a-figure-in-a-module-view-context-gets-its-drawing
   (let [figures {"fig-1.svg" (faithful 1 "plain")
-                 "fig-2.svg" (faithful 1 "added")
-                 "fig-3.svg" (faithful 1 "context")}
+                 "fig-2.svg" (faithful 1 "removed")
+                 "fig-3.svg" (faithful 1 "added")
+                 "fig-4.svg" (faithful 1 "context")}
         html (str/replace (with-figures figures #(built context-figure-src)) book-build/colour-key "")]
-    (is (= 3 (count (re-seq #"<div class=\"figure\"" html))) "every drawn fence has its drawing")
-    (is (apply < (map #(str/index-of html %) [">plain<" "r[removed]" ">added<" "It says how much" ">context<"]))
-        "the module view's figure is fig-3, after the removed fence's source and the added figure")
-    (is (str/includes? html "id=\"f3-DRAWN\"") "the context figure is the page's third"))
-  (with-figures {"fig-1.svg" (faithful 1 "plain") "fig-2.svg" (faithful 1 "added")}
-    #(is (= "figure fig-3.svg not found; Mermaid fence 3 unrendered" (refusal context-figure-src))
+    (is (= 4 (count (re-seq #"<div class=\"figure\"" html))) "every fence has its drawing")
+    (is (apply < (map #(str/index-of html %) [">plain<" ">removed<" ">added<" "It says how much" ">context<"]))
+        "the module view's figure is fig-4, after both changed figures")
+    (is (str/includes? html "id=\"f4-DRAWN\"") "the context figure is the page's fourth"))
+  (with-figures {"fig-1.svg" (faithful 1 "plain") "fig-2.svg" (faithful 1 "removed") "fig-3.svg" (faithful 1 "added")}
+    #(is (= "figure fig-4.svg not found; Mermaid fence 4 unrendered" (refusal context-figure-src))
          "a context figure with no drawing refuses the build")))
 
 (deftest a-drawing-no-figure-asks-for-refuses-the-build
-  ;; an illustrator who numbered the removed fence leaves a drawing past the last figure
+  ;; an extra drawing after every fence has a figure is refused
   (with-figures {"fig-1.svg" (faithful 1 "plain") "fig-2.svg" (faithful 1 "removed")
-                 "fig-3.svg" (faithful 1 "added") "fig-4.svg" (faithful 1 "context")}
-    #(is (= (str "figure fig-4.svg has no figure in the page, which numbers 3 figures"
-                 " (a removed Mermaid fence is not drawn and takes no number)")
+                 "fig-3.svg" (faithful 1 "added") "fig-4.svg" (faithful 1 "context")
+                 "fig-5.svg" (faithful 1 "extra")}
+    #(is (= "figure fig-5.svg has no figure in the page, which numbers 4 figures"
             (refusal context-figure-src)))))
 
 (deftest a-mermaid-fence-in-a-markdown-module-requires-its-drawing

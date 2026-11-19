@@ -12,8 +12,8 @@
 ;; text, a diagram only when it is a drawing; a figure is numbered only if it is one); it is never drawn: the n-th diagram is shown as fig-n.svg from the
 ;; --figures directory, its colours replaced by the page theme's (ink the page
 ;; text colour, fills the page surface) and its ids made its own. Every Mermaid fence requires its ordered figure file,
-;; wherever it sits (a module view's text among them); a removed Mermaid fence is its source and
-;; takes no number. A missing or unreadable figure file stops the build and names that file, and so
+;; wherever it sits (a module view's text among them); every Mermaid fence is drawn and
+;; takes its number. A missing or unreadable figure file stops the build and names that file, and so
 ;; does a fig-N.svg numbered past the page's last figure, which no fence asks for. Other
 ;; diagram forms keep their existing optional-figure behavior. A failure to
 ;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
@@ -655,7 +655,7 @@
 
 ;; How a fence inside a module's text becomes a figure: :drawing renders an ASCII
 ;; drawing, :mermaid a Mermaid fence, whose drawing is required wherever it sits.
-;; A removed Mermaid fence is its source, never drawn, and takes no number.
+;; Every Mermaid fence is drawn and takes its number in source order.
 (def ^:dynamic *figures* nil)
 
 (defn diagram?
@@ -1184,7 +1184,7 @@
                       (map #(vector "-" %) (drop 2 a))
                       (map #(vector "+" %) (drop 2 b))))
       :code (let [[old-lang old-lines] a [new-lang new-lines] b]
-              ;; a changed Mermaid fence is two figures, the removed one's source and the added one's drawing
+              ;; a changed Mermaid fence is two figures, each under its own margin
               (when (and (= old-lang new-lang) (not (drawing? old-lines))
                          (not (and *figures* (= "mermaid" new-lang))))
                 (signed-code-html new-lang
@@ -1195,7 +1195,7 @@
       nil)))
 
 (defn panel [sign body]
-  (let [body (if (and *figures* (not= "-" sign) (= :code (first body)) (= "mermaid" (first (second body))))
+  (let [body (if (and *figures* (= :code (first body)) (= "mermaid" (first (second body))))
                [:fig ((:mermaid *figures*) (second (second body)))]
                body)
         inner (binding [*validate-rendered-ethos* (and *validate-rendered-ethos* (not= sign "-"))]
@@ -2344,9 +2344,10 @@
                     *rendered-ethos-reference* (if (or @in-article *move-context*) *ethos-zero* *ethos-zero-real*)]
           (when (and @rulings @pending-close) (close-rulings true))
           (cond
-            ;; a removed Mermaid fence is its source, as any removed code block: nothing is drawn
+            ;; A removed Mermaid fence is drawn under its removal margin.
             (and (in-change?) (removed-mermaid lang lines))
-            (emit (code-html "mermaid" (removed-mermaid lang lines) "-"))
+            (emit (str "<div class=\"diff\">"
+                       (panel "-" [:fig (show-mermaid (removed-mermaid lang lines))]) "</div>"))
 
             ;; a figure proposed for the module it will live in: all + is added, all - removed
             (and (in-change?) (signed-figure lang lines))
@@ -2449,7 +2450,7 @@
           (when (seq unused)
             (throw (ex-info (str "figure " (str/join ", " (map #(str "fig-" % ".svg") unused))
                                  " has no figure in the page, which numbers " @nfig
-                                 " figures (a removed Mermaid fence is not drawn and takes no number)")
+                                 " figures")
                             {:kind :figure-unused :figures unused})))))
       page)))
 

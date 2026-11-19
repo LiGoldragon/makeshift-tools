@@ -37,9 +37,8 @@ It reads `book-code.html` (page code), `book-grammars.json` and
 
 Figures are numbered in source order, one counter for the whole page: the
 n-th figure is `fig-n.svg` in the `--figures` directory. Every Mermaid fence
-that is drawn takes the next number, wherever it sits: a proposal, a move, or
-a module view's unchanged text. A removed Mermaid fence is shown as its
-source, never drawn, and takes no number. A drawn Mermaid fence without its
+takes the next number, wherever it sits: a proposal, a move, or
+a module view's unchanged text. Added, removed and unchanged fences are drawn under their own margins. A Mermaid fence without its
 file, and a `fig-n.svg` numbered past the page's last figure, stop the build
 naming the file.
 
