@@ -127,7 +127,9 @@
         (let [draft (book-tools/start-source "Code" ["repo › a.md"])
               edited (book-tools/edit-source draft "repo › a.md" "inside" mode "changed\nline")]
           (is (= ["missing-proposal"] (mapv :reason (book-check/check-book draft {:read-module read-module}))))
-          (is (= [] (book-check/check-book edited {:read-module read-module})))
+          (is (= (if (= fence "```") ["fence-language-required"] [])
+                 (mapv :reason (book-check/check-book edited {:read-module read-module})))
+              "a newly added fence needs a language even when the removed fence is bare")
           (is (str/includes? (render edited) "changed"))
           (is (str/includes? edited "- inside")))))))
 
