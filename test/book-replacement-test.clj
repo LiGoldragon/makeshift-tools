@@ -5,14 +5,21 @@
 (load-file (str root "/book-build.clj"))
 (load-file (str root "/test/cdp.clj"))
 (def source "Presentation.{ «Replacement» Review }\n\n# Replacement\n\n### Proposal 1: Description · repo › a.md\n\n::: description\n- A module is being designed or judged.\n+ A module.\n:::\n\n- Entirely unrelated old passage.\n+ Fresh new wording.\n")
-(deftest replacements-are-one-passage-even-with-no-common-words
+(deftest prose-replacements-have-separate-margins-even-with-no-common-words
   (let [html (book-build/build source "")]
     (is (= 1 (count (re-seq #"class=\"replacement\"" html))))
     (is (str/includes? html "A module<del> is being designed or judged</del>."))
-    (is (str/includes? html "<del>Entirely unrelated old passage</del><ins>Fresh new wording</ins>."))
+    (is (str/includes? html "<div class=\"del replacement-old\"><p><del>Entirely unrelated old passage</del>.</p></div>"))
+    (is (str/includes? html "<div class=\"add replacement-new\"><p><ins>Fresh new wording</ins>.</p></div>"))
     (is (not (str/includes? html "class=\"del\"")))
     (is (not (str/includes? html "class=\"add\"")))
     (is (= [] (book-check/check-built-page html)))))
+(deftest prose-replacement-retains-shared-words-on-both-sides
+  (let [html (book-build/text-panels ["- The old words remain." "+ The new words remain."] true)]
+    (is (str/includes? html "<div class=\"del replacement-old\"><p>The <del>old</del> words remain.</p></div>"))
+    (is (str/includes? html "<div class=\"add replacement-new\"><p>The <ins>new</ins> words remain.</p></div>"))
+    (is (= [] (book-check/check-built-page html)))))
+
 (deftest checker-names-the-duplicated-pair
   (let [removed "The old words remain."
         added "The new words remain."
@@ -37,7 +44,10 @@
             (doseq [scheme ["dark" "light"]]
               (request "Emulation.setEmulatedMedia" {"features" [{"name" "prefers-color-scheme" "value" scheme}]} session)
               (cdp/navigate request session events (str "file://" file))
-              (let [m (cdp/evaluate request session "(() => { const p=document.querySelector('.replacement');const d=p.querySelector('del');const i=document.querySelector('ins');return {width:innerWidth,page:document.documentElement.scrollWidth,passages:document.querySelectorAll('.description p').length,strike:getComputedStyle(d).textDecorationLine,deleted:getComputedStyle(d).color,inserted:getComputedStyle(i).color,margin:getComputedStyle(p).borderLeftWidth,code:document.querySelectorAll('.ln-replace').length,rows:document.querySelectorAll('tbody tr').length,items:document.querySelectorAll('.replacement li').length,syntax:document.querySelectorAll('.ln-replace [class^=ts-]').length,codeMargin:getComputedStyle(document.querySelector('.ln-replace')).boxShadow,codeRemoved:getComputedStyle(document.querySelector('.ln-replace del span') || document.querySelector('.ln-replace del')).color};})()")]
+              (let [m (cdp/evaluate request session "(() => { const p=document.querySelector('.replacement');const d=p.querySelector('del');const i=document.querySelector('ins');return {oldMargin:getComputedStyle(document.querySelector('.replacement-old')).borderLeftColor,newMargin:getComputedStyle(document.querySelector('.replacement-new')).borderLeftColor,oldWords:document.querySelector('.replacement-old').textContent,newWords:document.querySelector('.replacement-new').textContent,width:innerWidth,page:document.documentElement.scrollWidth,passages:document.querySelectorAll('.description p').length,strike:getComputedStyle(d).textDecorationLine,deleted:getComputedStyle(d).color,inserted:getComputedStyle(i).color,margin:getComputedStyle(p).borderLeftWidth,code:document.querySelectorAll('.ln-replace').length,rows:document.querySelectorAll('tbody tr').length,items:document.querySelectorAll('.replacement li').length,syntax:document.querySelectorAll('.ln-replace [class^=ts-]').length,codeMargin:getComputedStyle(document.querySelector('.ln-replace')).boxShadow,codeRemoved:getComputedStyle(document.querySelector('.ln-replace del span') || document.querySelector('.ln-replace del')).color};})()")]
+                (is (= "Entirely unrelated old passage." (m "oldWords")))
+                (is (= "Fresh new wording." (m "newWords")))
+                (is (not= (m "oldMargin") (m "newMargin")))
                 (is (= 1 (m "passages")))
                 (is (<= (m "page") (m "width")))
                 (is (= "line-through" (m "strike")))

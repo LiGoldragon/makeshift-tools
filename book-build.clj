@@ -847,6 +847,19 @@
                      (when (seq y) (str "<ins>" (fmt (str/join y)) "</ins>"))))))
        str/join))
 
+(defn replacement-lines
+  "A prose replacement: each side keeps its words and marks only its changes."
+  [old new]
+  (let [edits (fold-chunks (chunks (word-diff (tokens old) (tokens new))))
+        side (fn [which tag]
+               (apply str (for [[kind x y] edits
+                                :let [text (str/join (if (or (= kind :same) (= which :old)) x y))]]
+                            (if (or (= kind :same) (empty? text))
+                              (inline text)
+                              (str "<" tag ">" (inline text) "</" tag ">")))))]
+    (str "<div class=\"del replacement-old\"><p>" (side :old "del") "</p></div>"
+         "<div class=\"add replacement-new\"><p>" (side :new "ins") "</p></div>")))
+
 (defn replacement-html
   "A replaced passage is read once, under its ordinary change margin."
   [html]
@@ -1151,7 +1164,7 @@
   [[kind-a a] [kind-b b]]
   (when (= kind-a kind-b)
     (case kind-a
-      :p (str "<p>" (marked a b inline) "</p>")
+      :p (replacement-lines a b)
       :list (let [tag (if (re-find #"^\d" (ffirst b)) "ol" "ul")]
               (replacement-html
                (str "<" tag ">"
