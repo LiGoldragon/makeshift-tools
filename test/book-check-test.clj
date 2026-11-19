@@ -387,6 +387,23 @@
   (is (= []
          (reasons "### Proposal 1: Code · repo › x.md\n+ Added.\n\n```text\nplain text\n```\n"))))
 
+(deftest removed-bare-fences-preserve-the-authenticated-module
+  (let [module "---\ndescription: Signal.\n---\n\n## Input and output\n\n```\nSignal\n[]\n```\n"
+        source (str "# Signal\n\n## repo › vision/signal/0.md\n\n"
+                    "::: description\nSignal.\n:::\n\n"
+                    "#### Proposal 1: Signal · repo › vision/signal/0.md\n\n"
+                    "::: comment\nReplace the declaration.\n:::\n\n"
+                    "- ## Input and output\n\n- ```\n- Signal\n- []\n- ```\n\n+ A value.\n")
+        opts {:read-module (fn [_ _] module)}]
+    (is (= [] (check source opts)))
+    (is (= ["context-module-differs"]
+           (reasons (str/replace source "- ```\n- Signal" "- ```ethos\n- Signal") opts))
+        "giving the removed fence a language changes the authenticated module")
+    (is (= ["fence-language-required"]
+           (reasons (str source "\n+ ```\n+ added\n+ ```\n") opts)))
+    (is (= []
+           (check (str source "\n+ ```text\n+ added\n+ ```\n") opts)))))
+
 ;; A proposal in place: inside a module view, at the place its added lines land.
 (def in-place-module
   "---\ndescription: A fixture.\n---\n\n## The rule\n\nFirst line.\n\nSecond line.\n\n- a bullet\n")

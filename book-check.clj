@@ -442,6 +442,22 @@
 (defn- location-of [text]
   (some-> text (str/split #" › " 2) vec))
 
+(defn- added-fence-language-errors
+  "Signed fences in a proposal retain removed openers and label added ones."
+  [lines start end]
+  (loop [i start errors []]
+    (if (>= i end)
+      errors
+      (if-let [[_ sign opener language]
+               (re-matches #"^([+-] |  )? {0,3}(`{3,}|~{3,})\s*(\S*(?: sketch)?)\s*\z" (lines i))]
+        (let [close (first (filter #(re-find (fence-close-re (subs opener 0 1) (count opener)) (lines %))
+                                   (range (inc i) end)))]
+          (recur (if close (inc close) end)
+                 (cond-> errors
+                   (and (= sign "+ ") (= language ""))
+                   (conj [i "fence-language-required"]))))
+        (recur (inc i) errors)))))
+
 (defn in-place-proposal
   "The in-place proposal whose heading is line h of the module view of
   [repository path] ending before line e: {:heading h :end k :number :title
@@ -522,7 +538,7 @@
                    {:heading h :end k :number number :title title :comment comment :proposed proposed
                     :locations locations :current current :move move :moves moves
                     :placeholders placeholders :description @description :sign source-sign
-                    :errors (cond-> errors
+                    :errors (cond-> (into errors (added-fence-language-errors lines start k))
                               (not changed) (conj [h "no-change-in-proposal"])
                               (and (= 2 (count locations)) (nil? move) (empty? placeholders))
                               (conj [h "move-container-required"]))})]
@@ -1260,9 +1276,10 @@
                opening
                (let [language (str/lower-case (nth opening 2))]
                  (flush-plain!)
-                 ;; Every proposal code fence names its language.  Unlabelled
-                 ;; fences remain the authored diagram form outside proposals.
-                 (when (and (section) (= language ""))
+                 ;; Removed and context fences keep the module’s authored opener.
+                 ;; New proposal fences name their language.
+                 (when (and (section) (= language "")
+                            (not (#{"- " "  "} (nth opening 3))))
                    (err! number "fence-language-required"))
                  ;; Outside a section a fence is allowed as a diagram (an unlabelled
                  ;; sketch or a labelled mermaid figure, a context figure), and in an
