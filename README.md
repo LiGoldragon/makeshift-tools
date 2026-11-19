@@ -42,6 +42,11 @@ a module view's unchanged text. Added, removed and unchanged fences are drawn un
 file, and a `fig-n.svg` numbered past the page's last figure, stop the build
 naming the file.
 
+Every replacement shows both complete sides: removed text under the red
+margin and added text under the green margin. Each side marks only its own
+changed words. Prose, descriptions, lists, headings, table rows and code lines
+use this same rule; code retains each side's syntax highlighting.
+
 A signed Ethos fence can be an excerpt of a larger declaration: both sides
 are highlighted as written. A signed fence beginning with an Ethos root
 (`Library`, `Signal`, `Operation`, `Memory`, `Emission`, `Types`, `Traits` or

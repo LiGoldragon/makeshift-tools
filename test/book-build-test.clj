@@ -68,7 +68,7 @@
     (is (= "<pre class=\"code-del\"><code class=\"language-rust\">one\ntwo</code></pre>"
            (book-build/signed-code-html "rust" ["- one" "- two"])) "wholly removed")
     (is (= (str "<pre class=\"code-diff\"><code class=\"language-rust\">"
-                "<span class=\"ln\">x\n</span><span class=\"ln ln-replace\">  (a <del>b</del><ins>z</ins>)\n</span><span class=\"ln\">(c)\n</span></code></pre>")
+                "<span class=\"ln\">x\n</span><span class=\"ln ln-del replacement-old\">  (a <del>b</del>)\n</span><span class=\"ln ln-add replacement-new\">  (a <ins>z</ins>)\n</span><span class=\"ln\">(c)\n</span></code></pre>")
            (book-build/signed-code-html "rust" ["  x" "-   (a b)" "+   (a z)" "  (c)"])) "mixed")
     (is (nil? (book-build/signed-code-html "rust" ["plain"])) "no sign, no change")))
 
@@ -145,7 +145,7 @@
     (is (= 1 (count (re-seq #"<table>" html))) "one table")
     (is (str/includes? html "<thead><tr><th>type</th><th>kind</th></tr></thead>"))
     (is (str/includes? html "<tr><td>kept</td><td><code>A</code></td></tr>"))
-    (is (str/includes? html "<tr class=\"row-replace\"><td><del>gone</del><ins>new</ins></td><td><del><code>B</code></del><ins>D</ins></td></tr>"))
+    (is (str/includes? html "<tr class=\"row-del replacement-old\"><td><del>gone</del></td><td><del><code>B</code></del></td></tr><tr class=\"row-add replacement-new\"><td><ins>new</ins></td><td><ins>D</ins></td></tr>"))
     (is (str/includes? html "<tr class=\"row-del\"><td>also gone</td><td>C</td></tr>"))
     (is (not (str/includes? html "class=\"row-add\"")))
     (is (= 1 (count (re-seq #"<tr class=\"row-del\">" html))) "only the unpaired removed row remains separate")
@@ -467,7 +467,7 @@
           "a root-headed change checks the standing and added text, not removed history")
       (is (str/includes? html "class=\"language-ethos\""))
       (is (str/includes? html "ts-keyword") "the stripped sides are highlighted as Ethos")
-      (is (str/includes? html "ln-replace"))
+      (is (str/includes? html "ln-del replacement-old"))
       (is (str/includes? html "<del>")))
     (reset! calls [])
     (render "  [ Kept.Integer ]\n- [ Old.Integer ]\n+ [ New.Integer ]")
@@ -922,8 +922,8 @@
           (is (str/includes? d "language-datom"))
           (is (str/includes? l "<code class=\"language-rust\">let a = 1;</code>"))))
       (is (str/includes? (built (fence "datom" "+" datom)) "language-datom") "a label is kept")
-      (is (str/includes? (built (str head "```rust\n- let a = 1;\n+ let a = 2;\n```\n")) "<span class=\"ln ln-replace\">")
-          "removed then added is one marked code line"))))
+      (is (str/includes? (built (str head "```rust\n- let a = 1;\n+ let a = 2;\n```\n")) "<span class=\"ln ln-del replacement-old\">")
+          "removed then added keeps both marked code lines"))))
 
 (deftest move-containers-render-once-and-share-figures
   (let [src (str "::: move proposed\nfrom: vision/<old>.md\nto: vision/new.md\n\n"
@@ -1333,8 +1333,8 @@
         html (built md)
         at #(str/index-of html %)]
     (is (str/includes? html (str description-label "<div class=\"diff\">"
-                                 "<div class=\"replacement\"><p>A <del>plain</del><ins>better</ins> fixture.</p></div></div></section>"))
-        "one passage under the change margin, with only changed words marked")
+                                 "<div class=\"del replacement-old\"><p>A <del>plain</del> fixture.</p></div><div class=\"add replacement-new\"><p>A <ins>better</ins> fixture.</p></div></div></section>"))
+        "two passages under their margins, with only changed words marked")
     (is (< (at "comment-label") (at description-label) (at "<p>Added.</p>")))
     (is (not (str/includes? html "description:")))))
 

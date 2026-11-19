@@ -838,41 +838,39 @@
                (conj (pop out) [:edit (-> d1 (into s) (into d2)) (-> a1 (into s) (into a2))])))
       :else (recur (rest cs) (conj out (first cs))))))
 
-(defn marked
-  "One text: unchanged tokens plain, removed in <del>, added in <ins>; spacing
-  is kept as written, and a lone space or mark between two edits joins them."
-  [old new fmt]
-  (->> (word-diff (tokens old) (tokens new))
-       chunks
-       fold-chunks
-       (map (fn [[kind x y]]
-              (if (= kind :same)
-                (fmt (str/join x))
-                (str (when (seq x) (str "<del>" (fmt (str/join x)) "</del>"))
-                     (when (seq y) (str "<ins>" (fmt (str/join y)) "</ins>"))))))
-       str/join))
+(defn marked-sides
+  "Both texts, with their own changed words marked and shared words retained.
+  A formatter reads a text slice and its offsets in that side’s original text."
+  [old new old-format new-format]
+  (loop [cs (fold-chunks (chunks (word-diff (tokens old) (tokens new))))
+         o 0 n 0 old-out [] new-out []]
+    (if-let [[kind x y] (first cs)]
+      (let [a (str/join x) b (str/join (if (= :same kind) x y))
+            end-o (+ o (count a)) end-n (+ n (count b))
+            show (fn [text start end fmt tag]
+                   (let [html (fmt text start end)]
+                     (if (or (= :same kind) (empty? text)) html
+                         (str "<" tag ">" html "</" tag ">"))))]
+        (recur (rest cs) end-o end-n
+               (conj old-out (show a o end-o old-format "del"))
+               (conj new-out (show b n end-n new-format "ins"))))
+      [(str/join old-out) (str/join new-out)])))
 
-(defn replacement-lines
-  "A prose replacement: each side keeps its words and marks only its changes."
-  [old new]
-  (let [edits (fold-chunks (chunks (word-diff (tokens old) (tokens new))))
-        side (fn [which tag]
-               (apply str (for [[kind x y] edits
-                                :let [text (str/join (if (or (= kind :same) (= which :old)) x y))]]
-                            (if (or (= kind :same) (empty? text))
-                              (inline text)
-                              (str "<" tag ">" (inline text) "</" tag ">")))))]
-    (str "<div class=\"del replacement-old\"><p>" (side :old "del") "</p></div>"
-         "<div class=\"add replacement-new\"><p>" (side :new "ins") "</p></div>")))
+(defn inline-sides [old new]
+  (marked-sides old new (fn [text _ _] (inline text)) (fn [text _ _] (inline text))))
 
-(defn replacement-html
-  "A replaced passage is read once, under its ordinary change margin."
-  [html]
-  (str "<div class=\"replacement\">" html "</div>"))
+(defn replacement-panels
+  "Two complete sides, each under its own change margin."
+  [[old-html new-html]]
+  (str "<div class=\"del replacement-old\">" old-html "</div>"
+       "<div class=\"add replacement-new\">" new-html "</div>"))
+
+(defn replacement-lines [old new]
+  (replacement-panels (mapv #(str "<p>" % "</p>") (inline-sides old new))))
 
 (defn description-html
   "A module's description, as a labelled block of its own: as it stands, its
-  text; replaced, one passage with changed words marked inline; new, its text
+  text; replaced, two sides with their own changed words marked; new, its text
   under the green addition margin."
   [lines]
   (let [{:keys [current added signed]} (book-check/description-sides (vec lines))
@@ -882,7 +880,7 @@
          (if-not signed
            (p (inline current))
            (str "<div class=\"diff\">"
-                (cond (and current added) (replacement-html (p (marked current added inline)))
+                (cond (and current added) (replacement-lines current added)
                       added (side "add" (inline added))
                       :else (side "del" (inline current)))
                 "</div>"))
@@ -1068,24 +1066,17 @@
       (str/join out))))
 
 (defn marked-code
-  "Word marks projected onto the two whole-side syntax highlights. Unchanged
-  tokens use the new side; removed tokens keep the old side's captures."
+  "Word marks on each side’s complete syntax highlight."
   [old new old-html new-html]
-  (loop [cs (fold-chunks (chunks (word-diff (tokens old) (tokens new)))) o 0 n 0 out []]
-    (if-let [[kind x y] (first cs)]
-      (let [a (count (str/join x)) b (if (= :same kind) a (count (str/join y)))]
-        (recur (rest cs) (+ o a) (+ n b)
-               (conj out (if (= :same kind)
-                           (highlighted-slice new-html n (+ n b))
-                           (str (when (pos? a) (str "<del>" (highlighted-slice old-html o (+ o a)) "</del>"))
-                                (when (pos? b) (str "<ins>" (highlighted-slice new-html n (+ n b)) "</ins>")))))))
-      (str/join out))))
+  (marked-sides old new
+                (fn [_ start end] (highlighted-slice old-html start end))
+                (fn [_ start end] (highlighted-slice new-html start end))))
 
 (defn signed-code-html
   "A code fence written as a change; nil when no line is signed. Wholly added
   or wholly removed, it is one fence with a green or red margin. Otherwise the
   module as it stands and as proposed are each highlighted whole, then the
-  replaced lines print once, with token marks on their syntax highlights."
+  replaced lines print both sides, with token marks on their syntax highlights."
   [lang lines]
   (let [items (mapv code-sign lines)
         lang (if (= lang "") (or (guess-code-language (mapv second items)) "text") lang)
@@ -1104,8 +1095,9 @@
                    (case k
                      nil out
                      :replace (recur more (inc o) (inc n)
-                                     (conj out (str "<span class=\"ln ln-replace\">"
-                                                    (marked-code a b (old-h o) (new-h n)) "\n</span>")))
+                                     (let [[old-line new-line] (marked-code a b (old-h o) (new-h n))]
+                                       (conj out (str "<span class=\"ln ln-del replacement-old\">" old-line "\n</span>"
+                                                      "<span class=\"ln ln-add replacement-new\">" new-line "\n</span>"))))
                      :del (recur more (inc o) n (conj out (str "<span class=\"ln ln-del\">" (old-h o) "\n</span>")))
                      :add (recur more o (inc n) (conj out (str "<span class=\"ln ln-add\">" (new-h n) "\n</span>")))
                      (recur more (inc o) (inc n) (conj out (str "<span class=\"ln\">" (new-h n) "\n</span>")))))]
@@ -1167,18 +1159,21 @@
 (declare table-diff-html)
 
 (defn paired-body
-  "A removed and an added body of the same shape, printed once."
+  "A removed and an added body of the same shape, printed on both sides."
   [[kind-a a] [kind-b b]]
   (when (= kind-a kind-b)
     (case kind-a
       :p (replacement-lines a b)
-      :list (let [tag (if (re-find #"^\d" (ffirst b)) "ol" "ul")]
-              (replacement-html
-               (str "<" tag ">"
-                    (apply str (for [i (range (max (count a) (count b)))
-                                     :let [old (second (get a i)) new (second (get b i))]]
-                                 (str "<li>" (marked (or old "") (or new "") inline) "</li>")))
-                    "</" tag ">")))
+      :list (let [tag (if (re-find #"^\d" (ffirst b)) "ol" "ul")
+                  items (mapv (fn [i] (inline-sides (or (second (get a i)) "")
+                                                  (or (second (get b i)) "")))
+                              (range (max (count a) (count b))))]
+              (replacement-panels
+               (mapv (fn [side] (str "<" tag ">"
+                                    (apply str (for [[i pair] (map-indexed vector items)
+                                                     :when (< i (count (if (zero? side) a b)))]
+                                                 (str "<li>" (pair side) "</li>")))
+                                    "</" tag ">")) [0 1])))
       :table (table-diff-html
               (concat [[:replace [(first a) (first b)]] [" " (second b)]]
                       (map #(vector "-" %) (drop 2 a))
@@ -1191,7 +1186,8 @@
                                   (concat (map #(str "- " %) old-lines)
                                           (map #(str "+ " %) new-lines)))))
       :heading (let [[_ ha ta] (re-find #"^(#{1,6}) (.*)$" a) [_ hb tb] (re-find #"^(#{1,6}) (.*)$" b)]
-                 (when (= ha hb) (heading-html (str ha " " (marked ta tb inline)) identity)))
+                 (when (= ha hb)
+                   (replacement-panels (mapv #(heading-html (str ha " " %) identity) (inline-sides ta tb)))))
       nil)))
 
 (defn panel [sign body]
@@ -1213,7 +1209,7 @@
 
 (defn change-panels
   "A removed run and the added run after it: bodies paired in order, each pair
-  one marked text; the rest wholly removed or wholly added."
+  two marked sides; the rest wholly removed or wholly added."
   [removed added]
   (let [ra (vec (split-chunk removed)) aa (vec (split-chunk added))]
     (apply str
@@ -1290,7 +1286,7 @@
 
 (defn- table-diff-html
   "A table written as a change: its rows are [sign content], the kept header and
-  separator first, then kept, removed and added rows. Replaced rows print once
+  separator first, then kept, removed and added rows. Replaced rows print both sides
   with cell-wise word marks; unpaired rows retain their original sign."
   [rows]
   (let [old (mapv second (filter #(#{"-" " "} (first %)) rows))
@@ -1308,19 +1304,20 @@
                               (str/ends-with? c ":") "right"
                               :else nil))
                      (cells sep))
-        row (fn [sign tag l]
-              (str "<tr" (case sign "-" " class=\"row-del\"" "+" " class=\"row-add\"" :replace " class=\"row-replace\"" "") ">"
-                   (apply str (map-indexed
-                               (fn [k c]
-                                 (str "<" tag (when-let [a (get aligns k)] (str " style=\"text-align:" a "\"")) ">"
-                                      (if (= sign :replace)
-                                        (marked (or (first c) "") (or (second c) "") inline)
-                                        (inline c)) "</" tag ">"))
-                               (if (= sign :replace)
-                                 (let [[a b] (mapv cells l)]
-                                   (mapv #(vector (get a %) (get b %)) (range (max (count a) (count b)))))
-                                 (cells l))))
-                   "</tr>"))]
+        row (fn row [sign tag l]
+              (if (= sign :replace)
+                (let [[a b] (mapv cells l)
+                      pairs (mapv #(inline-sides (or (get a %) "") (or (get b %) ""))
+                                  (range (max (count a) (count b))))]
+                  (str (row :old tag (mapv first pairs)) (row :new tag (mapv second pairs))))
+                (str "<tr" (case sign "-" " class=\"row-del\"" "+" " class=\"row-add\""
+                                   :old " class=\"row-del replacement-old\"" :new " class=\"row-add replacement-new\"" "") ">"
+                     (apply str (map-indexed
+                                 (fn [k c]
+                                   (str "<" tag (when-let [a (get aligns k)] (str " style=\"text-align:" a "\"")) ">"
+                                        (if (#{:old :new} sign) c (inline c)) "</" tag ">"))
+                                 (if (#{:old :new} sign) l (cells l))))
+                     "</tr>")))]
     (str "<table><thead>" (row head-sign "th" head) "</thead><tbody>"
          (apply str (map (fn [[sign l]] (row sign "td" l)) (paired-runs body "-" "+"))) "</tbody></table>")))
 
