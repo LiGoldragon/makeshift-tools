@@ -900,7 +900,7 @@
         added "+ flowchart TB\n+     a[new] --> q[end]\n"
         pages [(str head "```mermaid\n" removed "```\n\n```mermaid\n" added "```\n")
                (str head "```text\n" removed "```\n\n```mermaid\n" added "```\n")
-               (str head "- ```mermaid\n" removed "- ```\n\n+ ```mermaid\n" added "+ ```\n")]]
+               (str head "- ```mermaid\n" removed "- ```\n+ ```mermaid\n" added "+ ```\n")]]
     (doseq [src pages]
       (with-figures {"fig-1.svg" (faithful 1 "gone") "fig-2.svg" (faithful 1 "new")}
         #(let [html (built src)]

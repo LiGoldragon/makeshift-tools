@@ -1276,8 +1276,11 @@
         out
         (let [lang (fence-open (content i))
               j (when lang (first (filter #(= "```" (rstrip (content %))) (range (inc i) n))))]
-          (if (and j (< 1 (count (set (map #(first (sign-content (lines %))) (range i (inc j)))))))
-            (recur (inc j) (conj out [:code lang (subvec lines (inc i) j)]))
+          (if j
+            (recur (inc j)
+                   (if (< 1 (count (set (map #(first (sign-content (lines %))) (range i (inc j))))))
+                     (conj out [:code lang (subvec lines (inc i) j)])
+                     (into out (subvec lines i (inc j)))))
             (recur (inc i) (conj out (lines i)))))))))
 
 (defn- code-fence-html
