@@ -11,8 +11,10 @@
 ;; boxed or not, is a diagram (in a module view an unlabelled fence is the module's
 ;; text, a diagram only when it is a drawing; a figure is numbered only if it is one); it is never drawn: the n-th diagram is shown as fig-n.svg from the
 ;; --figures directory, its colours replaced by the page theme's (ink the page
-;; text colour, fills the page surface) and its ids made its own. Every Mermaid fence requires its ordered figure file;
-;; a missing or unreadable one stops the build and names that file. Other
+;; text colour, fills the page surface) and its ids made its own. Every Mermaid fence requires its ordered figure file,
+;; wherever it sits (a module view's text among them); a removed Mermaid fence is its source and
+;; takes no number. A missing or unreadable figure file stops the build and names that file, and so
+;; does a fig-N.svg numbered past the page's last figure, which no fence asks for. Other
 ;; diagram forms keep their existing optional-figure behavior. A failure to
 ;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
 ;; **Destroy** or **Archive** wraps the deleted module that follows, shown
@@ -651,7 +653,10 @@
 
 (def ^:dynamic *move-context* false)
 
-(def ^:dynamic *module-fig* nil)
+;; How a fence inside a module's text becomes a figure: :drawing renders an ASCII
+;; drawing, :mermaid a Mermaid fence, whose drawing is required wherever it sits.
+;; A removed Mermaid fence is its source, never drawn, and takes no number.
+(def ^:dynamic *figures* nil)
 
 (defn diagram?
   "The lines are an ASCII diagram: a sketch that holds at least one edge."
@@ -1119,7 +1124,8 @@
 (defn markdown-html
   "Markdown lines as rendered text: headings (one level below the sheet's),
   paragraphs, lists and tables; a code fence inside it stays code, except a
-  markdown one, which is text again."
+  markdown one, which is text again, and, in a module's text, a Mermaid one,
+  which is its figure."
   [lines]
   (let [lines (vec lines)
         chunks (loop [i 0 cur [] out [] fence false]
@@ -1137,9 +1143,10 @@
                :heading (let [[_ hashes t] (re-find #"^(#{1,6}) (.*)$" body)
                               lvl (min 6 (inc (count hashes)))]
                           (str "<h" lvl ">" (inline t) "</h" lvl ">"))
-               :code (if (markdown-languages (first body))
-                       (markdown-html (second body))
-                       (body-html b))
+               :code (cond (markdown-languages (first body)) (markdown-html (second body))
+                           ;; a Mermaid fence in a module's text is its figure
+                           (and *figures* (= "mermaid" (first body))) ((:mermaid *figures*) (second body))
+                           :else (body-html b))
                (body-html b))))))
 
 (defn body-html
@@ -1150,8 +1157,8 @@
     :heading (heading-html body inline)
     :list (let [tag (if (re-find #"^\d" (ffirst body)) "ol" "ul")]
             (str "<" tag ">" (apply str (map (fn [[_ t]] (str "<li>" (inline t) "</li>")) body)) "</" tag ">"))
-    :code (if (and *module-fig* (drawing? (second body)))
-            (*module-fig* (second body))
+    :code (if (and *figures* (drawing? (second body)))
+            ((:drawing *figures*) (second body))
             (code-html (first body) (second body)))
     :table (table-html body)
     :fig body
@@ -1177,7 +1184,9 @@
                       (map #(vector "-" %) (drop 2 a))
                       (map #(vector "+" %) (drop 2 b))))
       :code (let [[old-lang old-lines] a [new-lang new-lines] b]
-              (when (and (= old-lang new-lang) (not (drawing? old-lines)))
+              ;; a changed Mermaid fence is two figures, the removed one's source and the added one's drawing
+              (when (and (= old-lang new-lang) (not (drawing? old-lines))
+                         (not (and *figures* (= "mermaid" new-lang))))
                 (signed-code-html new-lang
                                   (concat (map #(str "- " %) old-lines)
                                           (map #(str "+ " %) new-lines)))))
@@ -1186,8 +1195,8 @@
       nil)))
 
 (defn panel [sign body]
-  (let [body (if (and *module-fig* (not= "-" sign) (= :code (first body)) (= "mermaid" (first (second body))))
-               [:fig (*module-fig* (second (second body)))]
+  (let [body (if (and *figures* (not= "-" sign) (= :code (first body)) (= "mermaid" (first (second body))))
+               [:fig ((:mermaid *figures*) (second (second body)))]
                body)
         inner (binding [*validate-rendered-ethos* (and *validate-rendered-ethos* (not= sign "-"))]
                 (body-html body))]
@@ -2066,6 +2075,7 @@
                                "")))))
         show-fig (fn [lines] (render-fig lines false))
         show-mermaid (fn [lines] (render-fig lines true))
+        module-figures (fn [drawing] {:drawing drawing :mermaid show-mermaid})
         out (atom [])
         target (volatile! nil)
         in-article (volatile! false)
@@ -2359,11 +2369,11 @@
             ;; A diff fence is prose: its lines are text under their margins, unwrapped.
             ;; Only a fenced block inside it is code.
             (and (= raw-lang "diff") (not-any? #(re-find #"^(?:[+-] |  )?\s*```mermaid" %) lines))
-            (emit-panels (binding [*module-fig* show-mermaid] (text-panels lines true)))
+            (emit-panels (binding [*figures* (module-figures show-mermaid)] (text-panels lines true)))
 
             ;; a proposal's unchanged lines, written outside a fence, are panels of the change
             (and per-line (not-any? signed-line? lines))
-            (emit-panels (binding [*module-fig* show-mermaid] (text-panels lines true)))
+            (emit-panels (binding [*figures* (module-figures show-mermaid)] (text-panels lines true)))
 
             ;; Whatever its label or place, a fence that is an ASCII drawing is drawn: it needs
             ;; its fig-N.svg, else the build fails. A built page never holds an undrawn drawing.
@@ -2385,7 +2395,7 @@
             (or (and module-sheet? (or md? (not (diagram? lines))))
                 (and md? (or (not (in-change?)) (not-any? signed-line? lines))))
             (emit (str "<div class=\"markdown\">"
-                       (binding [*module-fig* show-fig] (markdown-html lines)) "</div>"))
+                       (binding [*figures* (module-figures show-fig)] (markdown-html lines)) "</div>"))
 
             (and (:bare (meta b)) @in-module (not-any? signed-line? lines)
                  (bare-code-language lines))
@@ -2408,7 +2418,7 @@
             (emit (signed-code-html (guess-code-language (unsign-lines lines)) lines))
 
             (= lang "text")
-            (emit-panels (binding [*module-fig* show-mermaid]
+            (emit-panels (binding [*figures* (module-figures show-mermaid)]
                            (text-panels lines (= :per-line per-line))))
 
             ;; Code written as a change: wholly added or removed takes one margin;
@@ -2429,6 +2439,18 @@
       (when (seq errors)
         (throw (ex-info (str "built page check failed: " (pr-str errors))
                         {:kind :built-page-invalid :errors errors})))
+      ;; a drawing numbered past the page's last figure is one no fence asks for: the
+      ;; numbering and the illustrator disagree, and every figure after the split is wrong
+      (when (and *figures-dir* (not *shared-figure-counter*) (fs/directory? *figures-dir*))
+        (let [unused (sort (filter #(> % @nfig)
+                                   (keep #(some->> (re-matches #"fig-(\d+)\.svg" (str (fs/file-name %)))
+                                                   second parse-long)
+                                         (fs/list-dir *figures-dir*))))]
+          (when (seq unused)
+            (throw (ex-info (str "figure " (str/join ", " (map #(str "fig-" % ".svg") unused))
+                                 " has no figure in the page, which numbers " @nfig
+                                 " figures (a removed Mermaid fence is not drawn and takes no number)")
+                            {:kind :figure-unused :figures unused})))))
       page)))
 
 (defn read-text

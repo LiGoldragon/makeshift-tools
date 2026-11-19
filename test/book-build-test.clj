@@ -1450,5 +1450,47 @@
     (is (str/includes? html "<h2>From repo › old.md</h2>") "a move lands in it")
     (is (not (str/includes? html "+ Sonnet")) "no sign is shown as text")))
 
+(def ^:private context-figure-src
+  ;; the shape of a page whose last figure sits in a module view's unchanged text,
+  ;; after a proposal that removes one Mermaid fence and adds another
+  (str "# B\n\n"
+       "```mermaid\nflowchart TB\n    p[plain] --> q[end]\n```\n\n"
+       "### Proposal 1: Figures · psyche-belief › vision/book.md\n\n"
+       "```mermaid\n- flowchart TB\n-     r[removed] --> q[end]\n```\n\n"
+       "```mermaid\n+ flowchart TB\n+     a[added] --> q[end]\n```\n\n"
+       "## psyche-belief › vision/energy.md\n\n"
+       "# Energy\n\nIt says how much is left.\n\n"
+       "```mermaid\nflowchart LR\n    t[translator] --> n[nexus]\n```\n\n"
+       "## Library\n\nThe rest of the module.\n"))
+
+(deftest a-figure-in-a-module-view-context-gets-its-drawing
+  (let [figures {"fig-1.svg" (faithful 1 "plain")
+                 "fig-2.svg" (faithful 1 "added")
+                 "fig-3.svg" (faithful 1 "context")}
+        html (str/replace (with-figures figures #(built context-figure-src)) book-build/colour-key "")]
+    (is (= 3 (count (re-seq #"<div class=\"figure\"" html))) "every drawn fence has its drawing")
+    (is (apply < (map #(str/index-of html %) [">plain<" "r[removed]" ">added<" "It says how much" ">context<"]))
+        "the module view's figure is fig-3, after the removed fence's source and the added figure")
+    (is (str/includes? html "id=\"f3-DRAWN\"") "the context figure is the page's third"))
+  (with-figures {"fig-1.svg" (faithful 1 "plain") "fig-2.svg" (faithful 1 "added")}
+    #(is (= "figure fig-3.svg not found; Mermaid fence 3 unrendered" (refusal context-figure-src))
+         "a context figure with no drawing refuses the build")))
+
+(deftest a-drawing-no-figure-asks-for-refuses-the-build
+  ;; an illustrator who numbered the removed fence leaves a drawing past the last figure
+  (with-figures {"fig-1.svg" (faithful 1 "plain") "fig-2.svg" (faithful 1 "removed")
+                 "fig-3.svg" (faithful 1 "added") "fig-4.svg" (faithful 1 "context")}
+    #(is (= (str "figure fig-4.svg has no figure in the page, which numbers 3 figures"
+                 " (a removed Mermaid fence is not drawn and takes no number)")
+            (refusal context-figure-src)))))
+
+(deftest a-mermaid-fence-in-a-markdown-module-requires-its-drawing
+  (let [src (str "# B\n\n## mind-belief › knowledge/x.md\n\n````markdown\nProse.\n\n"
+                 "```mermaid\nflowchart LR\n    a --> b\n```\n````\n")]
+    (with-figures {}
+      #(is (= "figure fig-1.svg not found; Mermaid fence 1 unrendered" (refusal src))))
+    (with-figures {"fig-1.svg" a-to-b}
+      #(is (str/includes? (built src) "id=\"f1-DRAWN\"")))))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))
