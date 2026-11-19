@@ -817,25 +817,39 @@
       (not= (count ids) (count (distinct ids))) {:errors ["duplicate-dependency"]}
       :else {:ids ids :errors []})))
 
-(defn registry-dependency-names
-  "Read only the admitted registry's names and file metadata, through Modules."
-  []
-  (let [result @(process/process ["curriculum" "Modules"] {:in "" :out :string :err :string})
-        ;; The Modules wire form carries one identity and file per entry.
-        entry (str "\\{\\s*\\{\\s*(Spirit|Intent|Vision|Knowledge|Inquiry|Compensation|Role|Raw)"
+(defn registry-names
+  "Names in one modules.datom registry; no module bodies are read."
+  [text]
+  (let [entry (str "\\{\\s*\\{\\s*(Spirit|Intent|Vision|Knowledge|Inquiry|Compensation|Role|Raw)"
                    "\\s+([a-z0-9-]+)\\s+(?:Single\\.(0|[1-9][0-9]*)|Span\\.\\{\\s*(0|[1-9][0-9]*)"
-                   "\\s+(0|[1-9][0-9]*)\\s*\\})\\s*\\}\\s+(?:«[^»]*»|[^\\s{}\\[\\]]+)\\s*\\}")
-        output (:out result)]
-    (when-not (and (zero? (:exit result))
-                   (re-matches (re-pattern (str "\\s*Modules\\.\\[\\s*(?:" entry "\\s*)*\\]\\s*")) output))
+                   "\\s+(0|[1-9][0-9]*)\\s*\\})\\s*\\}\\s+(?:«[^»]*»|[^\\s{}\\[\\]]+)\\s*\\}")]
+    (when-not (re-matches (re-pattern (str "\\s*\\[\\s*(?:" entry "\\s*)*\\]\\s*")) text)
       (throw (ex-info "dependency-registry-unavailable" {})))
-    (set (for [[_ kind topic single first-version last-version] (re-seq (re-pattern entry) output)]
+    (set (for [[_ kind topic single first-version last-version] (re-seq (re-pattern entry) text)]
            (str (str/lower-case kind) ":" topic ":" (or single (str first-version "-" last-version)))))))
+
+(defn registry-dependency-names
+  "Read the three authored registries at their current origin/main revisions."
+  []
+  (reduce
+   into #{}
+   (for [repository ["psyche-belief" "mind-belief" "field-belief"]]
+     (let [root (str "/git/github.com/LiGoldragon/" repository)
+           git (fn [& arguments]
+                 (let [result @(process/process (into ["git" "-C" root] arguments)
+                                                {:in "" :out :string :err :string})]
+                   (when-not (zero? (:exit result))
+                     (throw (ex-info "dependency-registry-unavailable" {})))
+                   (:out result)))
+           revision (first (str/split (str/trim (git "ls-remote" "origin" "refs/heads/main")) #"\s+"))]
+       (when-not (re-matches #"[a-f0-9]{40}" (or revision ""))
+         (throw (ex-info "dependency-registry-unavailable" {})))
+       (registry-names (git "show" (str revision ":modules.datom")))))))
 
 (defn check-book
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
   (fn [repository path]) -> file text; it throws when the module is unavailable.
-  Option :dependency-names is a zero-argument reader of the admitted ID set."
+  Option :dependency-names is a zero-argument reader of the registry ID set."
   ([source] (check-book source {}))
   ([source {:keys [read-module dependency-names]
             :or {read-module read-context-module dependency-names registry-dependency-names}}]

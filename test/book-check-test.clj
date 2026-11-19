@@ -1108,22 +1108,30 @@
     (is (some #{"dependencies-outside-new-module"}
               (reasons (str/replace source ", a new file" "") opts)))))
 
-(deftest dependency-membership-uses-the-admitted-curriculum-registry
-  (let [calls (atom [])]
+(deftest dependency-membership-uses-the-authored-origin-main-registries
+  (let [calls (atom [])
+        revision (apply str (repeat 40 "a"))]
     (with-redefs [babashka.process/process
                   (fn [command options]
                     (swap! calls conj [command options])
-                    (delay {:exit 0 :out (str "Modules.[ { { Vision aspects Single.0 } /repo/aspects.md }"
-                                             " { { Intent design Span.{ 0 2 } } «/repo/design span.md» } ]") :err ""}))]
+                    (delay {:exit 0 :out
+                            (if (= "ls-remote" (nth command 3))
+                              (str revision "\trefs/heads/main\n")
+                              (str "[ { { Vision aspects Single.0 } «vision/aspects/0.md» }"
+                                   " { { Intent design Span.{ 0 2 } } «intent/design/0-2.md» } ]"))
+                            :err ""}))]
       (is (= #{"vision:aspects:0" "intent:design:0-2"} (book-check/registry-dependency-names)))
-      (is (= ["curriculum" "Modules"] (ffirst @calls))))
+      (is (= (for [repo ["psyche-belief" "mind-belief" "field-belief"]
+                   args [["ls-remote" "origin" "refs/heads/main"] ["show" (str revision ":modules.datom")]]]
+               (into ["git" "-C" (str "/git/github.com/LiGoldragon/" repo)] args))
+             (map first @calls))))
     (doseq [result [{:exit 1 :out "" :err "cannot connect"}
-                    {:exit 0 :out "Unexpected.[ ]"}
-                    {:exit 0 :out "Modules.[ garbage ]"}]]
+                    {:exit 0 :out "not-a-revision"}]]
       (with-redefs [babashka.process/process (fn [& _] (delay result))]
         (is (thrown? Exception (book-check/registry-dependency-names)))))
-    (with-redefs [babashka.process/process (fn [& _] (delay {:exit 0 :out "Modules.[]"}))]
-      (is (= #{} (book-check/registry-dependency-names))))))
+    (doseq [text ["Unexpected.[ ]" "[ garbage ]"]]
+      (is (thrown? Exception (book-check/registry-names text))))
+    (is (= #{} (book-check/registry-names "[]")))))
 
 (deftest a-new-module-is-one-view-every-line-added
   (let [opts (modules-opts {})]

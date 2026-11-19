@@ -148,9 +148,9 @@ as an added inline list of complete registry IDs (an empty list is `+ []`):
     + [vision:aspects:0, intent:design:0]
     :::
 
-Each ID is checked against the admitted Curriculum registry through
-`curriculum Modules`; an unknown name or an unavailable registry refuses
-the container. IDs carry explicit canonical versions, and duplicates are
+Each ID is checked against `modules.datom` at the current `origin/main`
+revision of psyche-belief, mind-belief and field-belief; an unknown name or
+an unavailable registry refuses the container. Module bodies are never read. IDs carry explicit canonical versions, and duplicates are
 refused. The builder shows a labelled Dependencies block at the head of the
 module sheet, with the addition margin. Existing books may omit this container.
 The checker option `:dependency-names` supplies the membership reader in tests.
