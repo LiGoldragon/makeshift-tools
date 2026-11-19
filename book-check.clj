@@ -803,15 +803,47 @@
                       (= (rest passage) (subvec module (inc k) (+ k n)))))
                (range (inc (- (count module) n)))))))
 
+(def dependency-id #"^(spirit|intent|vision|knowledge|inquiry|compensation|role|raw):([a-z0-9-]+):((?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*))?)\z")
+
+(defn dependencies-read
+  "The added inline list of explicit registry IDs in a new module's container."
+  [lines]
+  (let [body (vec (remove str/blank? lines))
+        value (when (= 1 (count body)) (second (re-matches #"\+ \[(.*)\]" (first body))))
+        ids (when value (vec (remove str/blank? (str/split value #"[,\s]+"))))]
+    (cond
+      (nil? value) {:errors ["malformed-dependencies-list"]}
+      (not-every? #(re-matches dependency-id %) ids) {:errors ["invalid-dependency-id"]}
+      (not= (count ids) (count (distinct ids))) {:errors ["duplicate-dependency"]}
+      :else {:ids ids :errors []})))
+
+(defn registry-dependency-names
+  "Read only the admitted registry's names and file metadata, through Modules."
+  []
+  (let [result @(process/process ["curriculum" "Modules"] {:in "" :out :string :err :string})
+        ;; The Modules wire form carries one identity and file per entry.
+        entry (str "\\{\\s*\\{\\s*(Spirit|Intent|Vision|Knowledge|Inquiry|Compensation|Role|Raw)"
+                   "\\s+([a-z0-9-]+)\\s+(?:Single\\.(0|[1-9][0-9]*)|Span\\.\\{\\s*(0|[1-9][0-9]*)"
+                   "\\s+(0|[1-9][0-9]*)\\s*\\})\\s*\\}\\s+(?:«[^»]*»|[^\\s{}\\[\\]]+)\\s*\\}")
+        output (:out result)]
+    (when-not (and (zero? (:exit result))
+                   (re-matches (re-pattern (str "\\s*Modules\\.\\[\\s*(?:" entry "\\s*)*\\]\\s*")) output))
+      (throw (ex-info "dependency-registry-unavailable" {})))
+    (set (for [[_ kind topic single first-version last-version] (re-seq (re-pattern entry) output)]
+           (str (str/lower-case kind) ":" topic ":" (or single (str first-version "-" last-version)))))))
+
 (defn check-book
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
-  (fn [repository path]) -> file text; it throws when the module is unavailable."
+  (fn [repository path]) -> file text; it throws when the module is unavailable.
+  Option :dependency-names is a zero-argument reader of the admitted ID set."
   ([source] (check-book source {}))
-  ([source {:keys [read-module] :or {read-module read-context-module}}]
+  ([source {:keys [read-module dependency-names]
+            :or {read-module read-context-module dependency-names registry-dependency-names}}]
    (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))
          st (atom {:errors [] :fence nil :section nil :in-comment false :container nil :plain nil
                    :proposals 0 :title false :presentation false :kind "Proposal" :signature nil :shown #{}})
          module-cache (atom {})
+         dependency-registry (delay (dependency-names))
          err! (fn [line reason] (swap! st update :errors conj {:line line :reason reason}))
          ;; Every module view, read before any is checked: a move written in the
          ;; view of the module it enters pairs with the placeholder in the view of
@@ -916,6 +948,16 @@
                    (cond
                      (= ::unavailable file) (err! line "context-module-unavailable")
                      (not= (:current read) (module-description file)) (err! line "module-description-differs")))))))
+         check-dependencies!
+         (fn [{:keys [line lines]}]
+           (let [{:keys [ids errors]} (dependencies-read lines)]
+             (doseq [reason errors] (err! line reason))
+             (when (seq ids)
+               (try
+                 (let [names @dependency-registry]
+                   (doseq [id ids :when (not (contains? names id))]
+                     (err! line (str "unknown-dependency:" id))))
+                 (catch Throwable _ (err! line "dependency-registry-unavailable"))))))
          finish! (fn []
                    (flush-plain!)
                    (let [s (section)]
@@ -957,6 +999,17 @@
                  head (first (filter #(not (str/blank? (lines %))) (range (inc i) end)))
                  head-open (and head (= "::: description" (lines head)))
                  head-close (when head-open (first (filter #(= ":::" (lines %)) (range (inc head) end))))
+                 dependency-head (when head-close
+                                   (first (filter #(not (str/blank? (lines %))) (range (inc head-close) end))))
+                 dependency-open (and dependency-head (= "::: dependencies" (lines dependency-head)))
+                 dependency-close (when dependency-open
+                                    (first (filter #(= ":::" (lines %)) (range (inc dependency-head) end))))
+                 _ (when dependency-open
+                     (when-not new? (err! (inc dependency-head) "dependencies-outside-new-module"))
+                     (if dependency-close
+                       (check-dependencies! {:line (inc dependency-head)
+                                             :lines (subvec lines (inc dependency-head) dependency-close)})
+                       (err! (inc dependency-head) "unclosed-dependencies-container")))
                  markdown (str/ends-with? path ".md")
                  ;; The module as the view shows it: unsigned view lines, with each
                  ;; edit replaced by the current lines it carries. A markdown module
@@ -968,6 +1021,7 @@
                                               (cond
                                                 (>= j end) out
                                                 (and head-close (= j head)) (recur (inc head-close) out)
+                                                (and dependency-close (= j dependency-head)) (recur (inc dependency-close) out)
                                                 (by-heading j) (recur (:end (by-heading j)) (into out (:current (by-heading j))))
                                                 (and new? (added-line? (lines j))) (recur (inc j) (conj out (unsigned-change-line (lines j))))
                                                 :else (recur (inc j) (conj out (lines j)))))
@@ -1041,6 +1095,9 @@
                      (cond
                        (and (= "::: description" (lines k)) (not (placed k)))
                        (err! (inc k) "description-not-at-head")
+                       (and (re-find #"^::: dependencies(?:\s|$)" (lines k))
+                            (not= k dependency-head))
+                       (err! (inc k) "dependencies-not-at-head")
                        (and markdown (front-matter-line? (lines k)))
                        (err! (inc k) "description-as-front-matter")))
                  front-matter? (some #(and markdown (front-matter-line? (lines %))) book-text)
@@ -1053,6 +1110,7 @@
                                opener (re-find #"^ {0,3}(`{3,}|~{3,})" l)]
                            (cond
                              (and head-close (= j head)) (recur (inc head-close))
+                             (and dependency-close (= j dependency-head)) (recur (inc dependency-close))
                              (by-heading j) (recur (:end (by-heading j)))
                              (or (str/blank? l) (added-line? l)) (recur (inc j))
                              opener
@@ -1117,6 +1175,7 @@
                (re-find #"^::: comment(?:\s|$)" line) (err! number "comment-in-questions")
                (re-find #"^::: shown(?:\s|$)" line) (err! number "shown-in-questions")
                (re-find #"^::: description(?:\s|$)" line) (err! number "description-in-questions")
+               (re-find #"^::: dependencies(?:\s|$)" line) (err! number "dependencies-in-questions")
                (re-find #"^::: moved?(?:\s|$)" line) (err! number "move-in-questions")
                (re-find #"^::: proposed(?:\s|$)" line) (err! number "proposed-in-questions")
                (or (change? line) (added-line? line) (removed-line? line))
@@ -1135,12 +1194,13 @@
                    (err! (:line container) "empty-comment-container"))
                  (when (= :shown (:kind container)) (check-shown! container))
                  (when (= :description (:kind container)) (check-description! container))
+                 (when (= :dependencies (:kind container)) (check-dependencies! container))
                  (when (= :move (:kind container))
                    (doseq [[k reason] (concat (move-body-word-mark-errors (vec (:lines container)))
                                               (move-added-line-errors (vec (:lines container))))]
                      (err! (+ (:line container) 1 k) reason)))
                  (swap! st assoc :container nil))
-             (re-find #"^::: (?:comment|move|moved|shown|description)(?:\s|$)" line)
+             (re-find #"^::: (?:comment|move|moved|shown|description|dependencies)(?:\s|$)" line)
              (err! number "nested-container")
              :else
              (swap! st (fn [s] (-> s
@@ -1240,6 +1300,19 @@
                              (or (:changed s) (:body s)) (err! number "description-not-at-head"))
                        (set-section! #(assoc % :description true))))
                    (swap! st assoc :container {:kind :description :line number :content false :lines []}))
+
+               (= line "::: dependencies")
+               (do (flush-plain!)
+                   (let [s (section)]
+                     (cond
+                       (not (:new-markdown s)) (err! number "dependencies-outside-new-module")
+                       (:dependencies s) (err! number "second-dependencies-in-proposal")
+                       (or (not (:description s)) (:body s)) (err! number "dependencies-not-at-head"))
+                     (when s (set-section! #(assoc % :dependencies true))))
+                   (swap! st assoc :container {:kind :dependencies :line number :lines []}))
+
+               (re-find #"^::: dependencies(?:\s|$)" line)
+               (do (flush-plain!) (err! number "malformed-dependencies-container"))
 
                malformed-description?
                (do (flush-plain!) (err! number "malformed-description-container"))

@@ -1074,6 +1074,57 @@
        "+ ## Sonnet\n+\n+ Sonnet does large plain work and designs nothing.\n\n"
        "```ethos\n+ Library\n+ [ sonnet:[ Work ] ]\n```\n"))
 
+(deftest new-module-dependencies-are-explicit-registry-names-at-the-head
+  (let [container "::: dependencies\n+ [vision:aspects:0, intent:design:0]\n:::\n\n"
+        source (str "# B\n\n" (str/replace new-module-view "+ ## Sonnet" (str container "+ ## Sonnet")))
+        known #{"vision:aspects:0" "intent:design:0"}
+        opts {:read-module throwing :dependency-names (constantly known)}]
+    (is (= [] (check source opts)))
+    (let [reads (atom 0)
+          two-modules (str source "\n" (str/replace (str/replace source "# B\n\n" "") "intent/sonnet.md" "intent/other.md"))]
+      (is (= [] (check two-modules (assoc opts :dependency-names #(do (swap! reads inc) known)))))
+      (is (= 1 @reads) "one registry snapshot serves every container in a check"))
+    (is (= [] (check (str/replace source "+ [vision:aspects:0, intent:design:0]" "+ []") opts)))
+    (is (= ["unknown-dependency:vision:missing:0"]
+           (reasons (str/replace source "vision:aspects:0" "vision:missing:0") opts)))
+    (is (= ["dependency-registry-unavailable"]
+           (reasons source (assoc opts :dependency-names throwing))))
+    (doseq [[value reason] [["[vision:aspects]" "invalid-dependency-id"]
+                            ["[vision:aspects:00]" "invalid-dependency-id"]
+                            ["[vision:aspects:0, vision:aspects:0]" "duplicate-dependency"]
+                            ["vision:aspects:0" "malformed-dependencies-list"]
+                            ["[vision:aspects:0]\n+ [intent:design:0]" "malformed-dependencies-list"]]]
+      (is (= [reason] (reasons (str/replace source "[vision:aspects:0, intent:design:0]" value) opts))))
+    (is (= ["malformed-dependencies-list"]
+           (reasons (str/replace source "+ [vision:aspects:0, intent:design:0]" "[vision:aspects:0]") opts)))
+    (is (some #{"dependencies-not-at-head"}
+              (reasons (str/replace source (str container "+ ## Sonnet") (str "+ ## Sonnet\n\n" container)) opts)))
+    (is (some #{"dependencies-not-at-head"}
+              (reasons (str/replace source container (str container container)) opts)))
+    (is (some #{"unclosed-dependencies-container"}
+              (reasons (str/replace source container "::: dependencies\n+ []\n") opts)))
+    (is (= [] (check (str "### Proposal 1: New · repo › new.md, a new file\n\n"
+                         "::: description\n+ New module.\n:::\n\n" container "+ Body.\n") opts)))
+    (is (some #{"dependencies-outside-new-module"}
+              (reasons (str/replace source ", a new file" "") opts)))))
+
+(deftest dependency-membership-uses-the-admitted-curriculum-registry
+  (let [calls (atom [])]
+    (with-redefs [babashka.process/process
+                  (fn [command options]
+                    (swap! calls conj [command options])
+                    (delay {:exit 0 :out (str "Modules.[ { { Vision aspects Single.0 } /repo/aspects.md }"
+                                             " { { Intent design Span.{ 0 2 } } «/repo/design span.md» } ]") :err ""}))]
+      (is (= #{"vision:aspects:0" "intent:design:0-2"} (book-check/registry-dependency-names)))
+      (is (= ["curriculum" "Modules"] (ffirst @calls))))
+    (doseq [result [{:exit 1 :out "" :err "cannot connect"}
+                    {:exit 0 :out "Unexpected.[ ]"}
+                    {:exit 0 :out "Modules.[ garbage ]"}]]
+      (with-redefs [babashka.process/process (fn [& _] (delay result))]
+        (is (thrown? Exception (book-check/registry-dependency-names)))))
+    (with-redefs [babashka.process/process (fn [& _] (delay {:exit 0 :out "Modules.[]"}))]
+      (is (= #{} (book-check/registry-dependency-names))))))
+
 (deftest a-new-module-is-one-view-every-line-added
   (let [opts (modules-opts {})]
     (is (= [] (check (str "# B\n\n" new-module-view) opts)) "one view is the whole proposal; no file is read")

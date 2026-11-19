@@ -1338,6 +1338,21 @@
     (is (< (at "comment-label") (at description-label) (at "<p>Added.</p>")))
     (is (not (str/includes? html "description:")))))
 
+(deftest a-new-module-shows-dependencies-beside-its-description
+  (let [source (str "# B\n\n## repo › new.md, a new file\n\n"
+                    "::: description\n+ A new module.\n:::\n\n"
+                    "::: dependencies\n+ [vision:aspects:0, intent:design:0]\n:::\n\n"
+                    "+ ## Its rule\n\n+ The rule.\n")
+        html (built source)
+        at #(str/index-of html %)]
+    (is (< (at "<section class=\"description\">")
+           (at "<section class=\"dependencies\">")
+           (at "Its rule")))
+    (is (str/includes? html "<div class=\"dependencies-label\">Dependencies</div><div class=\"diff\"><div class=\"add\"><p><code>vision:aspects:0</code>, <code>intent:design:0</code></p>"))
+    (is (str/includes? (built (str/replace source "[vision:aspects:0, intent:design:0]" "[]"))
+                       "<div class=\"add\"><p>[]</p>")))
+  (is (thrown? Exception (built "::: dependencies\n+ []\n"))))
+
 (deftest a-new-module-shows-its-description-added
   (let [md (str "# B\n\n### Proposal 1: New · psyche-belief › vision/new/0.md, a new file\n\n"
                 "::: description\n+ What the new module is about.\n:::\n\n+ ## A rule\n\n+ The rule.\n")

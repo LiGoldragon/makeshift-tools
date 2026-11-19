@@ -198,10 +198,10 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 @media (max-width:540px){.fm dl{grid-template-columns:1fr}.fm dd{margin-bottom:.4em}}
 /* A module's description: a labelled block at the head of its module view or proposal, in the page's colours.
    Changed, its removed and added text stand under the red and green margins, as any change does. */
-.description{border:1px solid var(--line);border-radius:8px;background:var(--sheet);color:var(--fg);padding:8px 12px 10px;min-width:0}
-.description>*+*{margin-top:.35em}
-.description-label{font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
-.description p{overflow-wrap:anywhere}
+.description,.dependencies{border:1px solid var(--line);border-radius:8px;background:var(--sheet);color:var(--fg);padding:8px 12px 10px;min-width:0}
+.description>*+*,.dependencies>*+*{margin-top:.35em}
+.description-label,.dependencies-label{font-family:var(--f-label);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.description p,.dependencies p{overflow-wrap:anywhere}
 .ctx pre{padding-inline:12px}
 .diff-label{font-family:var(--f-label);font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 

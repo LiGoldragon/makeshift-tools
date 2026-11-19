@@ -141,6 +141,20 @@ book-build shows it as a labelled block, `<section class="description">`: as
 it stands, its text; changed, its removed text under the red margin and its
 added text under the green, each marking only its own changed words.
 
+A new module may show its dependencies immediately after its description,
+as an added inline list of complete registry IDs (an empty list is `+ []`):
+
+    ::: dependencies
+    + [vision:aspects:0, intent:design:0]
+    :::
+
+Each ID is checked against the admitted Curriculum registry through
+`curriculum Modules`; an unknown name or an unavailable registry refuses
+the container. IDs carry explicit canonical versions, and duplicates are
+refused. The builder shows a labelled Dependencies block at the head of the
+module sheet, with the addition margin. Existing books may omit this container.
+The checker option `:dependency-names` supplies the membership reader in tests.
+
 A module view is headed `## repo › path`. The heading is defined once, in
 book-check (`module-view-pattern`), and the checker and the builder both match
 it through that definition. A module's file name may be a number, a span or

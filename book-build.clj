@@ -1473,8 +1473,8 @@
         comment-open-re #"^::: comment(?:\s+.*)?$"
         shown-open-re #"^::: shown(?:\s+.*)?$"
         shown-location-re #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)$"
-        description-open-re #"^::: description(?:\s+.*)?$"
-        container-open-re #"^::: (?:comment|move|moved|shown|description)(?:\s+.*)?$"
+        metadata-open-re #"^::: (description|dependencies)(?:\s+.*)?$"
+        container-open-re #"^::: (?:comment|move|moved|shown|description|dependencies)(?:\s+.*)?$"
         moved-open-re #"^::: moved(?:\s+.*)?$"
         flush (fn [para proposal] (if proposal (proposal-para para proposal) (flush-para para)))
         ;; A proposal in place opens at its heading and closes where its module resumes.
@@ -1554,22 +1554,22 @@
                                        (throw (ex-info (str "nested container at source line " (inc j)) {}))
                                        :else (recur (inc j))))))]
                 (recur (inc end) (conj out [:comment body]) [] proposal))
-            (if (re-find description-open-re l)
+            (if-let [[_ kind] (re-find metadata-open-re l)]
               (let [line-no (inc i)
-                    _ (when-not (= l "::: description")
-                        (throw (ex-info (str "malformed description container at source line " line-no) {})))
+                    _ (when-not (= l (str "::: " kind))
+                        (throw (ex-info (str "malformed " kind " container at source line " line-no) {})))
                     out (cond-> out (seq para) (into (flush para proposal)))
                     start (inc i)
                     [end body] (loop [j start]
                                  (if (>= j n)
-                                   (throw (ex-info (str "unclosed description container at source line " line-no) {}))
+                                   (throw (ex-info (str "unclosed " kind " container at source line " line-no) {}))
                                    (let [x (lines j)]
                                      (cond
                                        (= x ":::") [j (subvec lines start j)]
                                        (re-find container-open-re x)
                                        (throw (ex-info (str "nested container at source line " (inc j)) {}))
                                        :else (recur (inc j))))))]
-                (recur (inc end) (conj out [:description body]) [] proposal))
+                (recur (inc end) (conj out [(keyword kind) body]) [] proposal))
             (if (re-find move-open-re l)
             (let [state (second (re-find #"^::: move(?:\s+(.*))?$" l))
                   line-no (inc i)
@@ -2296,6 +2296,16 @@
 
         (= :comment (first b))
         (emit (comment-html (second b)))
+
+        (= :dependencies (first b))
+        (let [{:keys [ids errors]} (book-check/dependencies-read (second b))]
+          (when (seq errors) (throw (ex-info "malformed dependencies container" {:errors errors})))
+          (emit (str "<section class=\"dependencies\"><div class=\"dependencies-label\">Dependencies</div>"
+                     "<div class=\"diff\"><div class=\"add\"><p>"
+                     (if (seq ids)
+                       (str/join ", " (map #(str "<code>" (esc %) "</code>") ids))
+                       "[]")
+                     "</p></div></div></section>")))
 
         ;; a module's description, at the head of its view or proposal
         (= :description (first b))
