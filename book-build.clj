@@ -917,7 +917,9 @@
 ;; colours, each side of a change highlighted whole as valid code.
 
 (def book-grammars
-  (cheshire.core/parse-string (slurp (str (fs/path script-dir "book-grammars.json")))))
+  (cheshire.core/parse-string
+   (slurp (or (System/getenv "BOOK_GRAMMARS")
+              (str (fs/path script-dir "book-grammars.json"))))))
 
 (defn- run [& args]
   (let [p (.start (ProcessBuilder. ^java.util.List (vec args)))
@@ -1754,8 +1756,11 @@
 ;; it is substituted or built on the remote builder.
 
 (def configured-ethos-zero
-  "The publication validator selected by the builder's adjacent configuration."
-  (get (cheshire.core/parse-string (slurp (str (fs/path script-dir "book-ethos.json")))) "validator"))
+  "The publication validator selected by BOOK_ETHOS or the adjacent configuration."
+  (get (cheshire.core/parse-string
+        (slurp (or (System/getenv "BOOK_ETHOS")
+                   (str (fs/path script-dir "book-ethos.json")))))
+       "validator"))
 
 (def ^:dynamic *ethos-zero*
   "The ethos-zero that checks proposed code (a fence inside a proposal or

@@ -320,12 +320,29 @@ watches are installed before discovery, so appends during startup stay queued.
 
 ## Tests
 
-    bb test
+    nix flake check -L
 
-runs every `test/*-test.clj`. Fixtures are in `test/fixtures`. The phone
-rendering test (`test/book-phone-code-test.clj`) and the theme test
-(`test/book-theme-render-test.clj`, a built book read in the dark and light
-settings) drive headless chromium through `test/cdp.clj`: they use
-`$CHROMIUM` or `chromium` on PATH, for example
+builds the test environment from the locked flake and runs all eleven
+`test/*-test.clj` files in the Nix build sandbox. Babashka, Chromium,
+inotify-tools, Python, Git, Nix, tree-sitter, its compiler and grammar sources,
+the configured Ethos validator, fonts and shell utilities come from the flake;
+no test executable needs to be installed on the host. Fixtures are in
+`test/fixtures`.
 
-    CHROMIUM=$(nix build nixpkgs#chromium --no-link --print-out-paths)/bin/chromium bb test
+For working-tree tests or an individual test file, use the same inputs:
+
+    nix develop -c bb test
+    nix develop -c bb test/book-phone-code-test.clj
+
+The phone rendering and theme tests drive headless Chromium through
+`test/cdp.clj`; the watcher integration test uses `inotifywait`. Outside
+the flake environment, `bb test` uses the executables on PATH, with
+`CHROMIUM` and `INOTIFYWAIT` available as explicit overrides.
+
+`BOOK_GRAMMARS` and `BOOK_ETHOS` select grammar and validator JSON
+configuration files; by default the builder reads the adjacent
+`book-grammars.json` and `book-ethos.json`. The flake supplies equivalent
+configurations pointing at locked store inputs, leaving authored registries
+unchanged. The development shell uses a fresh temporary cache so compiled
+parsers from another grammar revision cannot affect the run. Its validator input is checked against `book-ethos.json` so a
+validator update requires updating the flake input and lock together.

@@ -1,0 +1,189 @@
+{
+  "nodes": {
+    "base": {
+      "inputs": {
+        "fenix": "fenix",
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1794286093,
+        "narHash": "sha256-RLDe5rpjlg3BuN6Su/pXiHcyVLF8FQaQNWY7w5WmSvM=",
+        "owner": "LiGoldragon",
+        "repo": "build-base",
+        "rev": "f07e7bc38348a2d8cb7f3534d4d25ed84213d5a8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "build-base",
+        "type": "github"
+      }
+    },
+    "datom-codec": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794257160,
+        "narHash": "sha256-TcRIc4h8i4rFH33WuTEa9IASXY0XP1eGxtkWl6anl6E=",
+        "owner": "LiGoldragon",
+        "repo": "datom-codec",
+        "rev": "09a0526949b043f921b6d3ce115b7f455291f2e2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "datom-codec",
+        "type": "github"
+      }
+    },
+    "ethos-zero": {
+      "inputs": {
+        "base": "base",
+        "datom-codec": "datom-codec",
+        "protos": "protos"
+      },
+      "locked": {
+        "lastModified": 1794887808,
+        "narHash": "sha256-iMhwlp3gvrYTzqTDbwQJJc3BniEImWNetYVxxl5vpRQ=",
+        "owner": "LiGoldragon",
+        "repo": "ethos-zero",
+        "rev": "2999292dc67c8608e54d32c333c550b29153cbff",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "ethos-zero",
+        "rev": "2999292dc67c8608e54d32c333c550b29153cbff",
+        "type": "github"
+      }
+    },
+    "fenix": {
+      "inputs": {
+        "nixpkgs": [
+          "ethos-zero",
+          "base",
+          "nixpkgs"
+        ],
+        "rust-analyzer-src": "rust-analyzer-src"
+      },
+      "locked": {
+        "lastModified": 1794142885,
+        "narHash": "sha256-xWFSr7q8IerDAVRk4W7/CgTmi05hMy2qjZ0z3VYpOVk=",
+        "owner": "nix-community",
+        "repo": "fenix",
+        "rev": "f7d416b5073152c7f2e4de1a28d1a4330dd30a26",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "fenix",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1786599213,
+        "narHash": "sha256-yNJd40f11EzXBjSByCB7IPpeFFAdeoSKKM67dGkfFoU=",
+        "owner": "LiGoldragon",
+        "repo": "nixpkgs",
+        "rev": "0e251e24a4f24e036a084b6b4b2d2491af4167f4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs_2": {
+      "locked": {
+        "lastModified": 1794840529,
+        "narHash": "sha256-ySrWnmZB5UsZTYGHHnBjllT05O5iFjElCRS+mabtfP0=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "e21fec321d73511849707a7585e4ea155ee4bf40",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "protos": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794256958,
+        "narHash": "sha256-64lMjBC1Kly7o0PsvfNdXW7Hk1dpzyZyr5BX3Oe/PAM=",
+        "owner": "LiGoldragon",
+        "repo": "protos",
+        "rev": "c93b598025984f8a73e70aa18b8e8a6fdfdfdfd8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "protos",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "ethos-zero": "ethos-zero",
+        "nixpkgs": "nixpkgs_2",
+        "tree-sitter-datom": "tree-sitter-datom",
+        "tree-sitter-ethos": "tree-sitter-ethos"
+      }
+    },
+    "rust-analyzer-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794096810,
+        "narHash": "sha256-dWC+YtMX+cwH3e9ndiFB77ijTsKtO5I2OxfcvUY4j3k=",
+        "owner": "rust-lang",
+        "repo": "rust-analyzer",
+        "rev": "03ae6be57aa063bb373f69eead3b8e15168a45d2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "rust-lang",
+        "ref": "nightly",
+        "repo": "rust-analyzer",
+        "type": "github"
+      }
+    },
+    "tree-sitter-datom": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786574903,
+        "narHash": "sha256-Bc+8mDGWjpxp4/owlSSg1xKhrE4VLMwZI/vwMNBIqt8=",
+        "owner": "LiGoldragon",
+        "repo": "tree-sitter-dotos",
+        "rev": "6999d90cb9ba848df73570a71c6335cc6ab435f6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "tree-sitter-dotos",
+        "type": "github"
+      }
+    },
+    "tree-sitter-ethos": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790373115,
+        "narHash": "sha256-eNB84YUKkPCiz/o7Fsn2xlm21XJtmuAfIG8tzlbRh9k=",
+        "owner": "LiGoldragon",
+        "repo": "tree-sitter-ethos",
+        "rev": "ee84bbfc091dae835a58020ea301408937cd79ed",
+        "type": "github"
+      },
+      "original": {
+        "owner": "LiGoldragon",
+        "repo": "tree-sitter-ethos",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
