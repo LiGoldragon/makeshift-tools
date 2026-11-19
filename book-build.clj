@@ -2112,7 +2112,7 @@
         (fn render-prose [i lines]
           ;; A heading that opens a block of module text is the heading alone; the rest of the block is a block of its own.
           (let [first-line (first lines)]
-            (if (and @in-module (next lines)
+            (if (and (or @in-module *move-context*) (next lines)
                      (re-find #"^#{1,3} " first-line)
                      (not (re-find #"^#{2,3} Proposal " first-line))
                      (not (book-check/module-view-heading first-line)))
@@ -2125,7 +2125,7 @@
               text (join-lines lines)
               _ (when-let [m (re-find #"^File: `?([^`\s,]+)" text)] (vreset! target (m 1)))]
           (cond
-            (and @in-module (str/starts-with? first-line "# "))
+            (and (or @in-module *move-context*) (str/starts-with? first-line "# "))
             (append! (str "<h3 class=\"module-title\">"
                           (inline (strip (subs first-line 2))) "</h3>"))
 

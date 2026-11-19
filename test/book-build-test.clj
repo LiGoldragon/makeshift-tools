@@ -1186,6 +1186,16 @@
     (is (= 2 (count (re-seq #"</section>" html))) "each proposal in place is closed")
     (is (not (str/includes? html "<article class=\"proposal\">")) "no proposal sheet of its own")))
 
+(deftest a-moved-module-title-remains-module-structure
+  ;; The first complete move in flows/ed4210/proposals/notions-2.md.
+  (let [source (slurp (str root "/test/fixtures/notions-2-module-heading.md"))
+        html (book-build/build source "")]
+    (is (= 1 (count (re-seq #"<h1 class=\"book-title\">" html))))
+    (is (= 1 (count (re-seq #"<title>" html))))
+    (is (str/includes? html "<h3 class=\"module-title\">The Claude Harness Nexus</h3>"))
+    (is (str/includes? html "The harness runs the hook with the event as JSON"))
+    (is (= [] (book-check/check-built-page html)))))
+
 (deftest a-module-title-remains-a-module-title
   (let [html (book-build/build
               (str "Presentation.{ «The book» Proposal }\n\n# The book\n\n"
