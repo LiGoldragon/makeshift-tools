@@ -2616,9 +2616,11 @@
                  (spit out-path (build src (read-text code-path)) :encoding "UTF-8")))
              (catch clojure.lang.ExceptionInfo e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
+               (book-check/notify-refusal! "book-build" src-path (ex-message e))
                (System/exit 1))
              (catch java.io.IOException e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
+               (book-check/notify-refusal! "book-build" src-path (ex-message e))
                (System/exit 1)))))))
 
 (when (= *file* (System/getProperty "babashka.file"))

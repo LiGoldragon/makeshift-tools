@@ -69,6 +69,12 @@ Manifest.{ «Panel.1 · The book form» Proposal Opus
 `source` prints `Created by <Model>.` under the title; the checker refuses a manifest without a creator
 or with one that is no model.
 
+A refusal tells a flow: when `book-build` or `book-check` refuses, it sends
+`Soft.Notice.«<tool> refused <path>: <refusal>»` through `flow` before it exits non-zero. The
+address is one datom in `$XDG_CONFIG_HOME/book-tools/refusal-notice.datom` (or the file
+`BOOK_NOTICE_CONFIGURATION` names): an address such as `{ Psyche core Opus }`, or `Off`. With no
+such file nothing is sent and stderr says so; tests and local work turn it off by that file.
+
 `book-build DIRECTORY` and `book-check /abs/DIRECTORY` take the directory in place of a
 source. The builder compares each copy with the module at its recorded revision and shows the
 whole module under its name, every change marked in place: a replaced line read once with its

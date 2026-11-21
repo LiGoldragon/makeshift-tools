@@ -1248,5 +1248,44 @@
     (is (= refused (check (book "Created by Fable. Reviewed."))) "nothing after it")
     (is (= refused (check (book "Created by Fable\nnow."))) "one line")))
 
+(deftest a-refusal-tells-the-configured-flow
+  (is (= "{ Psyche core Opus }" (book-check/notice-address " { Psyche core Opus }\n")))
+  (is (nil? (book-check/notice-address "Off\n")))
+  (is (thrown? Exception (book-check/notice-address "Psyche")))
+  (is (= "book-check refused /a.md: one two" (book-check/notice-text "book-check" "/a.md" "one\ntwo")))
+  (let [directory (str (fs/create-temp-dir {:prefix "refusal-notice"}))
+        bin (str (fs/path directory "bin"))
+        sent (str (fs/path directory "sent"))
+        source (str (fs/path directory "bad.md"))
+        run (fn [configuration]
+              (spit (str (fs/path directory "configuration.datom")) configuration)
+              (fs/delete-if-exists sent)
+              (let [{:keys [exit err]} (babashka.process/shell
+                                        {:continue true :out :string :err :string
+                                         :extra-env {"BOOK_NOTICE_CONFIGURATION" (str (fs/path directory "configuration.datom"))
+                                                     "PATH" (str bin ":" (System/getenv "PATH"))}}
+                                        "bb" (str (fs/path root "book-check.clj")) source)]
+                {:exit exit :err err :sent (when (fs/exists? sent) (slurp sent))}))]
+    (fs/create-dirs bin)
+    (spit (str (fs/path bin "flow")) (str "#!/bin/sh\nprintf '%s' \"$1\" > " sent "\n"))
+    (fs/set-posix-file-permissions (fs/path bin "flow") "rwxr-xr-x")
+    (spit source "no presentation here\n")
+    (let [result (run "{ Psyche core Opus }\n")]
+      (is (= 1 (:exit result)) "the refusal still exits non-zero")
+      (is (str/starts-with? (:sent result) "Send.{ { Psyche core Opus } Soft.Notice.«book-check refused ")))
+    (let [result (run "Off\n")]
+      (is (= 1 (:exit result)))
+      (is (nil? (:sent result)) "Off sends nothing"))
+    (fs/delete-if-exists (str (fs/path directory "configuration.datom")))
+    (let [{:keys [exit err sent]} (let [{:keys [exit err]} (babashka.process/shell
+                                                            {:continue true :out :string :err :string
+                                                             :extra-env {"BOOK_NOTICE_CONFIGURATION" (str (fs/path directory "none"))
+                                                                         "PATH" (str bin ":" (System/getenv "PATH"))}}
+                                                            "bb" (str (fs/path root "book-check.clj")) source)]
+                                    {:exit exit :err err :sent (fs/exists? sent)})]
+      (is (= 1 exit))
+      (is (str/includes? err "refusal notice not sent"))
+      (is (false? sent)))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

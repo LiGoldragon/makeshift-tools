@@ -1655,6 +1655,49 @@
                                          :element bad}))))
       (vec (sort-by :line (into errors (repeated-replacement-errors html)))))))
 
+;; ------------------------------------------------------------ refusal notice
+;; A refusing command tells the flow the configuration names. The configuration is one datom
+;; in a file: an address, `{ Psyche core Opus }`, or `Off`. The file is BOOK_NOTICE_CONFIGURATION,
+;; else $XDG_CONFIG_HOME/book-tools/refusal-notice.datom (~/.config when unset). With no file,
+;; or an unreadable one, nothing is sent and stderr says so.
+
+(def notice-address-pattern #"\{\s*(Psyche|Mind|Field)\s+([a-z][A-Za-z0-9]*)\s+(Fable|Opus|Sonnet|Haiku|Astra|Sol|Luna|Terra)\s*\}")
+
+(defn notice-configuration-path []
+  (or (System/getenv "BOOK_NOTICE_CONFIGURATION")
+      (str (fs/path (or (System/getenv "XDG_CONFIG_HOME") (fs/path (System/getProperty "user.home") ".config"))
+                    "book-tools" "refusal-notice.datom"))))
+
+(defn notice-address
+  "The address the configuration text names: the datom text of an address, nil for Off,
+  and a refusal when it is neither."
+  [text]
+  (let [text (str/trim text)]
+    (cond
+      (= "Off" text) nil
+      (re-matches notice-address-pattern text) text
+      :else (throw (ex-info (str "refusal notice configuration is neither Off nor an address: " text) {})))))
+
+(defn notice-text [tool path refusal]
+  (let [one-line (str/replace (str tool " refused " path ": " refusal) #"[\r\n]+" " ")]
+    (str/replace one-line #"[«»]" "\"")))
+
+(defn notify-refusal!
+  "Send the notice of a refusal before the command exits. Returns what was done:
+  :sent, :off or :unsent (with a line on stderr)."
+  [tool path refusal]
+  (let [file (notice-configuration-path)
+        say (fn [& words] (binding [*out* *err*] (println (str/join " " (cons "book-tools: refusal notice not sent:" words)))) :unsent)]
+    (try
+      (if-not (fs/exists? file)
+        (say "no configuration at" file)
+        (if-let [address (notice-address (slurp file))]
+          (let [result (process/shell {:continue true :out :string :err :string}
+                                      "flow" (str "Send.{ " address " Soft.Notice.«" (notice-text tool path refusal) "» }"))]
+            (if (zero? (:exit result)) :sent (say "flow refused:" (str/trim (str (:err result) (:out result))))))
+          :off))
+      (catch Exception e (say (ex-message e))))))
+
 (defn main [args]
   (cond
     (or (not= 1 (count args)) (not (fs/absolute? (first args))))
@@ -1666,7 +1709,10 @@
     (do (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-proposal.clj")))
         (let [faults ((resolve 'book-proposal/check-directory) (first args) @(resolve 'book-proposal/repository-root))]
           (if (seq faults)
-            (do (binding [*out* *err*] (println (json/generate-string {:errors faults}))) 1)
+            (let [refusal (json/generate-string {:errors faults})]
+              (binding [*out* *err*] (println refusal))
+              (notify-refusal! "book-check" (first args) refusal)
+              1)
             (do (println (json/generate-string {:checked true :source (first args)})) 0))))
     :else
     (let [source (try (slurp (first args)) (catch Exception _ nil))]
@@ -1676,7 +1722,10 @@
             2)
         (let [errors (check-book source {:source-path (first args)})]
           (if (seq errors)
-            (do (binding [*out* *err*] (println (json/generate-string {:errors errors}))) 1)
+            (let [refusal (json/generate-string {:errors errors})]
+              (binding [*out* *err*] (println refusal))
+              (notify-refusal! "book-check" (first args) refusal)
+              1)
             (do (println (json/generate-string {:checked true :source (first args)})) 0)))))))
 
 (when (= *file* (System/getProperty "babashka.file"))
