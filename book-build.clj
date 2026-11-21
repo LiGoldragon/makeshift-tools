@@ -609,6 +609,14 @@
     (str "<div class=\"figure\" style=\"position:relative;height:0;padding-bottom:" (num (* 100.0 (/ h w)))
          "%;overflow:hidden\">" svg "</div>"))))
 
+(def ^:dynamic *source-path* nil)
+
+(defn- data-figure-html [{:keys [alt-text] :as figure}]
+  (let [bytes (book-check/read-data-figure *source-path* figure)
+        encoded (.encodeToString (java.util.Base64/getEncoder) bytes)]
+    (str "<img class=\"data-figure\" style=\"display:block;max-width:100%;height:auto\" alt=\""
+         (esc-attr alt-text) "\" src=\"data:image/svg+xml;base64," encoded "\">")))
+
 (def ^:dynamic *figures-dir* nil)
 
 (def ^:dynamic *shared-figure-counter* nil)
@@ -1463,7 +1471,7 @@
 
 (defn blocks
   "Split the source into blocks: [:fence lang lines] (a change written outside
-  a fence also carries :per-line), [:para lines], or [:refused reason] for a
+  a fence also carries :per-line), [:para lines], [:data-figure figure], or [:refused reason] for a
   change inside a proposal that cannot be shown as one. A proposal runs from
   its heading to the next level-two heading."
   [src]
@@ -1497,6 +1505,7 @@
           (recur (inc i) (-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-open opened]))
                  [] (str "Proposal " number))
         (let [l (lines i)
+              data-figure (book-check/data-figure-line l)
               before proposal
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
                              (and (empty? para) (:new? (book-check/module-view-heading l))) "New module"
@@ -1612,6 +1621,9 @@
                                          (with-meta [:fence lang (subvec lines (inc i) (min n j))]
                                            {:bare (= "" (m 2))}))) [] proposal))
             (cond
+              data-figure
+              (recur (inc i) (conj (cond-> out (seq para) (into (flush para proposal)))
+                                   [:data-figure data-figure]) [] proposal)
               ;; Exactly two spaces mark an unchanged line in a diff paragraph;
               ;; don't mistake that context marker for a paragraph separator.
               (and (blank? l) (not= "  " l))
@@ -2343,6 +2355,11 @@
           (emit (str "<section class=\"move move-" state " move-placeholder\"><p>Moved to "
                      "<a href=\"#" (module-anchor to) "\">" (esc to) "</a></p></section>")))
 
+        (= :data-figure (first b))
+        (do (vreset! module-first false)
+            (vreset! after-title false)
+            (emit (data-figure-html (second b))))
+
         (= :fence (first b))
         (let [[_ raw-lang lines per-line] b
               md? (boolean (markdown-languages raw-lang))
@@ -2475,8 +2492,7 @@
   (str/replace (slurp (str path) :encoding "UTF-8") #"\r\n?" "\n"))
 
 (defn- check-source! [src]
-  (load-file (str (fs/path script-dir "book-check.clj")))
-  (let [errors ((ns-resolve 'book-check 'check-book) src)]
+  (let [errors (book-check/check-book src {:source-path *source-path*})]
     (when (seq errors)
       (throw (ex-info (str "source check failed: " (pr-str errors))
                       {:kind :source-invalid :errors errors})))
@@ -2496,7 +2512,8 @@
           fi (.indexOf args "--figures")
           ei (.indexOf args "--ethos-zero")
           ri (.indexOf args "--ethos-zero-real")]
-      (binding [*figures-dir* (when (>= fi 0) (get args (inc fi)))
+      (binding [*source-path* src-path
+                *figures-dir* (when (>= fi 0) (get args (inc fi)))
                 *ethos-zero* (if (>= ei 0) (get args (inc ei)) configured-ethos-zero)
                 *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) configured-ethos-zero)]
         (try (let [src (read-text src-path)]

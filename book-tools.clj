@@ -11,8 +11,8 @@
       (refuse (str "Invalid module location: " text)))
     [repository path]))
 (defn lines-of [text] (vec (str/split text #"\n" -1)))
-(defn checked [text]
-  (when-let [errors (seq (book-check/check-book text))]
+(defn checked [path text]
+  (when-let [errors (seq (book-check/check-book text {:source-path path}))]
     (refuse (str "Book check refused: " (pr-str errors))))
   text)
 (defn write-source [path text validate]
@@ -160,7 +160,7 @@
         "start" (do (when (fs/exists? path) (refuse (str "Source already exists: " path)))
                     (write-source path (start-source (first more) (rest more))
                       (fn [text]
-                        (let [errors (remove #(= "missing-proposal" (:reason %)) (book-check/check-book text))]
+                        (let [errors (remove #(= "missing-proposal" (:reason %)) (book-check/check-book text {:source-path path}))]
                           (when (seq errors) (refuse (str "Draft parse refused: " (pr-str errors))))))))
         "edit" (let [[spec anchor & options] more
                      source (slurp path)
@@ -172,7 +172,7 @@
                                    (= "--replace-new" (nth options 2)))
                               (replace-source source spec anchor (second options) (nth options 3))
                               :else (refuse "Edit requires MODULE ANCHOR --after or --replace-old OLD --replace-new NEW."))]
-                 (write-source path edited checked))
+                 (write-source path edited (partial checked path)))
         (refuse (str "Unknown command: " command)))
       (println (str "Written: " path)) 0)
     (catch Exception e (binding [*out* *err*] (println (ex-message e))) 1)))

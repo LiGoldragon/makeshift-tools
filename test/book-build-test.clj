@@ -1491,5 +1491,25 @@
     (with-figures {"fig-1.svg" a-to-b}
       #(is (str/includes? (built src) "id=\"f1-DRAWN\"")))))
 
+(deftest data-figures-keep-the-original-svg-and-leave-mermaid-numbering-alone
+  (fs/with-temp-dir [source-dir {}]
+    (let [source-path (str (fs/path source-dir "book.md"))
+          svg "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 10 10\"><rect fill=\"#3274a1\"/><rect fill=\"#e1812c\"/></svg>"
+          source (str "Presentation.{ «Figures» Account }\n\n# Figures\n\nBefore.\n"
+                      "![Blue & \"orange\"](chart.svg)\n"
+                      "After.\n\n```mermaid\nflowchart LR\n  a --> b\n```\n")]
+      (spit (str (fs/path source-dir "chart.svg")) svg)
+      (let [html (with-figures {"fig-1.svg" svg}
+                   #(binding [book-build/*source-path* source-path] (book-build/build source "")))
+            [_ encoded] (re-find #"data:image/svg\+xml;base64,([A-Za-z0-9+/=]+)" html)]
+        (is (str/includes? html "<p>Before.</p>\n<img class=\"data-figure\""))
+        (is (str/includes? html "\n<p>After.</p>"))
+        (is (str/includes? html "alt=\"Blue &amp; &quot;orange&quot;\""))
+        (is (= svg (some->> encoded (.decode (java.util.Base64/getDecoder)) (#(String. % "UTF-8")))))
+        (is (str/includes? html "<rect style=\"fill:var(--fg)\"/>"))
+        (is (str/includes? html "<rect style=\"fill:var(--chip)\"/>"))
+        (is (not (str/includes? html "#3274a1")))
+        (is (not (str/includes? html "#e1812c")))))))
+
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

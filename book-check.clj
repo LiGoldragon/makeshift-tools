@@ -5,6 +5,7 @@
 (ns book-check
   (:require [babashka.process :as process]
             [cheshire.core :as json]
+            [clojure.data.xml :as xml]
             [clojure.string :as str]
             [babashka.fs :as fs]))
 
@@ -846,12 +847,48 @@
          (throw (ex-info "dependency-registry-unavailable" {})))
        (registry-names (git "show" (str revision ":modules.datom")))))))
 
+(defn data-figure-line [line]
+  (when-let [[_ alt-text filename] (re-matches #"!\[([^\]]*)\]\((.*)\)\s*" line)]
+    {:alt-text alt-text :filename filename}))
+
+(defn- svg-document? [bytes]
+  (try
+    (with-open [input (java.io.ByteArrayInputStream. bytes)]
+      (let [events (xml/event-seq input {:support-dtd false :supporting-external-entities false
+                                         :include-node? #{:element} :location-info false})
+            tag (:tag (first events))]
+        (when (and (= "svg" (xml/qname-local tag))
+                   (= "http://www.w3.org/2000/svg" (xml/qname-uri tag)))
+          (dorun events)
+          true)))
+    (catch Exception _ false)))
+
+(defn read-data-figure
+  "Read a sibling SVG as drawn, returning its validated bytes."
+  [source-path {:keys [filename]}]
+  (let [refuse (fn [reason]
+                 (throw (ex-info (str reason ": " filename) {:reason reason :filename filename})))
+        _ (when-not (re-matches #"(?i)[^/\\:\s\p{Cntrl}()]+\.svg" filename)
+            (refuse "data-figure-sibling-svg-required"))
+        _ (when-not source-path (refuse "data-figure-source-path-required"))
+        directory (fs/parent (fs/absolutize source-path))
+        file (fs/path directory filename)
+        bytes (try
+                (when (and (fs/regular-file? file)
+                           (= (fs/real-path directory) (fs/parent (fs/real-path file))))
+                  (fs/read-all-bytes file))
+                (catch java.io.IOException _ nil))]
+    (when-not bytes (refuse "data-figure-file-unavailable"))
+    (when-not (svg-document? bytes) (refuse "data-figure-invalid-svg"))
+    bytes))
+
 (defn check-book
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
   (fn [repository path]) -> file text; it throws when the module is unavailable.
-  Option :dependency-names is a zero-argument reader of the registry ID set."
+  Option :dependency-names is a zero-argument reader of the registry ID set.
+  Option :source-path locates SVG data figures beside the source."
   ([source] (check-book source {}))
-  ([source {:keys [read-module dependency-names]
+  ([source {:keys [read-module dependency-names source-path]
             :or {read-module read-context-module dependency-names registry-dependency-names}}]
    (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))
          st (atom {:errors [] :fence nil :section nil :in-comment false :container nil :plain nil
@@ -859,6 +896,10 @@
          module-cache (atom {})
          dependency-registry (delay (dependency-names))
          err! (fn [line reason] (swap! st update :errors conj {:line line :reason reason}))
+         check-data-figure! (fn [number figure]
+                              (try (read-data-figure source-path figure)
+                                   (catch clojure.lang.ExceptionInfo e
+                                     (err! number (:reason (ex-data e))))))
          ;; Every module view, read before any is checked: a move written in the
          ;; view of the module it enters pairs with the placeholder in the view of
          ;; the module it leaves, by the proposal number the two share and the pair
@@ -1105,8 +1146,11 @@
                  _ (doseq [p in-place :when (and (:description p) (not= head (:heading p)))]
                      (err! (inc (:line (:description p))) "description-not-at-head"))
                  book-text (unfenced-indices lines (inc i) end)
-                 _ (doseq [k book-text]
+                 _ (doseq [k book-text
+                           :let [figure (when markdown (data-figure-line (lines k)))]]
                      (cond
+                       figure
+                       (check-data-figure! (inc k) figure)
                        (and (= "::: description" (lines k)) (not (placed k)))
                        (err! (inc k) "description-not-at-head")
                        (and (re-find #"^::: dependencies(?:\s|$)" (lines k))
@@ -1199,6 +1243,7 @@
                  (err! number "code-fence-in-questions")
                  (swap! st assoc-in [:questions :fence]
                         {:char (subs opener 0 1) :size (count opener)}))
+               (data-figure-line line) (err! number "data-figure-in-questions")
                (re-find #"^ {0,3}>" line) (err! number "quote-block-in-book")))
 
            container
@@ -1280,7 +1325,8 @@
                  proposed-open? (= line "::: proposed")
                  malformed-proposed? (re-find #"^::: proposed(?:\s|$)" line)
                  opening (re-find (re-pattern (str "^(" sign-prefix ") {0,3}(`{3,}|~{3,})\\s*([^ ]*(?: sketch)?)")) line)
-                 opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])]
+                 opening (when opening [(nth opening 0) (nth opening 2) (nth opening 3) (nth opening 1)])
+                 data-figure (data-figure-line line)]
              (cond
                comment-open?
                (do (flush-plain!)
@@ -1359,6 +1405,11 @@
 
                (= line ":::")
                (do (flush-plain!) (err! number "unexpected-container-close"))
+
+               data-figure
+               (do (flush-plain!)
+                   (when (section) (set-section! #(assoc % :body true)))
+                   (check-data-figure! number data-figure))
 
                opening
                (let [language (str/lower-case (nth opening 2))]
@@ -1565,7 +1616,7 @@
         (do (binding [*out* *err*]
               (println (json/generate-string {:errors [{:reason "source-unreadable"}]})))
             2)
-        (let [errors (check-book source)]
+        (let [errors (check-book source {:source-path (first args)})]
           (if (seq errors)
             (do (binding [*out* *err*] (println (json/generate-string {:errors errors}))) 1)
             (do (println (json/generate-string {:checked true :source (first args)})) 0)))))))

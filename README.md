@@ -42,6 +42,13 @@ a module view's unchanged text. Added, removed and unchanged fences are drawn un
 file, and a `fig-n.svg` numbered past the page's last figure, stop the build
 naming the file.
 
+A standalone Markdown image line, such as `![](heat-map.svg)`, embeds an SVG
+data figure from beside the source. The built page contains the original
+colours and does not need the separate SVG to display. Data figures do not
+use the Mermaid figure counter. The checker requires a sibling filename and
+a readable SVG document. When calling `book-check/check-book` directly, pass
+`:source-path` in its options so it can find the SVG.
+
 Every replacement shows both complete sides: removed text under the red
 margin and added text under the green margin. Each side marks only its own
 changed words. Prose, descriptions, lists, headings, table rows and code lines

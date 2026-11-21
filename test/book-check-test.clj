@@ -1197,5 +1197,34 @@
       (is (= "Gone, once.\n" (read-at head "gone.md")))
       (is (thrown? Exception (read-at head "never.md"))))))
 
+(deftest data-figure-requires-a-sibling-svg-document
+  (fs/with-temp-dir [dir {}]
+    (let [source-path (fs/path dir "book.md")
+          opts {:source-path source-path}
+          book #(str "Presentation.{ «Figures» Account }\n\n# Figures\n\n" % "\n")
+          svg "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect fill=\"blue\"/></svg>"]
+      (spit (str (fs/path dir "chart.svg")) svg)
+      (spit (str (fs/path dir "chart.png")) svg)
+      (spit (str (fs/path dir "imposter.svg")) "<html/>")
+      (spit (str (fs/path dir "broken.svg")) (str svg "<extra/>"))
+      (fs/create-dir (fs/path dir "folder.svg"))
+      (fs/create-dir (fs/path dir "nested"))
+      (spit (str (fs/path dir "nested" "chart.svg")) svg)
+      (fs/create-sym-link (fs/path dir "link.svg") (fs/path dir "nested" "chart.svg"))
+      (is (empty? (check (book "Before.\n![](chart.svg)\nAfter.") opts)))
+      (is (empty? (check (book "```markdown\n![](missing.svg)\n```") opts)))
+      (doseq [[name reason] [["missing.svg" "data-figure-file-unavailable"]
+                             ["folder.svg" "data-figure-file-unavailable"]
+                             ["link.svg" "data-figure-file-unavailable"]
+                             ["chart.png" "data-figure-sibling-svg-required"]
+                             ["../chart.svg" "data-figure-sibling-svg-required"]
+                             ["nested/chart.svg" "data-figure-sibling-svg-required"]
+                             ["https://example.org/chart.svg" "data-figure-sibling-svg-required"]
+                             ["imposter.svg" "data-figure-invalid-svg"]
+                             ["broken.svg" "data-figure-invalid-svg"]]]
+        (is (= [{:line 5 :reason reason}]
+               (check (book (str "![](" name ")")) opts))
+            name)))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))
