@@ -118,7 +118,7 @@
             (is (str/includes? (get m "preText") long-code) (w "the code line is whole"))
             (is (<= (get m "pageWidth") (get m "width")) (w "the page never scrolls sideways"))
             (is (get m "keyBeforeSheets") (w "the key opens the page"))
-            (is (= ["added" "removed" "moved" "an excerpt, as it stands" "a module, as it stands"] (get m "keyItems")) (w "the key names every colour"))
+            (is (= ["added" "removed" "replaced" "moved" "an excerpt, as it stands" "a module, as it stands"] (get m "keyItems")) (w "the key names every colour"))
             (is (= "A single margin: proposed. A double margin: landed." (get m "keyNote")))
             (let [sw (get m "swatches")]
               (is (= 5 (count (set (vals sw)))) (w "every single swatch is its own colour"))

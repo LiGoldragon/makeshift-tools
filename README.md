@@ -49,10 +49,12 @@ use the Mermaid figure counter. The checker requires a sibling filename and
 a readable SVG document. When calling `book-check/check-book` directly, pass
 `:source-path` in its options so it can find the SVG.
 
-Every replacement shows both complete sides: removed text under the red
-margin and added text under the green margin. Each side marks only its own
-changed words. Prose, descriptions, lists, headings, table rows and code lines
-use this same rule; code retains each side's syntax highlighting.
+A replaced passage is one text, read once: unchanged words stand once, removed
+words are struck through and shaded red, added words are underlined and shaded
+green, each in place. The margin of a replaced passage carries both colours, red
+beside green. Prose, descriptions, lists, headings, table rows and code lines
+use this same rule; code retains its syntax highlighting. A removed and an added
+Mermaid fence stay two figures.
 
 A signed Ethos fence can be an excerpt of a larger declaration: both sides
 are highlighted as written. A signed fence beginning with an Ethos root

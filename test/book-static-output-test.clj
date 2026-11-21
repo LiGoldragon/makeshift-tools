@@ -16,13 +16,13 @@
          (book-build/signed-code-html "rust" ["- one" "- two"]))
       "a removed-only fence is one red-margin fence")
   (is (= (str "<pre class=\"code-diff\"><code class=\"language-rust\">"
-              "<span class=\"ln ln-del replacement-old\">let <del>old</del> = 1;\n</span><span class=\"ln ln-add replacement-new\">let <ins>new</ins> = 1;\n</span></code></pre>")
+              "<span class=\"ln ln-replace\">let <del>old</del><ins>new</ins> = 1;\n</span></code></pre>")
          (book-build/signed-code-html "rust" ["- let old = 1;" "+ let new = 1;"]))
-      "a replaced code line is two complete sides with word marks")
+      "a replaced code line is one passage with word marks")
   (doseq [[name source mark]
           [["added" "+ let one = 1;\n+ let two = 2;" "<pre class=\"code-add\">"]
            ["removed" "- let one = 1;\n- let two = 2;" "<pre class=\"code-del\">"]
-           ["mixed" "- let old = 1;\n+ let new = 1;" "<span class=\"ln ln-del replacement-old\">let <del>old</del> = 1;"]]]
+           ["mixed" "- let old = 1;\n+ let new = 1;" "<span class=\"ln ln-replace\">let <del>old</del><ins>new</ins> = 1;"]]]
     (let [html (book-build/build (str "```rust\n" source "\n```\n") "")]
       (is (str/includes? html mark) (str name " fence is marked in built HTML"))
       (is (not (re-find #"(?m)^[+-] " html)) (str name " fence leaves no sign for page JavaScript")))))
@@ -76,7 +76,8 @@
     (is (str/includes? css "--moved-bg:#e4e9fb") "light theme declares the moved colour")
     (is (str/includes? css "--moved-bg:#1f2747") "dark theme declares the moved colour")
     (is (str/includes? css ".diff del,pre del") "removed words use the inline prose rule")
-    (is (str/includes? css "text-decoration:none") "removed words are never struck through")
+    (is (str/includes? css "text-decoration:line-through") "removed words are struck through")
+    (is (str/includes? css ".sw-replace") "the key carries the two-colour margin of a replaced passage")
     (is (str/includes? css "font:17px/1.6 var(--f-prose)") "module prose keeps ordinary body type")))
 
 (deftest description-theme-contract

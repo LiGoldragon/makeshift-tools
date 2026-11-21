@@ -42,11 +42,11 @@
   (book-build/text-panels (str/split-lines md)))
 
 (deftest one-word-changed
-  (is (= "<div class=\"diff\"><div class=\"del replacement-old\"><p>The <del>old</del> plan holds, for now.</p></div><div class=\"add replacement-new\"><p>The <ins>new</ins> plan holds, for now.</p></div></div>"
+  (is (= "<div class=\"diff\"><div class=\"replacement\"><p>The <del>old</del><ins>new</ins> plan holds, for now.</p></div></div>"
          (change "- The old plan holds, for now.\n+ The new plan holds, for now."))))
 
 (deftest phrase-inserted
-  (is (= "<div class=\"diff\"><div class=\"del replacement-old\"><p>Keep the plan.</p></div><div class=\"add replacement-new\"><p>Keep the <ins>whole new </ins>plan.</p></div></div>"
+  (is (= "<div class=\"diff\"><div class=\"replacement\"><p>Keep the <ins>whole new </ins>plan.</p></div></div>"
          (change "- Keep the plan.\n+ Keep the whole new plan."))))
 
 (deftest line-wholly-added
@@ -58,7 +58,7 @@
          (change "- Gone line.\n  Kept."))))
 
 (deftest two-lines-paired-with-two
-  (is (= "<div class=\"diff\"><div class=\"del replacement-old\"><p>first <del>old</del> line second <del>old</del> line</p></div><div class=\"add replacement-new\"><p>first <ins>new</ins> line second <ins>new</ins> line</p></div></div>"
+  (is (= "<div class=\"diff\"><div class=\"replacement\"><p>first <del>old</del><ins>new</ins> line second <del>old</del><ins>new</ins> line</p></div></div>"
          (change "- first old line\n- second old line\n+ first new line\n+ second new line"))))
 
 (deftest signed-code-html-three-cases
@@ -68,7 +68,7 @@
     (is (= "<pre class=\"code-del\"><code class=\"language-rust\">one\ntwo</code></pre>"
            (book-build/signed-code-html "rust" ["- one" "- two"])) "wholly removed")
     (is (= (str "<pre class=\"code-diff\"><code class=\"language-rust\">"
-                "<span class=\"ln\">x\n</span><span class=\"ln ln-del replacement-old\">  (a <del>b</del>)\n</span><span class=\"ln ln-add replacement-new\">  (a <ins>z</ins>)\n</span><span class=\"ln\">(c)\n</span></code></pre>")
+                "<span class=\"ln\">x\n</span><span class=\"ln ln-replace\">  (a <del>b</del><ins>z</ins>)\n</span><span class=\"ln\">(c)\n</span></code></pre>")
            (book-build/signed-code-html "rust" ["  x" "-   (a b)" "+   (a z)" "  (c)"])) "mixed")
     (is (nil? (book-build/signed-code-html "rust" ["plain"])) "no sign, no change")))
 
@@ -82,7 +82,7 @@
   "# Fixture & <book>\n\n<!-- hidden comment -->\nPresentation.{ Book Fixture }\n\n## Crystallization\n\nAn opening paragraph with `inline <code>` and\na second line & more.\n\n### Proposal 1: Figures & `records`\n\nFile: `skills/vision-x/SKILL.md`, (builds on `vision-y`)\n\n```text\n  ---\n  name: vision-x\n  ---\n  ## A heading kept as text\n  Unchanged context line\n- Removed line one\n- removed line two\n+ Added line with `code`\n+ # added heading\n```\n\n```text\n+-----------------------+\n| Flow                  |\n| with \"two\" lines      |\n+-----------------------+\n           |\n           | sends it's\n           | message\n           v\n+-----------------------+\n| Recipient             |\n+-----------------------+\n     |\n     | reads\n     v\n+-----------------------+\n| Log                   |\n+-----------------------+\n```\n\n**Destroy** the record `flows/aa/vision/x.md` below.\n\nFile: `flows/aa/vision/x.md`\n\n```text\n- A working instruction logged as vision.\n```\n\n**Archive**\n\n```text\n- An archived line.\n```\n\n**Destroy** with nothing following.\n\n```js\nconst x = 1 < 2 && \"y\";\n```\n\nRuling, one number per line:\n\n1. Approve.\n2. Reject:\n\n```text\n+ inside the ruling card\n```\n\nAfter the card.\n\n### Proposal 2: Second\n\nGroup heading\n3. Third choice\ncontinued here.\n4. Fourth choice\n\nRuling, one number per line:\n\n3. Yes\n4. No\n\n```python\nprint(\"tail\")\n```\n\nTrailing paragraph.\n")
 
 (def fixture-expected
-  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Fixture &amp; &lt;book&gt;</title>\n<h1 class=\"book-title\">Fixture &amp; &lt;book&gt;</h1>\n<h2>Crystallization</h2>\n<p>An opening paragraph with <code>inline &lt;code&gt;</code> and a second line &amp; more.</p>\n<article class=\"proposal\"><header><span class=\"pnum\">1</span><h2>Figures &amp; <code>records</code></h2></header>\n<p class=\"target\"><code>skills/vision-x/SKILL.md</code></p><p>builds on <code>vision-y</code></p>\n<div class=\"diff\"><div class=\"ctx\"><div class=\"fm\"><div class=\"fm-label\">Front matter</div><dl><dt>Name</dt><dd>vision-x</dd></dl></div></div><div class=\"ctx\"><h4>A heading kept as text</h4></div><div class=\"ctx\"><p>Unchanged context line</p></div><div class=\"del replacement-old\"><p><del>Removed</del> line <del>one removed line two</del></p></div><div class=\"add replacement-new\"><p><ins>Added</ins> line <ins>with <code>code</code></ins></p></div><div class=\"add\"><h3>added heading</h3></div></div>\n<div class=\"figure\">FIGURE</div>\n<div class=\"record destroy\"><p>the record <code>flows/aa/vision/x.md</code> below.</p>\n<p class=\"target\"><code>flows/aa/vision/x.md</code></p>\n<div class=\"del\"><p>A working instruction logged as vision.</p></div></div>\n<div class=\"record archive\">\n<div class=\"del\"><p>An archived line.</p></div></div>\n<div class=\"record destroy\"><p>with nothing following.</p>\n<pre><code class=\"language-javascript\">const x = 1 &lt; 2 &amp;&amp; \"y\";</code></pre>\n<section class=\"rulings\"><ol><li value=\"1\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"1\"><li>Approve.</li><li>Reject:</li></ol><div class=\"add\"><p>inside the ruling card</p></div></div><p>After the card.</p></li></ol></section>\n</article>\n<article class=\"proposal\"><header><span class=\"pnum\">2</span><h2>Second</h2></header>\n<p>Group heading</p>\n<ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Third choice continued here.</li><li>Fourth choice</li></ol>\n<section class=\"rulings\"><ol><li value=\"2\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Yes</li><li>No</li></ol></li></ol></section><pre><code class=\"language-python\">print(\"tail\")</code></pre><p>Trailing paragraph.</p>\n</article>\nTAIL\n")
+  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Fixture &amp; &lt;book&gt;</title>\n<h1 class=\"book-title\">Fixture &amp; &lt;book&gt;</h1>\n<h2>Crystallization</h2>\n<p>An opening paragraph with <code>inline &lt;code&gt;</code> and a second line &amp; more.</p>\n<article class=\"proposal\"><header><span class=\"pnum\">1</span><h2>Figures &amp; <code>records</code></h2></header>\n<p class=\"target\"><code>skills/vision-x/SKILL.md</code></p><p>builds on <code>vision-y</code></p>\n<div class=\"diff\"><div class=\"ctx\"><div class=\"fm\"><div class=\"fm-label\">Front matter</div><dl><dt>Name</dt><dd>vision-x</dd></dl></div></div><div class=\"ctx\"><h4>A heading kept as text</h4></div><div class=\"ctx\"><p>Unchanged context line</p></div><div class=\"replacement\"><p><del>Removed</del><ins>Added</ins> line <del>one removed line two</del><ins>with <code>code</code></ins></p></div><div class=\"add\"><h3>added heading</h3></div></div>\n<div class=\"figure\">FIGURE</div>\n<div class=\"record destroy\"><p>the record <code>flows/aa/vision/x.md</code> below.</p>\n<p class=\"target\"><code>flows/aa/vision/x.md</code></p>\n<div class=\"del\"><p>A working instruction logged as vision.</p></div></div>\n<div class=\"record archive\">\n<div class=\"del\"><p>An archived line.</p></div></div>\n<div class=\"record destroy\"><p>with nothing following.</p>\n<pre><code class=\"language-javascript\">const x = 1 &lt; 2 &amp;&amp; \"y\";</code></pre>\n<section class=\"rulings\"><ol><li value=\"1\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"1\"><li>Approve.</li><li>Reject:</li></ol><div class=\"add\"><p>inside the ruling card</p></div></div><p>After the card.</p></li></ol></section>\n</article>\n<article class=\"proposal\"><header><span class=\"pnum\">2</span><h2>Second</h2></header>\n<p>Group heading</p>\n<ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Third choice continued here.</li><li>Fourth choice</li></ol>\n<section class=\"rulings\"><ol><li value=\"2\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Yes</li><li>No</li></ol></li></ol></section><pre><code class=\"language-python\">print(\"tail\")</code></pre><p>Trailing paragraph.</p>\n</article>\nTAIL\n")
 
 (def illustration
   (str "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" "
@@ -145,7 +145,7 @@
     (is (= 1 (count (re-seq #"<table>" html))) "one table")
     (is (str/includes? html "<thead><tr><th>type</th><th>kind</th></tr></thead>"))
     (is (str/includes? html "<tr><td>kept</td><td><code>A</code></td></tr>"))
-    (is (str/includes? html "<tr class=\"row-del replacement-old\"><td><del>gone</del></td><td><del><code>B</code></del></td></tr><tr class=\"row-add replacement-new\"><td><ins>new</ins></td><td><ins>D</ins></td></tr>"))
+    (is (str/includes? html "<tr class=\"row-replace\"><td><del>gone</del><ins>new</ins></td><td><del><code>B</code></del><ins>D</ins></td></tr>"))
     (is (str/includes? html "<tr class=\"row-del\"><td>also gone</td><td>C</td></tr>"))
     (is (not (str/includes? html "class=\"row-add\"")))
     (is (= 1 (count (re-seq #"<tr class=\"row-del\">" html))) "only the unpaired removed row remains separate")
@@ -329,10 +329,10 @@
     (is (str/includes? html "<div class=\"del\"><p>Gone one.</p></div><div class=\"del\"><p>Gone two.</p></div>")
         "a removed blank line parts two removed paragraphs"))
   (let [html (book-build/build "## Proposal 1: x\n\n- old one\n-\n- old two\n+ new one\n+\n+ new two\n+\n+ three\n" "")]
-    (is (str/includes? html (str "<div class=\"del replacement-old\"><p><del>old</del> one</p></div><div class=\"add replacement-new\"><p><ins>new</ins> one</p></div><div class=\"del replacement-old\"><p><del>old</del> two</p></div><div class=\"add replacement-new\"><p><ins>new</ins> two</p></div>"
+    (is (str/includes? html (str "<div class=\"replacement\"><p><del>old</del><ins>new</ins> one</p></div><div class=\"replacement\"><p><del>old</del><ins>new</ins> two</p></div>"
                                  "<div class=\"add\"><p>three</p></div>"))
         "removed paragraphs pair in order with the added paragraphs after them"))
-  (is (= "<div class=\"diff\"><div class=\"del replacement-old\"><p>first <del>old</del> line second <del>old</del> line</p></div><div class=\"add replacement-new\"><p>first <ins>new</ins> line second <ins>new</ins> line</p></div></div>"
+  (is (= "<div class=\"diff\"><div class=\"replacement\"><p>first <del>old</del><ins>new</ins> line second <del>old</del><ins>new</ins> line</p></div></div>"
          (change "- first old line\n- second old line\n+ first new line\n+ second new line"))
       "inside a fence, lines still flow as one paragraph"))
 
@@ -351,7 +351,7 @@
                                     "+   when the flow logs it.\n") "")]
     (is (str/includes? html "<ul><li><strong>Rulings</strong>: each time the living decides, approves or refuses something. Give the id</li></ul>")
         "a list item's wrapped continuation stays in its item")
-    (is (str/includes? html "<div class=\"del replacement-old\"><p>when the flow logs it.<del> Put the ruling in your own words.</del></p></div><div class=\"add replacement-new\"><p>when the flow logs it.</p></div>"))))
+    (is (str/includes? html "<div class=\"replacement\"><p>when the flow logs it.<del> Put the ruling in your own words.</del></p></div>"))))
 
 (deftest a-replaced-paragraph-is-one-marked-change
   (let [html (book-build/build (str "## Proposal 1: x\n\n"
@@ -360,14 +360,14 @@
                                     "- seen.\n"
                                     "+ the page; nothing is invented.\n") "")]
     (is (str/includes? html (str "<div class=\"diff\"><div class=\"ctx\"><p>Every word comes from the transcript, the records or</p></div>"
-                                 "<div class=\"del replacement-old\"><p>the page; nothing is invented.<del> A report is marked as reported, not as seen.</del></p></div><div class=\"add replacement-new\"><p>the page; nothing is invented.</p></div></div>"))
+                                 "<div class=\"replacement\"><p>the page; nothing is invented.<del> A report is marked as reported, not as seen.</del></p></div></div>"))
         "the whole removed text is marked against the whole added text")
     (is (not (str/includes? html "<div class=\"del\">")) "no removed line is left in a box of its own")
     (is (not (re-find #"class=\"ctx\"><p>[^<]*<del>" html)) "no strike inside a kept paragraph"))
   (let [html (book-build/build (str "## Proposal 1: x\n\n"
                                     "- One old sentence here.\n- Another old sentence there.\n"
                                     "+ One new sentence here.\n+ Another sentence there.\n") "")]
-    (is (str/includes? html "<div class=\"del replacement-old\"><p>One <del>old</del> sentence here. Another <del>old </del>sentence there.</p></div><div class=\"add replacement-new\"><p>One <ins>new</ins> sentence here. Another sentence there.</p></div>"))))
+    (is (str/includes? html "<div class=\"replacement\"><p>One <del>old</del><ins>new</ins> sentence here. Another <del>old </del>sentence there.</p></div>"))))
 
 (deftest kept-lines-in-a-proposal-are-the-module-around-the-change
   (let [html (book-build/build (str "### Proposal 1: x · a › b.md\n\n- Gone.\n\n"
@@ -408,7 +408,7 @@
     (is (str/includes? html "<div class=\"del\"><p>Gone line.</p></div><div class=\"ctx\"><p>Kept line.</p></div>")
         "a comment may head its change without a blank line"))
   (let [html (book-build/build "## Proposal 2: x\n\nNot yet parseable:\n- Gone line.\n+ New line.\n" "")]
-    (is (str/includes? html "<p><del>Gone</del> line.</p></div><div class=\"add replacement-new\"><p><ins>New</ins> line.</p>") "prose glued to change lines is rendered, not refused")
+    (is (str/includes? html "<p><del>Gone</del><ins>New</ins> line.</p></div>") "prose glued to change lines is rendered, not refused")
     (is (str/includes? html "Not yet parseable:")))
   (let [html (book-build/build "## Proposal 1: x\n\n- Gone line.\nRuling: keep it.\n" "")]
     (is (str/includes? html "<p>Gone line.</p>") "an unsigned line after change lines is rendered, not refused")
@@ -467,7 +467,7 @@
           "a root-headed change checks the standing and added text, not removed history")
       (is (str/includes? html "class=\"language-ethos\""))
       (is (str/includes? html "ts-keyword") "the stripped sides are highlighted as Ethos")
-      (is (str/includes? html "ln-del replacement-old"))
+      (is (str/includes? html "ln-replace"))
       (is (str/includes? html "<del>")))
     (reset! calls [])
     (render "  [ Kept.Integer ]\n- [ Old.Integer ]\n+ [ New.Integer ]")
@@ -922,8 +922,8 @@
           (is (str/includes? d "language-datom"))
           (is (str/includes? l "<code class=\"language-rust\">let a = 1;</code>"))))
       (is (str/includes? (built (fence "datom" "+" datom)) "language-datom") "a label is kept")
-      (is (str/includes? (built (str head "```rust\n- let a = 1;\n+ let a = 2;\n```\n")) "<span class=\"ln ln-del replacement-old\">")
-          "removed then added keeps both marked code lines"))))
+      (is (str/includes? (built (str head "```rust\n- let a = 1;\n+ let a = 2;\n```\n")) "<span class=\"ln ln-replace\">")
+          "removed then added is one marked code line"))))
 
 (deftest move-containers-render-once-and-share-figures
   (let [src (str "::: move proposed\nfrom: vision/<old>.md\nto: vision/new.md\n\n"
@@ -1210,7 +1210,7 @@
         "one numbered proposal can span two whole module views")
     (is (str/includes? html "<div class=\"del\"><p>Removed line.</p></div>")
         "a removed line has the red removal margin")
-    (is (str/includes? html "<div class=\"del replacement-old\"><p>The <del>old</del> words stay.</p></div><div class=\"add replacement-new\"><p>The <ins>new</ins> words stay.</p></div>")
+    (is (str/includes? html "<div class=\"replacement\"><p>The <del>old</del><ins>new</ins> words stay.</p></div>")
         "a replacement shows both lines and marks only their changed words")
     (is (= 1 (count (re-seq #"class=\"move move-proposed\"" html)))
         "a moved line is shown once in the third colour")
@@ -1333,8 +1333,8 @@
         html (built md)
         at #(str/index-of html %)]
     (is (str/includes? html (str description-label "<div class=\"diff\">"
-                                 "<div class=\"del replacement-old\"><p>A <del>plain</del> fixture.</p></div><div class=\"add replacement-new\"><p>A <ins>better</ins> fixture.</p></div></div></section>"))
-        "two passages under their margins, with only changed words marked")
+                                 "<div class=\"replacement\"><p>A <del>plain</del><ins>better</ins> fixture.</p></div></div></section>"))
+        "one passage under the change margin, with only changed words marked")
     (is (< (at "comment-label") (at description-label) (at "<p>Added.</p>")))
     (is (not (str/includes? html "description:")))))
 

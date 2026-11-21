@@ -7,7 +7,7 @@
          <p>…</p>                                    the section's prose, as text
          <div class="diff">                          one change
            <div class="ctx">…</div>                  unchanged context (muted)
-           <del>…</del> / <ins>…</ins>               removed words (red highlight, never struck through) / added words (green), inline in one text
+           <del>…</del> / <ins>…</ins>               removed words (red shade, struck through) / added words (green shade, underlined), inline in one text
          </div>
          <section class="move move-proposed|move-landed"> a passage moved, read once under the third colour's margin; an edit made on
                                                      its way is its <del>/<ins> words, in the move's shade; in the view of the
@@ -20,10 +20,10 @@
        </article>
        A new module, one view, every line added: <article class="module diff"><header><h2 class="target">…</h2><span class="module-state">New</span></header>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
-       A module's description, at the head of its module view or proposal (a labelled block; changed, both sides
-       under their own change margins, with only each side's changed words marked):
+       A module's description, at the head of its module view or proposal (a labelled block; changed, one passage
+       under a change margin, with only its changed words marked inline):
          <section class="description"><div class="description-label">Description</div><p>…</p></section>
-         <section class="description"><div class="description-label">Description</div><div class="diff"><div class="del replacement-old"><p>… <del>…</del> …</p></div><div class="add replacement-new"><p>… <ins>…</ins> …</p></div></div></section>
+         <section class="description"><div class="description-label">Description</div><div class="diff"><div class="replacement"><p>… <del>…</del><ins>…</ins> …</p></div></div></section>
        A deleted module shown whole, under the red del margin, with a Destroy or Archive mark (drawn by the class):
          <div class="record destroy">  or  <div class="record archive">
            <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
@@ -167,12 +167,14 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .ctx{background:transparent;color:var(--fg)}
 .ctx::before{content:"";}
 .diff del,pre del,.move del{color:var(--del-edge);background:var(--hl-del);text-decoration:line-through;overflow-wrap:anywhere;word-break:break-word}
-.diff ins,pre ins,.move ins{color:var(--add-edge);background:var(--hl-add);text-decoration:none;overflow-wrap:anywhere;word-break:break-word}
+.diff ins,pre ins,.move ins{color:var(--add-edge);background:var(--hl-add);text-decoration:underline;overflow-wrap:anywhere;word-break:break-word}
 .diff del *,pre del *,.move del *{color:inherit;text-decoration:inherit}
-.diff ins *,pre ins *,.move ins *{color:inherit;text-decoration:none}
-/* Complete replacement sides retain page text colour under their change margins. */
+.diff ins *,pre ins *,.move ins *{color:inherit;text-decoration:inherit}
+/* Fallback for publishers that emit prose panels instead of inline marks. */
 .diff .del,.diff .add{color:var(--fg);background:transparent;text-decoration:none}
 .del>*,.add>*{overflow-wrap:anywhere}
+.diff .replacement,.diff>:is(p,h1,h2,h3,h4,h5,h6):has(del,ins){padding:6px 10px 6px 16px;border-left:4px solid var(--del-edge);box-shadow:inset 4px 0 var(--add-edge),inset 8px 0 var(--rail);border-radius:6px;min-width:0}
+.diff .replacement>*{overflow-wrap:anywhere}
 .diff .add,.diff .del{padding:6px 10px 6px 12px;border-left:4px solid;box-shadow:inset 4px 0 var(--rail);border-radius:6px;min-width:0}
 .diff .add{border-left-color:var(--add-edge)}
 .diff .moved{color:var(--moved-fg);background:var(--moved-bg);padding:6px 10px 6px 12px;border-radius:6px;min-width:0}
@@ -229,7 +231,7 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .shown>header code{overflow-wrap:anywhere}.shown>pre{margin:0}
 .shown>.markdown,.shown>.textblock{overflow-wrap:anywhere}
 
-/* The key to the colours, under the title of a page that carries a change: a swatch per colour, proposed (a single margin) beside landed (a double margin). */
+/* The key to the colours, under the title of a page that carries a change: a swatch per colour, proposed (a single margin) beside landed (a double margin); a replaced passage carries both colours, red beside green. */
 .key{border:1px solid var(--line);border-radius:8px;padding:8px 12px 10px;font-family:var(--f-label);font-size:.9rem;line-height:1.4;min-width:0}
 .key-label{color:var(--muted);font-weight:600;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
 .key ul{list-style:none;padding:0;margin:.4em 0 0;display:flex;flex-wrap:wrap;gap:.35em 1.1em}
@@ -241,6 +243,9 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 .sw-add-landed{background:linear-gradient(to right,var(--add-proposed-edge) 50%,var(--fg) 50%)}
 .sw-del-landed{background:linear-gradient(to right,var(--del-proposed-edge) 50%,var(--fg) 50%)}
 .sw-move-landed{background:linear-gradient(to right,var(--move-proposed-edge) 50%,var(--fg) 50%)}
+.sw-replace,.sw-replace-landed{width:1.9em}.sw-replace-landed{width:2.85em}
+.sw-replace{background:linear-gradient(to right,var(--del-proposed-edge) 50%,var(--add-proposed-edge) 50%)}
+.sw-replace-landed{background:linear-gradient(to right,var(--del-proposed-edge) 33.3%,var(--add-proposed-edge) 33.3% 66.6%,var(--fg) 66.6%)}
 .sw-shown{background:var(--shown-edge)}.sw-module{background:var(--accent)}
 .key-note{color:var(--muted);font-size:.85rem;margin-top:.4em}
 
@@ -272,12 +277,15 @@ pre.code-add:has(>code[class*="language-"]),pre.code-del:has(>code[class*="langu
 pre.code-diff:has(>code){padding-inline:0}
 pre.code-diff .ln{display:block;padding-inline:14px;position:relative}
 pre.code-diff .ln-add{box-shadow:inset 4px 0 var(--add-edge),inset 8px 0 var(--rail)}
+pre.code-diff .ln-replace{box-shadow:inset 4px 0 var(--del-edge),inset 8px 0 var(--add-edge),inset 12px 0 var(--rail)}
 pre.code-diff .ln-del{box-shadow:inset 4px 0 var(--del-edge),inset 8px 0 var(--rail)}
 pre.code-diff .ln-add,pre.code-diff .ln-del{padding-left:calc(14px + var(--rail-width))}
+pre.code-diff .ln-replace{padding-left:calc(18px + var(--rail-width))}
 pre.code-diff .ln-add::before,pre.code-diff .ln-del::before{position:absolute;left:calc(5px + var(--rail-width));font-weight:600}
 pre.code-diff .ln-add::before{content:"+";color:var(--add-edge)}
 pre.code-diff .ln-del::before{content:"\2212";color:var(--del-edge)}
 tr.row-add>:first-child{box-shadow:inset 4px 0 var(--add-edge),inset 8px 0 var(--rail)}
+tr.row-replace>:first-child{box-shadow:inset 4px 0 var(--del-edge),inset 8px 0 var(--add-edge),inset 12px 0 var(--rail)}
 tr.row-del>:first-child{box-shadow:inset 4px 0 var(--del-edge),inset 8px 0 var(--rail)}
 pre.code-diff :is(del,ins) [class]{color:inherit}
 /* Syntax colours, from tree-sitter's captures. */
