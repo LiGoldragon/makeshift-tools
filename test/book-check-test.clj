@@ -1226,5 +1226,29 @@
                (check (book (str "![](" name ")")) opts))
             name)))))
 
+(deftest a-comment-is-never-required
+  (let [no-comment "- Old.\n+ New.\n"]
+    (is (= [] (check (str "# T\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n" no-comment))) "a heading proposal")
+    (is (= [] (check (str "# T\n\n## Proposal 1: Replace · psyche-belief › vision/book.md\n\n" no-comment))) "a section proposal")
+    (is (= [] (check (str "# T\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n" no-comment
+                          "\n### Proposal 2: Again · psyche-belief › vision/book.md\n\n::: comment\nWhy.\n:::\n\n" no-comment)))
+        "some proposals with a comment and some without")
+    (is (= [] (check (str "Presentation.{ «T» Review }\n\n# T\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n" no-comment)))
+        "a review")))
+
+(deftest the-subtitle-is-one-short-sentence
+  (let [book (fn [subtitle] (str "# T\n\n" subtitle "\n\n" after-title*))]
+    (is (= 12 book-check/subtitle-word-limit) "the limit is one value at the head of the checker")
+    (is (= [] (check (book "Created by Fable."))))
+    (is (= [] (check (book "Created by Opus, helped by Sonnet (the checking)."))))
+    (is (= [] (check (book "Created by one two three four five six seven eight nine ten."))) "twelve words")
+    (is (= [{:line 3 :reason "subtitle-too-long"}]
+           (check (book "Created by one two three four five six seven eight nine ten eleven."))) "thirteen words")
+    (is (= [{:line 3 :reason "subtitle-too-long"}] (check (book "Created by Fable. Helped by Sonnet.")))
+        "two sentences")
+    (is (= [{:line 3 :reason "subtitle-too-long"}]
+           (check (book "Created by Opus, helped by Sonnet,\nthe checking and the one more helper who came late.")))
+        "a wrapped signature is read whole and named at its first line")))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

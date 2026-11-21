@@ -9,6 +9,10 @@
             [clojure.string :as str]
             [babashka.fs :as fs]))
 
+;; The longest subtitle, in words: the signature line under the title is one sentence of
+;; at most this many.
+(def subtitle-word-limit 12)
+
 ;; A proposal names one location, or two locations joined by ", and", in its heading.
 ;; A new/deleted-file suffix belongs to the final location.
 (def located #"^Proposal \d+: (?:.+ · )?[^\s›·]+ › [^\s,]+(?:, and [^\s›·]+ › [^\s,]+)?(?:, a (?:new|deleted) file)?\z")
@@ -18,6 +22,12 @@
 (defn change? [line]
   (boolean (or (re-find #"^[+-] .*\S" line)
                (re-find #"^\*\*(?:Archive|Destroy)\*\*" line))))
+
+(defn subtitle-fits?
+  "Whether a subtitle is one sentence of at most `subtitle-word-limit` words."
+  [text]
+  (and (<= (count (str/split (str/trim text) #"\s+")) subtitle-word-limit)
+       (= 1 (count (remove str/blank? (str/split text #"[.!?]+(?:\s+|$)"))))))
 
 (defn- signed-fence-line? [line]
   (boolean (and (#{\+ \-} (first line))
@@ -1507,7 +1517,9 @@
                          (or (= :open (:signature @st))
                              (and (:title @st) (nil? (:signature @st)) (zero? (:proposals @st))
                                   (empty? (:shown @st)) (str/starts-with? line "Created by")))
-                         (swap! st assoc :signature :open)
+                         (swap! st #(-> % (assoc :signature :open)
+                                        (update :subtitle (fn [subtitle] {:line (or (:line subtitle) number)
+                                                                          :text (str/join " " (remove nil? [(:text subtitle) line]))}))))
 
                          ;; An account holds prose of its own.
                          (= "Account" (:kind @st)) nil
@@ -1519,6 +1531,8 @@
                      (body! line number)))))))))
      (finish!)
      (check-moves!)
+     (when-let [{:keys [line text]} (:subtitle @st)]
+       (when-not (subtitle-fits? text) (err! line "subtitle-too-long")))
      (when-let [c (:container @st)]
        (err! (:line c) (str "unclosed-" (name (:kind c)) "-container")))
      (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st)) (not module-review?)) (err! 1 "missing-proposal"))

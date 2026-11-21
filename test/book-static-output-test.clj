@@ -44,8 +44,7 @@
               (str "## Proposal 7: change a module\n\n"
                    "::: comment\nThe reason is wanted here.\n:::\n\n"
                    "+ Added.\n") "")]
-    (is (str/includes? with "<span class=\"pnum\">7</span>")
-        "a numbered Proposal form includes its badge")
+    (is (not (str/includes? with "class=\"pnum\"")) "a numbered Proposal form shows no number")
     (is (str/includes? with (str "<aside class=\"comment\" aria-label=\"Why\">"
                                  "<div class=\"comment-label\">Why</div>"
                                  "<div class=\"comment-body\">"))

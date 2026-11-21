@@ -82,7 +82,7 @@
   "# Fixture & <book>\n\n<!-- hidden comment -->\nPresentation.{ Book Fixture }\n\n## Crystallization\n\nAn opening paragraph with `inline <code>` and\na second line & more.\n\n### Proposal 1: Figures & `records`\n\nFile: `skills/vision-x/SKILL.md`, (builds on `vision-y`)\n\n```text\n  ---\n  name: vision-x\n  ---\n  ## A heading kept as text\n  Unchanged context line\n- Removed line one\n- removed line two\n+ Added line with `code`\n+ # added heading\n```\n\n```text\n+-----------------------+\n| Flow                  |\n| with \"two\" lines      |\n+-----------------------+\n           |\n           | sends it's\n           | message\n           v\n+-----------------------+\n| Recipient             |\n+-----------------------+\n     |\n     | reads\n     v\n+-----------------------+\n| Log                   |\n+-----------------------+\n```\n\n**Destroy** the record `flows/aa/vision/x.md` below.\n\nFile: `flows/aa/vision/x.md`\n\n```text\n- A working instruction logged as vision.\n```\n\n**Archive**\n\n```text\n- An archived line.\n```\n\n**Destroy** with nothing following.\n\n```js\nconst x = 1 < 2 && \"y\";\n```\n\nRuling, one number per line:\n\n1. Approve.\n2. Reject:\n\n```text\n+ inside the ruling card\n```\n\nAfter the card.\n\n### Proposal 2: Second\n\nGroup heading\n3. Third choice\ncontinued here.\n4. Fourth choice\n\nRuling, one number per line:\n\n3. Yes\n4. No\n\n```python\nprint(\"tail\")\n```\n\nTrailing paragraph.\n")
 
 (def fixture-expected
-  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Fixture &amp; &lt;book&gt;</title>\n<h1 class=\"book-title\">Fixture &amp; &lt;book&gt;</h1>\n<h2>Crystallization</h2>\n<p>An opening paragraph with <code>inline &lt;code&gt;</code> and a second line &amp; more.</p>\n<article class=\"proposal\"><header><span class=\"pnum\">1</span><h2>Figures &amp; <code>records</code></h2></header>\n<p class=\"target\"><code>skills/vision-x/SKILL.md</code></p><p>builds on <code>vision-y</code></p>\n<div class=\"diff\"><div class=\"ctx\"><div class=\"fm\"><div class=\"fm-label\">Front matter</div><dl><dt>Name</dt><dd>vision-x</dd></dl></div></div><div class=\"ctx\"><h4>A heading kept as text</h4></div><div class=\"ctx\"><p>Unchanged context line</p></div><div class=\"replacement\"><p><del>Removed</del><ins>Added</ins> line <del>one removed line two</del><ins>with <code>code</code></ins></p></div><div class=\"add\"><h3>added heading</h3></div></div>\n<div class=\"figure\">FIGURE</div>\n<div class=\"record destroy\"><p>the record <code>flows/aa/vision/x.md</code> below.</p>\n<p class=\"target\"><code>flows/aa/vision/x.md</code></p>\n<div class=\"del\"><p>A working instruction logged as vision.</p></div></div>\n<div class=\"record archive\">\n<div class=\"del\"><p>An archived line.</p></div></div>\n<div class=\"record destroy\"><p>with nothing following.</p>\n<pre><code class=\"language-javascript\">const x = 1 &lt; 2 &amp;&amp; \"y\";</code></pre>\n<section class=\"rulings\"><ol><li value=\"1\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"1\"><li>Approve.</li><li>Reject:</li></ol><div class=\"add\"><p>inside the ruling card</p></div></div><p>After the card.</p></li></ol></section>\n</article>\n<article class=\"proposal\"><header><span class=\"pnum\">2</span><h2>Second</h2></header>\n<p>Group heading</p>\n<ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Third choice continued here.</li><li>Fourth choice</li></ol>\n<section class=\"rulings\"><ol><li value=\"2\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Yes</li><li>No</li></ol></li></ol></section><pre><code class=\"language-python\">print(\"tail\")</code></pre><p>Trailing paragraph.</p>\n</article>\nTAIL\n")
+  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<title>Fixture &amp; &lt;book&gt;</title>\n<h1 class=\"book-title\">Fixture &amp; &lt;book&gt;</h1>\n<h2>Crystallization</h2>\n<p>An opening paragraph with <code>inline &lt;code&gt;</code> and a second line &amp; more.</p>\n<article class=\"proposal\"><header><h2>Figures &amp; <code>records</code></h2></header>\n<p class=\"target\"><code>skills/vision-x/SKILL.md</code></p><p>builds on <code>vision-y</code></p>\n<div class=\"diff\"><div class=\"ctx\"><div class=\"fm\"><div class=\"fm-label\">Front matter</div><dl><dt>Name</dt><dd>vision-x</dd></dl></div></div><div class=\"ctx\"><h4>A heading kept as text</h4></div><div class=\"ctx\"><p>Unchanged context line</p></div><div class=\"replacement\"><p><del>Removed</del><ins>Added</ins> line <del>one removed line two</del><ins>with <code>code</code></ins></p></div><div class=\"add\"><h3>added heading</h3></div></div>\n<div class=\"figure\">FIGURE</div>\n<div class=\"record destroy\"><p>the record <code>flows/aa/vision/x.md</code> below.</p>\n<p class=\"target\"><code>flows/aa/vision/x.md</code></p>\n<div class=\"del\"><p>A working instruction logged as vision.</p></div></div>\n<div class=\"record archive\">\n<div class=\"del\"><p>An archived line.</p></div></div>\n<div class=\"record destroy\"><p>with nothing following.</p>\n<pre><code class=\"language-javascript\">const x = 1 &lt; 2 &amp;&amp; \"y\";</code></pre>\n<section class=\"rulings\"><ol><li value=\"1\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"1\"><li>Approve.</li><li>Reject:</li></ol><div class=\"add\"><p>inside the ruling card</p></div></div><p>After the card.</p></li></ol></section>\n</article>\n<article class=\"proposal\"><header><h2>Second</h2></header>\n<p>Group heading</p>\n<ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Third choice continued here.</li><li>Fourth choice</li></ol>\n<section class=\"rulings\"><ol><li value=\"2\"><p>Ruling, one number per line:</p><ol class=\"choices\" start=\"3\" style=\"counter-reset:choice 2\"><li>Yes</li><li>No</li></ol></li></ol></section><pre><code class=\"language-python\">print(\"tail\")</code></pre><p>Trailing paragraph.</p>\n</article>\nTAIL\n")
 
 (def illustration
   (str "<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" "
@@ -307,14 +307,14 @@
 (deftest section-proposal-says-where-it-lands
   (let [html (book-build/build (str "## Proposal 2: add to the vision of `books`\n\n+ One line.\n\nRuling: land, amend, or reject.\n\n"
                                     "## Technical part\n\n- a note\n") "")]
-    (is (str/includes? html (str "<article class=\"proposal\"><header><span class=\"pnum\">2</span>"
+    (is (str/includes? html (str "<article class=\"proposal\"><header>"
                                  "<h2 class=\"target\"><code style=\"font-size:.95rem\">add to the vision of books</code></h2></header>")))
     (is (str/includes? html "<p>Ruling: land, amend, or reject.</p>\n</article>\n<h2>Technical part</h2>\n<ul><li>a note</li></ul>")
         "the next section closes the proposal")))
 
 (deftest section-proposal-with-a-file-line
   (let [html (book-build/build "## Proposal 1: no noise\n\nFile: the vision of books\n\n+ Plain.\n" "")]
-    (is (str/includes? html "<span class=\"pnum\">1</span><h2>no noise</h2></header>"))
+    (is (str/includes? html "<h2>no noise</h2></header>"))
     (is (str/includes? html "<p class=\"target\"><code>the vision of books</code></p>")))
   (let [html (book-build/build "## Proposal 1: T\n\nFile: `a/b.md`\n\n+ Plain.\n" "")]
     (is (str/includes? html "<h2>T</h2>"))
@@ -444,7 +444,7 @@
 
 (deftest proposal-heading-without-a-blank-line-opens-a-proposal
   (let [html (book-build/build "### Proposal 1: a\n\nsome text\n## Proposal 2: b\nmore\n" "")]
-    (is (str/includes? html "<p>some text</p>\n</article>\n<article class=\"proposal\"><header><span class=\"pnum\">2</span>"))
+    (is (str/includes? html "<p>some text</p>\n</article>\n<article class=\"proposal\"><header>"))
     (is (not (str/includes? html "## Proposal 2")))))
 
 ;; ------------------------------------------------------------- ethos
@@ -1162,9 +1162,9 @@
         html (book-build/build md "")
         at #(str/index-of html %)]
     (is (= 1 (count (re-seq #"<article class=\"module diff\">" html))) "one module sheet")
-    (is (str/includes? html "<section class=\"proposal in-place\"><header><span class=\"pnum\">1</span><h3>Added</h3></header>"))
-    (is (< (at "First line.") (at "pnum\">1<") (at "comment-label") (at "class=\"add\"><p>Added line.") (at "Second line.")
-           (at "pnum\">2<") (at "At the end.") (at "</article>"))
+    (is (str/includes? html "<section class=\"proposal in-place\"><header><h3 class=\"target\"><code style=\"font-size:.95rem\">vision/rule.md</code></h3></header>"))
+    (is (< (at "First line.") (at "<section class=\"proposal in-place\">") (at "comment-label") (at "class=\"add\"><p>Added line.") (at "Second line.")
+           (str/last-index-of html "<section class=\"proposal in-place\">") (at "At the end.") (at "</article>"))
         "the proposal sits between the module lines it lands among, and the last one inside the sheet")
     (is (= 2 (count (re-seq #"</section>" html))) "each proposal in place is closed")
     (is (not (str/includes? html "<article class=\"proposal\">")) "no proposal sheet of its own")))
@@ -1299,7 +1299,7 @@
     (is (= 1 (count (re-seq #"<article class=\"proposal\">" html))) "the unmarked part stays landed")
     (is (= 1 (count (re-seq #"<article class=\"proposal proposed\">" html))) "the marked part carries the class")
     (is (not (str/includes? landed "proposed")) "the landed part is not marked")
-    (is (str/includes? html "<h2>Proposed · psyche-belief › vision/book.md</h2></header>\n<aside class=\"comment\"") "the marker draws nothing of its own")
+    (is (str/includes? html "<h2 class=\"target\"><code style=\"font-size:.95rem\">vision/book.md</code></h2></header>\n<aside class=\"comment\"") "the marker draws nothing of its own")
     (is (not (str/includes? html "::: proposed")))
     (is (str/includes? code ".proposal.proposed{--rail:transparent;--rail-width:0px}")
         "the class takes the single margin, over the review's double margin on the root")))
@@ -1309,8 +1309,8 @@
                 "#### Proposal 1: Landed \u00b7 psyche-belief \u203a vision/rule.md\n\n+ Added line.\n\nSecond line.\n\n"
                 "#### Proposal 2: Proposed \u00b7 psyche-belief \u203a vision/rule.md\n\n::: proposed\n\n+ At the end.\n")
         html (built md)]
-    (is (str/includes? html "<section class=\"proposal in-place\"><header><span class=\"pnum\">1</span>"))
-    (is (str/includes? html "<section class=\"proposal in-place proposed\"><header><span class=\"pnum\">2</span>"))
+    (is (str/includes? html "<section class=\"proposal in-place\"><header>"))
+    (is (str/includes? html "<section class=\"proposal in-place proposed\"><header>"))
     (is (not (str/includes? html "::: proposed")))))
 
 (def description-label "<section class=\"description\"><div class=\"description-label\">Description</div>")
@@ -1510,6 +1510,33 @@
         (is (str/includes? html "<rect style=\"fill:var(--chip)\"/>"))
         (is (not (str/includes? html "#3274a1")))
         (is (not (str/includes? html "#e1812c")))))))
+
+(deftest a-proposal-heading-is-the-module-name-alone
+  (let [module "vision/belief-modules/0.md"
+        html (book-build/build (str "# T\n\n### Proposal 4: A long title · psyche-belief › " module "\n\n+ Added.\n\nRuling, one number per line:\n\n1. Yes.\n") "")
+        name-heading "<h2 class=\"target\"><code style=\"font-size:.95rem\">vision:belief-modules:0</code></h2>"]
+    (is (str/includes? html (str "<article class=\"proposal\"><header>" name-heading "</header>")) "the name alone")
+    (is (not (str/includes? html "A long title")) "no title")
+    (is (not (str/includes? html "psyche-belief")) "no repository")
+    (is (not (str/includes? html "belief-modules/0.md")) "no path")
+    (is (not (str/includes? html "Proposal 4")) "no proposal number")
+    (is (str/includes? html "<li value=\"4\">") "the ruling keeps the proposal's number"))
+  (let [html (book-build/build "# T\n\n## Proposal 1: Move · psyche-belief › vision/a/0.md, and psyche-belief › intent/b/1.md, a new file\n\n+ x\n" "")]
+    (is (str/includes? html "<code style=\"font-size:.95rem\">vision:a:0, intent:b:1</code>") "two locations, two names"))
+  (let [html (book-build/build (str "# T\n\n## psyche-belief › vision/rule/0.md\n\nFirst line.\n\n"
+                                    "#### Proposal 1: Added · psyche-belief › vision/rule/0.md\n\n+ Added line.\n") "")]
+    (is (str/includes? html "<section class=\"proposal in-place\"><header><h3 class=\"target\"><code style=\"font-size:.95rem\">vision:rule:0</code></h3></header>")
+        "a proposal in place is headed by the name of the module it stands in")))
+
+(deftest a-comment-is-optional-and-renders-as-why
+  (let [html (book-build/build "# T\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n+ Added.\n" "")]
+    (is (not (str/includes? html "class=\"comment\"")) "no comment, no box"))
+  (let [html (book-build/build "# T\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n::: comment\nBecause.\n:::\n\n+ Added.\n" "")]
+    (is (str/includes? html "<div class=\"comment-label\">Why</div>"))))
+
+(deftest the-subtitle-renders-as-written
+  (let [html (book-build/build "# T\n\nCreated by Fable.\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n+ Added.\n" "")]
+    (is (str/includes? html "<p class=\"book-subtitle\">Created by Fable.</p>"))))
 
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))

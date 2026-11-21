@@ -49,6 +49,17 @@ use the Mermaid figure counter. The checker requires a sibling filename and
 a readable SVG document. When calling `book-check/check-book` directly, pass
 `:source-path` in its options so it can find the SVG.
 
+A proposal's heading renders as the module's name alone, `<type>:<topic>:<version>`
+(`vision/belief-modules/0.md` is `vision:belief-modules:0`), taken from the heading's
+`repository › path`; a path that is not a module's is shown as it is. The proposal
+number, its title and the repository do not render, and a proposal in place is headed
+by the name of the module it stands in. The source heading keeps its form for the
+checker. A `::: comment` container is optional everywhere and never required by the
+checker; when present it renders as Why. The subtitle, the line under the title that
+opens `Created by`, renders as written, and the checker refuses one that is more than
+one sentence or more than twelve words (`subtitle-too-long`, at its first line; the
+twelve is `subtitle-word-limit` at the head of `book-check.clj`).
+
 A replaced passage is one text, read once: unchanged words stand once, removed
 words are struck through and shaded red, added words are underlined and shaded
 green, each in place. The margin of a replaced passage carries both colours, red

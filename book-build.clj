@@ -1754,16 +1754,50 @@
         k (some->> l (re-find #"(?U)^Presentation\.\{\s*«[^»]*»\s*(\w+)\s*\}\s*$") second)]
     (if (presentation-kinds k) k "Proposal")))
 
+(defn module-name
+  "A module's name, <type>:<topic>:<version>, from its path in a belief repository
+  (vision/belief-modules/0.md is vision:belief-modules:0). A path that is not a
+  module's is its own name."
+  [path]
+  (if-let [[_ kind topic version] (re-matches #"([^/]+)/([^/]+)/([^/]+)\.md" path)]
+    (str kind ":" topic ":" version)
+    path))
+
+(defn proposal-module-names
+  "The module names a proposal heading's title says it lands in (`repo › path`, two
+  joined by \", and\", a new or deleted file suffix on the last), or nil when the title
+  names no location."
+  [title]
+  (let [located (-> title strip (str/replace #"(?U)^.+ · " "") (str/replace #", a (?:new|deleted) file$" ""))
+        locations (map #(re-matches #"[^\s›·]+ › ([^\s,]+)" %) (str/split located #", and "))]
+    (when (and (seq locations) (every? some? locations))
+      (mapv (comp module-name second) locations))))
+
+(defn proposal-title-html
+  "A proposal's heading line, where the page shows the module's name alone: the
+  names the title's location gives, else (for a proposal in place) the module it
+  stands in, else the title as written."
+  [title in-module level]
+  (let [names (or (proposal-module-names title)
+                  (some-> in-module (str/replace #"^.* › " "") module-name vector))]
+    (if names
+      (str "<h" level " class=\"target\"><code style=\"font-size:.95rem\">"
+           (esc (str/join ", " names)) "</code></h" level ">")
+      nil)))
+
 (defn proposal-header
-  "The opening of a proposal's sheet. With no File line under it, its title
-  says where it lands, and is shown as the target chip in the header. A
-  proposal that declared itself proposed carries the class proposed: its
-  change margins show the single margin."
+  "The opening of a proposal's sheet. When its title says where it lands, the
+  heading is the module's name alone; with no location in the title and no File
+  line under it, the title says where it lands, and is shown as the target chip
+  in the header. The number is not shown. A proposal that
+  declared itself proposed carries the class proposed: its change margins show
+  the single margin."
   [n title where? proposed?]
-  (str "<article class=\"proposal" (when proposed? " proposed") "\"><header><span class=\"pnum\">" n "</span>"
-       (if where?
-         (str "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace title "`" "")) "</code></h2>")
-         (str "<h2>" (inline title) "</h2>"))
+  (str "<article class=\"proposal" (when proposed? " proposed") "\"><header>"
+       (or (proposal-title-html title nil 2)
+           (if where?
+             (str "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace title "`" "")) "</code></h2>")
+             (str "<h2>" (inline title) "</h2>")))
        "</header>"))
 
 (defn module-anchor
@@ -2091,6 +2125,8 @@
 (defn build [src code]
   (let [nfig (or *shared-figure-counter* (volatile! 0))
         heading-where (volatile! nil)
+        ;; the number of the proposal last opened, which a ruling card carries as its value
+        proposal-number (volatile! nil)
         datom-title (presentation-title src)
         kind (presentation-kind src)
         bs (vec (blocks src))
@@ -2207,6 +2243,7 @@
                 (when @in-article (append! "</article>"))
                 (if-let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)]
                   (do (vreset! declared-proposed (proposed-next? i))
+                      (vreset! proposal-number (m 1))
                       (append! (proposal-header (m 1) (m 2) false (proposed-next? i))))
                   (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
                 (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text))))
@@ -2221,6 +2258,7 @@
               (when @in-module (append! "</article>") (vreset! in-module false))
               (when @in-article (append! "</article>"))
               (vreset! declared-proposed (proposed-next? i))
+              (vreset! proposal-number n)
               (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i)))
               (vreset! in-article true))
 
@@ -2311,7 +2349,7 @@
                   (vreset! pending-close (not (str/ends-with? (rstrip (second (last items))) ":"))))
                 (if (str/starts-with? text "Ruling, one number")
                   (do (close-rulings false)
-                      (let [n (some #(second (re-find #"<span class=\"pnum\">(\d+)</span>" %)) (rseq @out))]
+                      (let [n @proposal-number]
                         (append! (str "<section class=\"rulings\"><ol><li" (when n (str " value=\"" n "\"")) "><p>" (inline text) "</p>")))
                       (vreset! rulings true)
                       (vreset! pending-close false))
@@ -2326,8 +2364,11 @@
         (= :in-place-open (first b))
         (let [{:keys [number title]} (second b)]
           (vreset! declared-proposed (proposed-next? i))
-          (append! (str "<section class=\"proposal in-place" (when (proposed-next? i) " proposed") "\"><header><span class=\"pnum\">" number "</span>"
-                        "<h3>" (inline (or title (str "Proposal " number))) "</h3></header>"))
+          (vreset! proposal-number (str number))
+          (append! (str "<section class=\"proposal in-place" (when (proposed-next? i) " proposed") "\"><header>"
+                        (or (when-let [location @module-location] (proposal-title-html "" location 3))
+                            (str "<h3>" (inline (or title (str "Proposal " number))) "</h3>"))
+                        "</header>"))
           (vreset! in-article true))
 
         ;; the marker itself draws nothing: its proposal's heading took the class
