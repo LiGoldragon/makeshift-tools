@@ -45,10 +45,9 @@
                    "::: comment\nThe reason is wanted here.\n:::\n\n"
                    "+ Added.\n") "")]
     (is (not (str/includes? with "class=\"pnum\"")) "a numbered Proposal form shows no number")
-    (is (str/includes? with (str "<aside class=\"comment\" aria-label=\"Why\">"
-                                 "<div class=\"comment-label\">Why</div>"
-                                 "<div class=\"comment-body\">"))
-        "an explicit comment container includes its own visibly labelled box")))
+    (is (str/includes? with "<aside class=\"comment\"><div class=\"comment-body\">")
+        "an explicit comment container renders as a plain note")
+    (is (not (str/includes? with "Why")) "with no label")))
 
 (deftest whole-module-inline-proposal-marks
   (let [html (str/replace (book-build/build

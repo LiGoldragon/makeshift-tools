@@ -324,7 +324,7 @@
   (is (= [] (check (str located "+ First added paragraph.\n+\n+ Second added paragraph.\n"))))
   (is (= [] (check (str located "+ ```rust\n+ a\n+\n+ b\n+ ```\n")))))
 
-(def sig "Created by Opus, helped by Sonnet (the checking).\n")
+(def sig "Created by Opus.\n")
 
 (deftest the-presentation-kind
   (let [proposal "### Proposal 1: Replace · psyche-belief › vision/book.md\n\n- Old.\n+ New.\n"]
@@ -358,7 +358,6 @@
   (doseq [kind ["" " Review" " Account"]]
     (is (= [] (check (str "Presentation.{ «T»" kind " }\n\n# T\n\n" sig "\n" after-title*)))
         (str "signature under kind" kind)))
-  (is (= [] (check (str "# T\n\nCreated by Opus,\nhelped by Sonnet.\n\n" after-title*))) "a wrapped signature")
   (is (= ["text-outside-proposal-without-module"]
          (reasons (str "# T\n\n" sig "\nOther prose.\n\n" after-title*)))
       "only the paragraph that opens Created by"))
@@ -1236,19 +1235,16 @@
     (is (= [] (check (str "Presentation.{ «T» Review }\n\n# T\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n" no-comment)))
         "a review")))
 
-(deftest the-subtitle-is-one-short-sentence
-  (let [book (fn [subtitle] (str "# T\n\n" subtitle "\n\n" after-title*))]
-    (is (= 12 book-check/subtitle-word-limit) "the limit is one value at the head of the checker")
-    (is (= [] (check (book "Created by Fable."))))
-    (is (= [] (check (book "Created by Opus, helped by Sonnet (the checking)."))))
-    (is (= [] (check (book "Created by one two three four five six seven eight nine ten."))) "twelve words")
-    (is (= [{:line 3 :reason "subtitle-too-long"}]
-           (check (book "Created by one two three four five six seven eight nine ten eleven."))) "thirteen words")
-    (is (= [{:line 3 :reason "subtitle-too-long"}] (check (book "Created by Fable. Helped by Sonnet.")))
-        "two sentences")
-    (is (= [{:line 3 :reason "subtitle-too-long"}]
-           (check (book "Created by Opus, helped by Sonnet,\nthe checking and the one more helper who came late.")))
-        "a wrapped signature is read whole and named at its first line")))
+(deftest the-subtitle-is-the-creator-alone
+  (let [book (fn [subtitle] (str "# T\n\n" subtitle "\n\n" after-title*))
+        refused [{:line 3 :reason "subtitle-not-creator"}]]
+    (doseq [model book-check/subtitle-models]
+      (is (= [] (check (book (str "Created by " model ".")))) model))
+    (is (= refused (check (book "Created by Fable"))) "a full stop ends it")
+    (is (= refused (check (book "Created by a test."))) "not a model")
+    (is (= refused (check (book "Created by Opus, helped by Sonnet (the checking)."))) "no helpers")
+    (is (= refused (check (book "Created by Fable. Reviewed."))) "nothing after it")
+    (is (= refused (check (book "Created by Fable\nnow."))) "one line")))
 
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

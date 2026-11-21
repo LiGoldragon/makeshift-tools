@@ -52,13 +52,15 @@ a readable SVG document. When calling `book-check/check-book` directly, pass
 A proposal's heading renders as the module's name alone, `<type>:<topic>:<version>`
 (`vision/belief-modules/0.md` is `vision:belief-modules:0`), taken from the heading's
 `repository › path`; a path that is not a module's is shown as it is. The proposal
-number, its title and the repository do not render, and a proposal in place is headed
-by the name of the module it stands in. The source heading keeps its form for the
-checker. A `::: comment` container is optional everywhere and never required by the
-checker; when present it renders as Why. The subtitle, the line under the title that
-opens `Created by`, renders as written, and the checker refuses one that is more than
-one sentence or more than twelve words (`subtitle-too-long`, at its first line; the
-twelve is `subtitle-word-limit` at the head of `book-check.clj`).
+number, its title and the repository do not render. Proposals one after another into
+the same modules, in the same state, render under one heading in one sheet, their
+changes in source order; a proposal in place stands under its module view's own
+heading and adds none. The source heading keeps its form for the checker. A
+`::: comment` container is optional everywhere and never required by the checker;
+when present it renders as a plain note with no label. The subtitle, the line under
+the title, is `Created by <Model>.`, the model one of `subtitle-models` at the head
+of `book-check.clj`, and the checker refuses anything else on that line
+(`subtitle-not-creator`, at the line); the builder renders it as written.
 
 A replaced passage is one text, read once: unchanged words stand once, removed
 words are struck through and shaded red, added words are underlined and shaded

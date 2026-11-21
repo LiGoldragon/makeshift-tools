@@ -29,8 +29,8 @@
            <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
            <div class="ctx">…</div>                  its text, shown whole
          </div>
-       The proposal author's reason on the proposal it sits in, before its lines (an indigo box visibly labelled "Why"):
-         <aside class="comment" aria-label="Why"><div class="comment-label">Why</div><div class="comment-body"><p>…</p></div></aside>
+       The proposal author's note on the proposal it sits in, before its lines (plain, with no label):
+         <aside class="comment"><div class="comment-body"><p>…</p></div></aside>
        Each alternative is its own proposal; there is no alternatives group.
        A review (<meta name="book-kind" content="review"> in the page) shows every added and removed line
        under the double margin of a landed change; a proposal or an account shows the single margin.
@@ -59,7 +59,6 @@
   --moved-bg:#e4e9fb;--moved-edge:#3a5bc7;--moved-fg:#1c2b66;
   --move-proposed-edge:#6b7ed6;
   --ctx-bg:#f1f3ef;--accent:#1c5f8a;
-  --comment-bg:#e8ebfa;--comment-edge:#3f51b5;--comment-fg:#1f2756;
   --shown-bg:#fff4d6;--shown-edge:#b87500;--shown-fg:#4d3100;
   --hl-bg:#eceee9;--hl-type:#1c5f8a;--hl-punct:#9a5b13;--hl-comment:#6b7a72;--hl-string:#6a3fa0;--hl-meta:#8a3d6b;
   --hl-add:rgba(47,138,70,.16);--hl-del:rgba(194,55,43,.15);
@@ -96,7 +95,6 @@
   --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
   --move-proposed-edge:#9aaeff;
   --ctx-bg:#1e2622;--accent:#7cc0ee;
-  --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
   --shown-bg:#3a2b10;--shown-edge:#e6aa42;--shown-fg:#ffe4aa;
   --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}}
@@ -107,7 +105,6 @@
   --moved-bg:#1f2747;--moved-edge:#8fa6f5;--moved-fg:#d7defa;
   --move-proposed-edge:#9aaeff;
   --ctx-bg:#1e2622;--accent:#7cc0ee;
-  --comment-bg:#1d2240;--comment-edge:#9fa8f0;--comment-fg:#dde1fb;
   --shown-bg:#3a2b10;--shown-edge:#e6aa42;--shown-fg:#ffe4aa;
   --hl-bg:#1c2420;--hl-type:#7cc0ee;--hl-punct:#e0a45a;--hl-comment:#7f8e85;--hl-string:#c3a6ef;--hl-meta:#d58fb9;
   --hl-add:rgba(92,196,122,.17);--hl-del:rgba(240,122,110,.16);color-scheme:dark}
@@ -220,9 +217,8 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 /* A proposal of a review that declared itself proposed (`::: proposed`): its marks show the single margin. */
 .proposal.proposed{--rail:transparent;--rail-width:0px}
 
-/* The machine's comment: why it proposes the lines that follow; its own colour (indigo), never module text, green or red. */
-.comment{border:1px solid var(--comment-edge);border-left-width:4px;background:var(--comment-bg);color:var(--comment-fg);border-radius:8px;margin:18px 0 20px;padding:10px 12px 12px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5}
-.comment-label{display:table;margin:0 0 7px;padding:1px 9px;border-radius:999px;background:var(--comment-edge);color:var(--sheet);font-weight:600;font-size:.74rem;letter-spacing:.04em}
+/* The author's note on the lines that follow: plain text, no box and no label, never module text. */
+.comment{margin:18px 0 20px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5;color:var(--fg)}
 .comment-body> :first-child{margin-top:0}.comment-body> :last-child{margin-bottom:0}.comment-body p{overflow-wrap:anywhere}
 
 /* An excerpt of its named source module as it stands: a fourth colour beside added, removed and moved. */

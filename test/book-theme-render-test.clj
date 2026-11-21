@@ -20,7 +20,7 @@
   "Send.{ { Mind flowNexus Opus } Soft.Question.«Why did 0.54.0 refresh no flow, and which flow holds the answer?» }")
 
 (def source
-  (str "Presentation.{ «Colours» Proposal }\n\n# Colours\n\nCreated by a test.\n\n"
+  (str "Presentation.{ «Colours» Proposal }\n\n# Colours\n\nCreated by Fable.\n\n"
        "## psyche-belief › vision/remembering.md\n\nA module as it stands.\n\n"
        "```mermaid\nflowchart TB\n    a[\"living content\"] -- \"passes to\" --> b[\"fresh flow\"]\n```\n\n"
        "### Proposal 1: Remembering · psyche-belief › vision/remembering.md\n\n"

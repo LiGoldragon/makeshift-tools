@@ -25,12 +25,13 @@
 ;; container is a module's description, shown as a labelled block at the head
 ;; of its module view or proposal: as it stands, or changed, its removed and
 ;; added text each marking its own changed words. Inside a proposal,
-;; a ::: comment container is the author's reason, in its own box, before the
+;; a ::: comment container is the author's note, plain and unlabelled, before the
 ;; module text it explains. Each alternative is its own proposal. The first line may be a
 ;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
 ;; (the default when absent), Review or Account: a Review shows its added and
 ;; removed lines under the double margin of a landed change. A paragraph opening "Created by" under the
-;; title is the signature line, shown as the subtitle. A titled page that carries
+;; title is the subtitle, shown as written. Proposals one after another into the same
+;; modules share one heading and one sheet. A titled page that carries
 ;; a change mark opens with the key to its colours. A ::: shown excerpt of a
 ;; Markdown or plain-text module is prose that wraps; of any other, code. A
 ;; #### Proposal heading inside a module view is a proposal in place: its heading,
@@ -1775,15 +1776,11 @@
 
 (defn proposal-title-html
   "A proposal's heading line, where the page shows the module's name alone: the
-  names the title's location gives, else (for a proposal in place) the module it
-  stands in, else the title as written."
-  [title in-module level]
-  (let [names (or (proposal-module-names title)
-                  (some-> in-module (str/replace #"^.* › " "") module-name vector))]
-    (if names
-      (str "<h" level " class=\"target\"><code style=\"font-size:.95rem\">"
-           (esc (str/join ", " names)) "</code></h" level ">")
-      nil)))
+  names the title's location gives, or nil when the title names none."
+  [title]
+  (when-let [names (proposal-module-names title)]
+    (str "<h2 class=\"target\"><code style=\"font-size:.95rem\">"
+         (esc (str/join ", " names)) "</code></h2>")))
 
 (defn proposal-header
   "The opening of a proposal's sheet. When its title says where it lands, the
@@ -1794,7 +1791,7 @@
   the single margin."
   [n title where? proposed?]
   (str "<article class=\"proposal" (when proposed? " proposed") "\"><header>"
-       (or (proposal-title-html title nil 2)
+       (or (proposal-title-html title)
            (if where?
              (str "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace title "`" "")) "</code></h2>")
              (str "<h2>" (inline title) "</h2>")))
@@ -2077,10 +2074,9 @@
       (check-rendered-ethos! language lines))))
 
 (defn comment-html
-  "The proposal author's reason, apart from the module text it explains."
+  "The proposal author's note, apart from the module text it explains: plain, with no label."
   [lines]
-  (str "<aside class=\"comment\" aria-label=\"Why\">"
-       "<div class=\"comment-label\">Why</div>"
+  (str "<aside class=\"comment\">"
        "<div class=\"comment-body\">" (markdown-html lines) "</div></aside>"))
 
 (defn shown-html
@@ -2127,6 +2123,8 @@
         heading-where (volatile! nil)
         ;; the number of the proposal last opened, which a ruling card carries as its value
         proposal-number (volatile! nil)
+        ;; the module names of the proposal sheet still open, which a next proposal into the same modules continues
+        proposal-names (volatile! nil)
         datom-title (presentation-title src)
         kind (presentation-kind src)
         bs (vec (blocks src))
@@ -2171,6 +2169,10 @@
                      (map second (re-seq inline-moved-mark-re src)))
         ;; whether the proposal being drawn declared itself proposed (`::: proposed`)
         declared-proposed (volatile! false)
+        ;; whether a proposal into `names` (nil when its heading names no module) with this proposed state
+        ;; goes on in the sheet still open: the proposal before it was into the same modules
+        continues-sheet? (fn [names proposed?]
+                           (boolean (and names @in-article (= names @proposal-names) (= proposed? @declared-proposed))))
         ;; inside a proposal, or a new module's view, a signed line is a change
         in-change? (fn [] (or @in-article (and @in-module @module-new)))
         module-first (volatile! false)
@@ -2240,13 +2242,18 @@
                 (vreset! glue false)
                 (vreset! target nil)
                 (vreset! heading-where nil)
-                (when @in-article (append! "</article>"))
-                (if-let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)]
-                  (do (vreset! declared-proposed (proposed-next? i))
-                      (vreset! proposal-number (m 1))
-                      (append! (proposal-header (m 1) (m 2) false (proposed-next? i))))
-                  (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
-                (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text))))
+                (let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)
+                      names (some-> m (nth 2) proposal-module-names)
+                      continue? (continues-sheet? names (proposed-next? i))]
+                  (when (and @in-article (not continue?)) (append! "</article>"))
+                  (if m
+                    (do (vreset! declared-proposed (proposed-next? i))
+                        (vreset! proposal-number (m 1))
+                        (vreset! proposal-names names)
+                        (when-not continue?
+                          (append! (proposal-header (m 1) (m 2) false (proposed-next? i)))))
+                    (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
+                  (vreset! in-article (boolean (re-find #"(?U)^### Proposal " text)))))
 
             (re-find #"(?U)^## Proposal (\d+): (.*)$" text)
             (let [[_ n where] (re-find #"(?U)^## Proposal (\d+): (.*)$" text)]
@@ -2256,11 +2263,15 @@
               (vreset! target nil)
               (vreset! heading-where (when-not (file-next? i) (str/replace (strip where) "`" "")))
               (when @in-module (append! "</article>") (vreset! in-module false))
-              (when @in-article (append! "</article>"))
-              (vreset! declared-proposed (proposed-next? i))
-              (vreset! proposal-number n)
-              (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i)))
-              (vreset! in-article true))
+              (let [names (proposal-module-names (strip where))
+                    continue? (continues-sheet? names (proposed-next? i))]
+                (when (and @in-article (not continue?)) (append! "</article>"))
+                (vreset! declared-proposed (proposed-next? i))
+                (vreset! proposal-number n)
+                (vreset! proposal-names names)
+                (when-not continue?
+                  (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i))))
+                (vreset! in-article true)))
 
             (book-check/module-view-heading first-line)
             (let [{:keys [repository path new?]} (book-check/module-view-heading first-line)
@@ -2365,10 +2376,9 @@
         (let [{:keys [number title]} (second b)]
           (vreset! declared-proposed (proposed-next? i))
           (vreset! proposal-number (str number))
-          (append! (str "<section class=\"proposal in-place" (when (proposed-next? i) " proposed") "\"><header>"
-                        (or (when-let [location @module-location] (proposal-title-html "" location 3))
-                            (str "<h3>" (inline (or title (str "Proposal " number))) "</h3>"))
-                        "</header>"))
+          (append! (str "<section class=\"proposal in-place" (when (proposed-next? i) " proposed") "\">"
+                        (when-not @module-location
+                          (str "<header><h3>" (inline (or title (str "Proposal " number))) "</h3></header>"))))
           (vreset! in-article true))
 
         ;; the marker itself draws nothing: its proposal's heading took the class

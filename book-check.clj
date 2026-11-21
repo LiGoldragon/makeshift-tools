@@ -9,9 +9,9 @@
             [clojure.string :as str]
             [babashka.fs :as fs]))
 
-;; The longest subtitle, in words: the signature line under the title is one sentence of
-;; at most this many.
-(def subtitle-word-limit 12)
+;; The models that can create a book. The subtitle under the title is `Created by <Model>.`
+;; with one of these, and nothing else on that line.
+(def subtitle-models ["Fable" "Opus" "Sonnet" "Haiku" "Astra" "Sol" "Luna" "Terra"])
 
 ;; A proposal names one location, or two locations joined by ", and", in its heading.
 ;; A new/deleted-file suffix belongs to the final location.
@@ -23,11 +23,10 @@
   (boolean (or (re-find #"^[+-] .*\S" line)
                (re-find #"^\*\*(?:Archive|Destroy)\*\*" line))))
 
-(defn subtitle-fits?
-  "Whether a subtitle is one sentence of at most `subtitle-word-limit` words."
+(defn subtitle-is-creator?
+  "Whether a subtitle is exactly `Created by <Model>.`, one of `subtitle-models`."
   [text]
-  (and (<= (count (str/split (str/trim text) #"\s+")) subtitle-word-limit)
-       (= 1 (count (remove str/blank? (str/split text #"[.!?]+(?:\s+|$)"))))))
+  (boolean (re-matches (re-pattern (str "Created by (?:" (str/join "|" subtitle-models) ")\\.")) text)))
 
 (defn- signed-fence-line? [line]
   (boolean (and (#{\+ \-} (first line))
@@ -1519,7 +1518,7 @@
                                   (empty? (:shown @st)) (str/starts-with? line "Created by")))
                          (swap! st #(-> % (assoc :signature :open)
                                         (update :subtitle (fn [subtitle] {:line (or (:line subtitle) number)
-                                                                          :text (str/join " " (remove nil? [(:text subtitle) line]))}))))
+                                                                          :text (str/join "\n" (remove nil? [(:text subtitle) line]))}))))
 
                          ;; An account holds prose of its own.
                          (= "Account" (:kind @st)) nil
@@ -1532,7 +1531,7 @@
      (finish!)
      (check-moves!)
      (when-let [{:keys [line text]} (:subtitle @st)]
-       (when-not (subtitle-fits? text) (err! line "subtitle-too-long")))
+       (when-not (subtitle-is-creator? text) (err! line "subtitle-not-creator")))
      (when-let [c (:container @st)]
        (err! (:line c) (str "unclosed-" (name (:kind c)) "-container")))
      (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st)) (not module-review?)) (err! 1 "missing-proposal"))

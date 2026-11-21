@@ -785,11 +785,11 @@
 
 (def ^:private head "# B\n\n### Proposal 1: Replace · psyche-belief › vision/book.md\n\n")
 
-(deftest an-author-comment-is-a-labelled-box-before-the-proposal-it-explains
+(deftest an-author-comment-is-a-plain-note-before-the-proposal-it-explains
   (let [html (built (str head "::: comment\nProposed because the rule repeats.\n:::\n\n- Old.\n+ New.\n"))]
-    (is (str/includes? html (str "<aside class=\"comment\" aria-label=\"Why\">"
-                                 "<div class=\"comment-label\">Why</div>"
-                                 "<div class=\"comment-body\"><p>Proposed because the rule repeats.</p></div></aside>")))
+    (is (str/includes? html "<aside class=\"comment\"><div class=\"comment-body\"><p>Proposed because the rule repeats.</p></div></aside>"))
+    (is (not (str/includes? html "Why")) "no label")
+    (is (not (str/includes? html "comment-label")) "no label element")
     (is (< (str/index-of html "class=\"comment\"") (str/index-of html "class=\"diff\"")) "the comment comes before the lines")
     (is (< (str/index-of html "class=\"proposal\"") (str/index-of html "class=\"comment\"")) "inside its proposal"))
   (is (str/includes? (built (str head "::: comment\nUses `code` and **bold**.\n:::\n\n+ New.\n"))
@@ -842,15 +842,11 @@
     (is (str/includes? code ".move-proposed{--rail:transparent;--rail-width:0px}") "proposed: the single margin")
     (is (str/includes? code ".move>.add{border-left:4px solid var(--add-edge)") "the addition margin replaces the move's")))
 
-(deftest the-comment-has-its-own-colour-light-and-dark
-  (let [vars (re-seq #"--comment-(?:bg|edge|fg):(#[0-9a-f]{6})" code)
-        colours (set (map second vars))]
-    (is (= 9 (count vars)) "three comment colours in light, dark, and the dark theme")
-    (is (str/includes? code ".comment{border:1px solid var(--comment-edge);border-left-width:4px"))
-    (is (str/includes? code "margin:18px 0 20px"))
-    (is (str/includes? code ".comment-label{"))
-    (doseq [c ["#2f8a46" "#c2372b" "#5cc47a" "#f07a6e" "#1c5f8a" "#7cc0ee"]]
-      (is (not (colours c)) (str "not the green, red or module colour " c)))))
+(deftest the-comment-is-a-plain-note-light-and-dark
+  (is (not (re-find #"--comment-" code)) "no colour of its own")
+  (is (not (str/includes? code "comment-label")) "no label style")
+  (is (re-find #"\.comment\{margin:18px 0 20px" code) "plain, with no box")
+  (is (not (re-find #"\.comment\{[^}]*(?:border|background)" code)) "no border or background"))
 
 (deftest a-shown-container-is-a-source-headed-fourth-colour-module-excerpt
   (let [html (built (str head "::: shown\npsyche-belief › vision/book.md\nLibrary\n[]\n:::\n\n+ New.\n"))]
@@ -1162,8 +1158,8 @@
         html (book-build/build md "")
         at #(str/index-of html %)]
     (is (= 1 (count (re-seq #"<article class=\"module diff\">" html))) "one module sheet")
-    (is (str/includes? html "<section class=\"proposal in-place\"><header><h3 class=\"target\"><code style=\"font-size:.95rem\">vision/rule.md</code></h3></header>"))
-    (is (< (at "First line.") (at "<section class=\"proposal in-place\">") (at "comment-label") (at "class=\"add\"><p>Added line.") (at "Second line.")
+    (is (str/includes? html "<section class=\"proposal in-place\">"))
+    (is (< (at "First line.") (at "<section class=\"proposal in-place\">") (at "class=\"comment\"") (at "class=\"add\"><p>Added line.") (at "Second line.")
            (str/last-index-of html "<section class=\"proposal in-place\">") (at "At the end.") (at "</article>"))
         "the proposal sits between the module lines it lands among, and the last one inside the sheet")
     (is (= 2 (count (re-seq #"</section>" html))) "each proposal in place is closed")
@@ -1309,8 +1305,8 @@
                 "#### Proposal 1: Landed \u00b7 psyche-belief \u203a vision/rule.md\n\n+ Added line.\n\nSecond line.\n\n"
                 "#### Proposal 2: Proposed \u00b7 psyche-belief \u203a vision/rule.md\n\n::: proposed\n\n+ At the end.\n")
         html (built md)]
-    (is (str/includes? html "<section class=\"proposal in-place\"><header>"))
-    (is (str/includes? html "<section class=\"proposal in-place proposed\"><header>"))
+    (is (str/includes? html "<section class=\"proposal in-place\">"))
+    (is (str/includes? html "<section class=\"proposal in-place proposed\">"))
     (is (not (str/includes? html "::: proposed")))))
 
 (def description-label "<section class=\"description\"><div class=\"description-label\">Description</div>")
@@ -1335,7 +1331,7 @@
     (is (str/includes? html (str description-label "<div class=\"diff\">"
                                  "<div class=\"replacement\"><p>A <del>plain</del><ins>better</ins> fixture.</p></div></div></section>"))
         "one passage under the change margin, with only changed words marked")
-    (is (< (at "comment-label") (at description-label) (at "<p>Added.</p>")))
+    (is (< (at "class=\"comment\"") (at description-label) (at "<p>Added.</p>")))
     (is (not (str/includes? html "description:")))))
 
 (deftest a-new-module-shows-dependencies-beside-its-description
@@ -1525,18 +1521,37 @@
     (is (str/includes? html "<code style=\"font-size:.95rem\">vision:a:0, intent:b:1</code>") "two locations, two names"))
   (let [html (book-build/build (str "# T\n\n## psyche-belief › vision/rule/0.md\n\nFirst line.\n\n"
                                     "#### Proposal 1: Added · psyche-belief › vision/rule/0.md\n\n+ Added line.\n") "")]
-    (is (str/includes? html "<section class=\"proposal in-place\"><header><h3 class=\"target\"><code style=\"font-size:.95rem\">vision:rule:0</code></h3></header>")
-        "a proposal in place is headed by the name of the module it stands in")))
+    (is (str/includes? html "<section class=\"proposal in-place\">")
+        "a proposal in place stands under its module's own heading")
+    (is (not (str/includes? html "vision:rule:0")) "and adds none")))
 
-(deftest a-comment-is-optional-and-renders-as-why
+(deftest a-comment-is-optional-and-renders-as-a-plain-note
   (let [html (book-build/build "# T\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n+ Added.\n" "")]
     (is (not (str/includes? html "class=\"comment\"")) "no comment, no box"))
   (let [html (book-build/build "# T\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n::: comment\nBecause.\n:::\n\n+ Added.\n" "")]
-    (is (str/includes? html "<div class=\"comment-label\">Why</div>"))))
+    (is (str/includes? html "<aside class=\"comment\"><div class=\"comment-body\"><p>Because.</p></div></aside>"))
+    (is (not (str/includes? html "Why")))))
 
 (deftest the-subtitle-renders-as-written
   (let [html (book-build/build "# T\n\nCreated by Fable.\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n+ Added.\n" "")]
     (is (str/includes? html "<p class=\"book-subtitle\">Created by Fable.</p>"))))
+
+(deftest proposals-into-one-module-render-under-one-heading
+  (let [two (fn [a b] (book-build/build (str "# T\n\n### Proposal 1: First · psyche-belief › " a "\n\n+ One.\n\n"
+                                             "### Proposal 2: Second · psyche-belief › " b "\n\n+ Two.\n\nRuling, one number per line:\n\n1. Yes.\n") ""))
+        same (two "vision/a/0.md" "vision/a/0.md")]
+    (is (= 1 (count (re-seq #"vision:a:0" same))) "one heading, the module's name")
+    (is (= 1 (count (re-seq #"<article class=\"proposal\">" same))) "one sheet")
+    (is (= 1 (count (re-seq #"</article>" same))) "closed once")
+    (is (< (str/index-of same "One.") (str/index-of same "Two.")) "their changes in source order")
+    (is (str/includes? same "<li value=\"2\">") "a ruling keeps the number of the proposal it follows")
+    (let [other (two "vision/a/0.md" "vision/b/0.md")]
+      (is (= 2 (count (re-seq #"<article class=\"proposal\">" other))) "two modules, two headings")
+      (is (every? #(str/includes? other %) ["vision:a:0" "vision:b:0"]))))
+  (let [html (book-build/build (str "# T\n\n### Proposal 1: First · psyche-belief › vision/a/0.md\n\n+ One.\n\n"
+                                    "### Proposal 2: Second · psyche-belief › vision/b/0.md\n\n+ Two.\n\n"
+                                    "### Proposal 3: Third · psyche-belief › vision/a/0.md\n\n+ Three.\n") "")]
+    (is (= 3 (count (re-seq #"<article class=\"proposal\">" html))) "only adjacent proposals share a heading")))
 
 (let [{:keys [fail error]} (binding [book-build/*highlight* false] (run-tests 'book-build-test))]
   (System/exit (if (zero? (+ fail error)) 0 1)))
