@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;; Build a book page from its Markdown source.
 ;;
-;; usage: bb book-build.clj SOURCE.md OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]
+;; usage: bb book-build.clj SOURCE.md|DIRECTORY OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]
 ;;
 ;; The source is a book in the to-the-living form: a title, a
 ;; Crystallization heading, proposals (### Proposal N: title), File:
@@ -54,6 +54,8 @@
 (def script-dir (str (fs/parent (fs/absolutize *file*))))
 ;; The checker's reading of a source's in-place proposals is the builder's too.
 (load-file (str (fs/path script-dir "book-check.clj")))
+;; A proposal directory is read into a source by book-proposal.
+(load-file (str (fs/path script-dir "book-proposal.clj")))
 
 ;; ------------------------------------------------------------- text helpers
 
@@ -1755,24 +1757,15 @@
         k (some->> l (re-find #"(?U)^Presentation\.\{\s*«[^»]*»\s*(\w+)\s*\}\s*$") second)]
     (if (presentation-kinds k) k "Proposal")))
 
-(defn module-name
-  "A module's name, <type>:<topic>:<version>, from its path in a belief repository
-  (vision/belief-modules/0.md is vision:belief-modules:0). A path that is not a
-  module's is its own name."
-  [path]
-  (if-let [[_ kind topic version] (re-matches #"([^/]+)/([^/]+)/([^/]+)\.md" path)]
-    (str kind ":" topic ":" version)
-    path))
-
 (defn proposal-module-names
   "The module names a proposal heading's title says it lands in (`repo › path`, two
   joined by \", and\", a new or deleted file suffix on the last), or nil when the title
   names no location."
   [title]
   (let [located (-> title strip (str/replace #"(?U)^.+ · " "") (str/replace #", a (?:new|deleted) file$" ""))
-        locations (map #(re-matches #"[^\s›·]+ › ([^\s,]+)" %) (str/split located #", and "))]
+        locations (map #(re-matches #"([^\s›·]+) › ([^\s,]+)" %) (str/split located #", and "))]
     (when (and (seq locations) (every? some? locations))
-      (mapv (comp module-name second) locations))))
+      (mapv (fn [[_ repository path]] (book-check/module-display-name repository path)) locations))))
 
 (defn proposal-title-html
   "A proposal's heading line, where the page shows the module's name alone: the
@@ -2281,7 +2274,7 @@
               (vreset! glue false)
               (when @in-article (append! "</article>") (vreset! in-article false))
               (when @in-module (append! "</article>"))
-              (append! (module-header location new? (when (linked location) (module-anchor location))))
+              (append! (module-header (book-check/module-display-name repository path) new? (when (linked location) (module-anchor location))))
               (vreset! module-md (str/ends-with? path ".md"))
               (vreset! module-file path)
               (vreset! module-location location)
@@ -2577,11 +2570,18 @@
                       {:kind :source-invalid :errors errors})))
     true))
 
+(defn- check-directory! [directory]
+  (let [faults (book-proposal/check-directory directory book-proposal/repository-root)]
+    (when (seq faults)
+      (throw (ex-info (str "proposal directory check failed: " (pr-str faults))
+                      {:kind :source-invalid :errors faults})))
+    true))
+
 (defn -main [& args]
   (let [args (vec args)]
     (when (< (count args) 2)
       (binding [*out* *err*]
-        (println "usage: bb book-build.clj SOURCE.md OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]"))
+        (println "usage: bb book-build.clj SOURCE.md|DIRECTORY OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]"))
       (System/exit 1))
     (let [[src-path out-path] args
           ci (.indexOf args "--code")
@@ -2595,8 +2595,11 @@
                 *figures-dir* (when (>= fi 0) (get args (inc fi)))
                 *ethos-zero* (if (>= ei 0) (get args (inc ei)) configured-ethos-zero)
                 *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) configured-ethos-zero)]
-        (try (let [src (read-text src-path)]
-               (check-source! src)
+        (try (let [directory? (fs/directory? src-path)
+                   src (if directory?
+                         (do (check-directory! src-path)
+                             (book-proposal/directory-source src-path book-proposal/repository-root))
+                         (let [src (read-text src-path)] (check-source! src) src))]
                (binding [*enforce-ethos* true]
                  (spit out-path (build src (read-text code-path)) :encoding "UTF-8")))
              (catch clojure.lang.ExceptionInfo e

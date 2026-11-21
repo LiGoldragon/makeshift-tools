@@ -3,6 +3,7 @@
 (ns book-tools
   (:require [babashka.fs :as fs] [clojure.string :as str]))
 (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-check.clj")))
+(load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-proposal.clj")))
 
 (defn refuse [message] (throw (ex-info message {})))
 (defn location [text]
@@ -152,10 +153,59 @@
       (unique-position anchored-line old spec)
       (edit-source source spec anchored-line :replace (str/replace-first anchored-line old new)))))
 
+(def usage
+  (str "Usage: book-tools copy DIRECTORY MODULE... [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
+       "       book-tools new DIRECTORY REPOSITORY MODULE [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
+       "       book-tools remove DIRECTORY MODULE [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
+       "       book-tools replace COPY OLD NEW      (OLD and NEW are files; - is standard input)\n"
+       "       book-tools land DIRECTORY [--root DIRECTORY]\n"
+       "       book-tools start SOURCE TITLE MODULE... | edit SOURCE MODULE ANCHOR --after | --replace-old OLD --replace-new NEW"))
+
+(defn split-options
+  "The arguments with every `--name value` pair taken out: [arguments {:name value}]."
+  [arguments]
+  (loop [arguments arguments rest-arguments [] options {}]
+    (if-let [argument (first arguments)]
+      (if (str/starts-with? argument "--")
+        (if (second arguments)
+          (recur (drop 2 arguments) rest-arguments (assoc options (keyword (subs argument 2)) (second arguments)))
+          (refuse (str argument " needs a value.")))
+        (recur (rest arguments) (conj rest-arguments argument) options))
+      [rest-arguments options])))
+
+(defn read-replacement-text
+  "The text of a file, or of standard input for -, without the one newline that ends it."
+  [path]
+  (let [text (if (= path "-") (slurp *in*) (slurp path :encoding "UTF-8"))]
+    (if (str/ends-with? text "\n") (subs text 0 (dec (count text))) text)))
+
+(defn proposal-command [command arguments]
+  (let [[arguments options] (split-options arguments)
+        root (or (:root options) book-proposal/repository-root)]
+    (case command
+      "copy" (let [[directory & modules] arguments]
+               (doseq [path (book-proposal/copy! directory modules options root)] (println "Copied:" path)))
+      "new" (let [[directory repository module] arguments]
+              (when-not (and directory repository module) (refuse usage))
+              (println "Begun:" (book-proposal/new! directory repository module options root)))
+      "remove" (let [[directory module] arguments]
+                 (when-not (and directory module) (refuse usage))
+                 (println "Removed:" (book-proposal/remove! directory module options root)))
+      "replace" (let [[copy old new] arguments]
+                  (when-not (and copy old new) (refuse usage))
+                  (when (= "-" old new) (refuse "Only one of OLD and NEW may be standard input."))
+                  (println "Replaced in:" (book-proposal/replace! copy (read-replacement-text old) (read-replacement-text new))))
+      "land" (let [[target] arguments
+                   directory (if (fs/directory? target) target (str (fs/parent (fs/absolutize target))))]
+               (doseq [line (book-proposal/land! directory root)] (println line))))))
+
 (defn main [args]
   (try
     (let [[command path & more] args]
-      (when-not path (refuse "Usage: book-tools start SOURCE TITLE MODULE... | edit SOURCE MODULE ANCHOR --after | --replace-old OLD --replace-new NEW"))
+      (when-not path (refuse usage))
+      (if (#{"copy" "new" "remove" "replace" "land"} command)
+        (do (proposal-command command (rest args)) 0)
+      (do
       (case command
         "start" (do (when (fs/exists? path) (refuse (str "Source already exists: " path)))
                     (write-source path (start-source (first more) (rest more))
@@ -174,6 +224,6 @@
                               :else (refuse "Edit requires MODULE ANCHOR --after or --replace-old OLD --replace-new NEW."))]
                  (write-source path edited (partial checked path)))
         (refuse (str "Unknown command: " command)))
-      (println (str "Written: " path)) 0)
+      (println (str "Written: " path)) 0)))
     (catch Exception e (binding [*out* *err*] (println (ex-message e))) 1)))
 (when (= *file* (System/getProperty "babashka.file")) (System/exit (main *command-line-args*)))

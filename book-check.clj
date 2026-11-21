@@ -64,6 +64,28 @@
           (and (re-find file-path relative-path)
                (not-any? #(or (= % ".") (= % "..")) (str/split relative-path #"/" -1)))))))
 
+(defn module-name
+  "A module's name, <type>:<topic>:<version>, from its path in a belief repository
+  (vision/belief-modules/0.md is vision:belief-modules:0). A path that is not a
+  module's is its own name."
+  [path]
+  (if-let [[_ kind topic version] (re-matches #"([^/]+)/([^/]+)/([^/]+)\.md" path)]
+    (str kind ":" topic ":" version)
+    path))
+
+(defn module-display-name
+  "What a page calls a module: its name when its path is a module's, else `repository › path`."
+  [repository path]
+  (let [name (module-name path)]
+    (if (= name path) (str repository " › " path) name)))
+
+(defn module-path
+  "The path in a belief repository of the module a name gives, or nil when the
+  text is not a module's name."
+  [name]
+  (when-let [[_ kind topic version] (re-matches #"([a-z]+):([A-Za-z0-9][A-Za-z0-9_.-]*):((?:[0-9]+(?:-[0-9]+)?|all))" name)]
+    (str kind "/" topic "/" version ".md")))
+
 (def module-location #"^([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\s,›·]+)\z")
 ;; A module view is headed `## repo › path`, or `## repo › path, a new file` for a
 ;; module the view creates. This is the one definition of that heading: the
@@ -1623,6 +1645,13 @@
     (do (binding [*out* *err*]
           (println (json/generate-string {:errors [{:reason "one-absolute-source-path-required"}]})))
         2)
+    ;; A proposal directory is checked by its manifest and copies, in book-proposal.
+    (fs/directory? (first args))
+    (do (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-proposal.clj")))
+        (let [faults ((resolve 'book-proposal/check-directory) (first args) @(resolve 'book-proposal/repository-root))]
+          (if (seq faults)
+            (do (binding [*out* *err*] (println (json/generate-string {:errors faults}))) 1)
+            (do (println (json/generate-string {:checked true :source (first args)})) 0))))
     :else
     (let [source (try (slurp (first args)) (catch Exception _ nil))]
       (if (nil? source)

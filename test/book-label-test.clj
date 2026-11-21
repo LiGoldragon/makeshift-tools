@@ -109,5 +109,13 @@
     (is (= "{ Revisions [ { Panel 4 } { Purification 3 } ] }\n" (slurp labels)))
     (is (str/includes? (slurp source) "# Panel.4 · A title"))))
 
+(deftest a-proposal-directory-manifest-takes-the-label-in-its-title
+  (let [manifest (str "Manifest.{ «A title» Proposal\n[ Changed.{ «psyche-belief» «vision/a/0.md» «" (apply str (repeat 40 "a")) "» } ] }\n")
+        labelled (label manifest {:name "Panel"})]
+    (is (= "Panel.3" (:label labelled)))
+    (is (str/starts-with? (:source labelled) "Manifest.{ «Panel.3 · A title» Proposal\n"))
+    (is (= (subs manifest (count "Manifest.{ «A title» Proposal")) (subs (:source labelled) (count "Manifest.{ «Panel.3 · A title» Proposal"))) "the rest is untouched")
+    (is (= "Panel.3" (:label (label (:source labelled) {}))) "it keeps its label")))
+
 (let [{:keys [fail error]} (run-tests 'book-label-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

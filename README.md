@@ -4,20 +4,81 @@ Small Babashka (`bb`, 1.13) tools. Run from the repository root.
 
 ## Tools
 
-**book-tools.clj** creates an authenticated Proposal draft from current module
-views and edits it at an exact, unique anchor. Install the author, builder and
-checker together into a directory on PATH:
+**book-tools.clj** makes and lands a proposal. A proposal is a directory: one
+manifest and the edited copies of the modules it changes, read by the publisher as one page.
+Install the author, builder and checker together into a directory on PATH:
 
     ./install-book-tools ~/.local/bin
+    book-tools copy DIRECTORY vision:belief-modules:0 knowledge:book:0 --title TITLE [--kind Review]
+    book-tools new DIRECTORY REPOSITORY vision:fresh:0
+    book-tools remove DIRECTORY vision:old:0
+    book-tools replace COPY OLD NEW
+    book-tools land DIRECTORY
+    book-check /abs/DIRECTORY
+    book-build DIRECTORY OUT.html
+
+`copy` takes each module by its name, `<type>:<topic>:<version>`, finds its repository
+(`psyche-belief`, `mind-belief` or `field-belief`, refusing a name found in none or in
+several; `REPOSITORY › path` names any other file), and copies the module as it stands on
+origin main into `DIRECTORY/<repository>/<path>`, recording the revision it came from.
+`new` begins a module that does not exist as an empty copy to be written; `remove` names a
+module as removed. `--title` is needed when the directory is new, and `--kind` is Proposal
+(the default) or Review; both may be given again to change them. `replace` edits a copy
+without reading it: OLD and NEW are files, `-` being standard input for one of them, each
+without the one newline that ends it; the replacement is refused when OLD is absent or occurs
+twice, or when COPY is no copy of the directory. `land` applies each copy to its repository,
+into `--root` (the directory holding a checkout of each repository, `/git/github.com/LiGoldragon`
+by default), after reading the module as it stands now on origin main: where it has not moved
+since the recorded revision that is the copy itself; where it has, the difference between the
+copy and the recorded revision is applied to the module as it stands, and a part that does not
+apply refuses the whole landing, naming the module, with nothing written. A new module that
+already stands, and a removal of a module that has changed, are refused. `land` writes the
+files and commits nothing.
+
+The manifest, `DIRECTORY/manifest.datom`, is one datom: the title, the kind, and the entries in
+the order he reads the modules. The revision is the commit of the repository's origin main
+the copy was taken from; the modules are named by their paths, and a page names them by
+`<type>:<topic>:<version>`.
+
+```ethos
+Manifest.{ Title Kind Entries }
+Title.String
+Kind.[ Proposal Review ]
+Entries.Vector<Entry>
+Entry.[ Changed.{ Repository Path Revision }
+        New.{ Repository Path }
+        Removed.{ Repository Path Revision } ]
+Repository.String
+Path.String
+Revision.String
+```
+
+```datom
+Manifest.{ «Panel.1 · The book form» Proposal
+[ Changed.{ «psyche-belief» «vision/book/0.md» «0123456789abcdef0123456789abcdef01234567» }
+  New.{ «psyche-belief» «vision/book-copy/0.md» } ] }
+```
+
+`book-build DIRECTORY` and `book-check /abs/DIRECTORY` take the directory in place of a
+source. The builder compares each copy with the module at its recorded revision and shows the
+whole module under its name, every change marked in place: a replaced line read once with its
+changed words marked, added and removed lines under their margins, and a passage that leaves one
+copy and stands unchanged in another (a paragraph of at least `move-minimum-characters`, in
+`book-proposal.clj`) once, as moved, in the module it enters with a placeholder in the module it
+leaves. A new module shows whole as added and a removed one whole as removed. Unchanged lines stand
+as they are; figures and fences are drawn as in any page. A Review shows the same changes as
+landed. `book-label` labels a directory in the title of its manifest. A presentation that
+changes no module, an account among them, keeps its plain source, and a page already
+published from a source of `+` and `-` lines is built as before; `book-tools start` and `edit`
+write that older form. The installer takes `--repository CHECKOUT` and `--babashka EXECUTABLE`.
+Without installation, run `bb book-tools.clj` with the same arguments.
+
+The older form, a source of `+` and `-` lines:
+
     book-tools start SOURCE.md TITLE 'REPOSITORY › MODULE'...
     printf '%s\n' 'Added paragraph.' | book-tools edit SOURCE.md 'REPOSITORY › MODULE' ANCHOR --after
     book-tools edit SOURCE.md 'REPOSITORY › MODULE' ANCHOR --replace-old OLD --replace-new NEW
-    book-check /abs/SOURCE.md
-    book-build SOURCE.md OUT.html
 
-The installer takes `--repository CHECKOUT` and `--babashka EXECUTABLE`.
-Without installation, run `bb book-tools.clj` with the same arguments.
-Module locations use the checker's repository resolver and origin main.
 Start preserves an existing source; its draft deliberately has no changes yet,
 so the publication checker reports `missing-proposal` until an edit exists.
 After inserts stdin text after the anchor's containing line; replacement
@@ -28,8 +89,7 @@ arguments, an empty change or a checker-invalid result preserves the source.
 Markdown module views are editable; other views can be included by start.
 Other module views stay byte-identical. Validation precedes atomic replacement.
 
-
-**book-build.clj** builds a book's HTML page from its Markdown source.
+**book-build.clj** builds a book's HTML page from its Markdown source, or from a proposal directory.
 It reads `book-code.html` (page code), `book-grammars.json` and
 `book-fence-languages.json` from this directory.
 

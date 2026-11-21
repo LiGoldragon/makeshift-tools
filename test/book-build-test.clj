@@ -1295,7 +1295,7 @@
     (is (= 1 (count (re-seq #"<article class=\"proposal\">" html))) "the unmarked part stays landed")
     (is (= 1 (count (re-seq #"<article class=\"proposal proposed\">" html))) "the marked part carries the class")
     (is (not (str/includes? landed "proposed")) "the landed part is not marked")
-    (is (str/includes? html "<h2 class=\"target\"><code style=\"font-size:.95rem\">vision/book.md</code></h2></header>\n<aside class=\"comment\"") "the marker draws nothing of its own")
+    (is (str/includes? html "<h2 class=\"target\"><code style=\"font-size:.95rem\">psyche-belief › vision/book.md</code></h2></header>\n<aside class=\"comment\"") "the marker draws nothing of its own")
     (is (not (str/includes? html "::: proposed")))
     (is (str/includes? code ".proposal.proposed{--rail:transparent;--rail-width:0px}")
         "the class takes the single margin, over the review's double margin on the root")))
@@ -1523,7 +1523,7 @@
                                     "#### Proposal 1: Added · psyche-belief › vision/rule/0.md\n\n+ Added line.\n") "")]
     (is (str/includes? html "<section class=\"proposal in-place\">")
         "a proposal in place stands under its module's own heading")
-    (is (not (str/includes? html "vision:rule:0")) "and adds none")))
+    (is (= 1 (count (re-seq #"vision:rule:0" html))) "the module view's own heading, and no other")))
 
 (deftest a-comment-is-optional-and-renders-as-a-plain-note
   (let [html (book-build/build "# T\n\n### Proposal 1: A · psyche-belief › vision/a/0.md\n\n+ Added.\n" "")]

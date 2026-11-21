@@ -1,7 +1,7 @@
 ;; book-label.clj gives a presentation source its page label, `Panel.1 · title`:
 ;; a Pascal-case name that says the subject, a dot, and the page's revision
 ;; counting from 1.
-;; Run: bb book-label.clj SOURCE.md [--name Name] [--revise] [--labels LABELS.datom]
+;; Run: bb book-label.clj SOURCE.md|DIRECTORY [--name Name] [--revise] [--labels LABELS.datom]
 (ns book-label
   (:require [clojure.string :as str]))
 
@@ -12,6 +12,9 @@
 (def label-pattern #"^([A-Z][A-Za-z0-9]*)\.(\d+) · ")
 (def old-label-pattern #"^[A-Z]\d+ · ")
 (def presentation-pattern #"^Presentation\.\{ «([^»]*)»(?: (\w+))? \}$")
+;; A proposal directory's manifest holds the title on its first line.
+(def manifest-pattern #"^Manifest\.\{ «([^»]*)»(?: (\w+))?$")
+(def manifest-file "manifest.datom")
 
 ;; The configuration: one datom, the highest revision published per name.
 ;;   { Revisions [ { Panel 2 } { Purification 3 } ] }
@@ -56,7 +59,7 @@
            [nil []] lines)))
 
 (defn presentation [lines]
-  (some (fn [l] (when-let [m (re-find presentation-pattern l)]
+  (some (fn [l] (when-let [m (or (re-find presentation-pattern l) (re-find manifest-pattern l))]
                   {:title (m 1) :kind (or (m 2) "Proposal")}))
         (take-while #(not (re-find #"^#" %)) (remove str/blank? lines))))
 
@@ -77,7 +80,7 @@
 (defn- relabel-lines [lines label]
   (let [fences (outside-fences lines)
         h1 (first (keep-indexed (fn [i l] (when (and l (str/starts-with? l "# ")) i)) fences))
-        head (first (keep-indexed (fn [i l] (when (re-find presentation-pattern l) i)) lines))]
+        head (first (keep-indexed (fn [i l] (when (or (re-find presentation-pattern l) (re-find manifest-pattern l)) i)) lines))]
     (cond-> lines
       head (update head (fn [l] (str/replace-first l #"«([^»]*)»" (fn [[_ t]] (str "«" (titled label t) "»")))))
       h1 (update h1 (fn [l] (str "# " (titled label (subs l 2))))))))
@@ -113,8 +116,12 @@
           (labelled {:name name :revision (inc (recorded-revision revisions name))} true))))))
 
 (defn label-files!
-  "Label the source file, counting in the configuration file under its lock."
+  "Label the source file, or the manifest of a proposal directory, counting in the
+  configuration file under its lock."
   [source-path labels-path options]
+  (let [source-path (if (.isDirectory (java.io.File. (str source-path)))
+                      (str source-path "/" manifest-file)
+                      source-path)]
   (with-open [file (java.io.RandomAccessFile. (str labels-path) "rw")
               lock (.lock (.getChannel file))]
     (let [text (slurp (str labels-path) :encoding "UTF-8")
@@ -122,7 +129,7 @@
       (when (:new? result)
         (spit (str labels-path) (:config result) :encoding "UTF-8"))
       (spit (str source-path) (:source result) :encoding "UTF-8")
-      result)))
+      result))))
 
 (defn- option [args flag]
   (let [i (.indexOf args flag)] (when (>= i 0) (get args (inc i)))))
@@ -134,7 +141,7 @@
         revise (boolean (some #{"--revise"} args))
         source-path (first (remove (set (concat ["--labels" "--name" "--revise"] (keep #(option args %) ["--labels" "--name"]))) args))]
     (when-not source-path
-      (binding [*out* *err*] (println "usage: bb book-label.clj SOURCE.md [--name Name] [--revise] [--labels LABELS.datom]"))
+      (binding [*out* *err*] (println "usage: bb book-label.clj SOURCE.md|DIRECTORY [--name Name] [--revise] [--labels LABELS.datom]"))
       (System/exit 2))
     (try (println (:label (label-files! source-path labels-path {:name name :revise revise})))
          (catch Exception e
