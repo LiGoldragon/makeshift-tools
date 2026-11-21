@@ -1465,6 +1465,37 @@
             change (subvec para k)]
         (cond-> [] (seq head) (conj [:para head]) true (conj [:fence "text" change :per-line]))))))
 
+(defn- signed-only
+  "The lines of a block read line by line when every one carries the sign and
+  none is a code fence line; else nil."
+  [block sign]
+  (when (and (= :fence (first block)) (= :per-line (nth block 3 nil)))
+    (let [lines (nth block 2)]
+      (when (and (seq lines) (every? signed-line? lines)
+                 (every? #(= sign (subs % 0 1)) lines)
+                 (not-any? #(re-find #"^[-+~] ?(`{3}|~{3})" %) lines))
+        lines))))
+
+(defn pair-across-blank-lines
+  "A run of removed blocks followed by a run of added blocks, only blank lines
+  between them in the source, is one change: the blocks read as one block, a blank
+  line between paragraphs, so each removed paragraph pairs with the added
+  paragraph after it and marks its words, as when no blank line separates
+  them. A block holding a code fence line stays as it is, so a removed and an
+  added fence stay two figures."
+  [blocks]
+  (loop [bs (vec blocks) out []]
+    (if (empty? bs)
+      out
+      (let [removed (vec (take-while #(signed-only % "-") bs))
+            added (vec (take-while #(signed-only % "+") (drop (count removed) bs)))]
+        (if (and (seq removed) (seq added))
+          (recur (subvec bs (+ (count removed) (count added)))
+                 (conj out [:fence "text"
+                            (vec (apply concat (interpose [""] (map #(nth % 2) (concat removed added)))))
+                            :per-line]))
+          (recur (subvec bs 1) (conj out (first bs))))))))
+
 (def ^:private proposal-heading #"(?U)^#{2,3} (Proposal \d+): ")
 ;; The closing Questions section of a Proposal, Review or Account page.
 (def ^:private questions-heading #"^## Questions\s*\z")
@@ -1499,7 +1530,7 @@
                            [out para proposal]))]
     (loop [i 0 out* [] para* [] proposal* nil]
       (if (>= i n)
-        (first (close-in-place n (cond-> out* (seq para*) (into (flush para* proposal*))) [] nil))
+        (pair-across-blank-lines (first (close-in-place n (cond-> out* (seq para*) (into (flush para* proposal*))) [] nil)))
         (let [[out para proposal] (close-in-place i out* para* proposal*)]
         (if-let [{:keys [number] :as opened} (in-place i)]
           (recur (inc i) (-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-open opened]))

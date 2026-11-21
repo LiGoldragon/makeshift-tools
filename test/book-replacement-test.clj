@@ -119,4 +119,35 @@
     (is (= 1 (count errors)))
     (is (= "First old words. Second old words." (:removed (first errors))))
     (is (= "First new words. Second new words." (:added (first errors))))))
+
+(def recovered-removed "- The Flow Nexus holds a flow's state as the last of its transitions, each recorded with the event that caused it, for every harness alike.")
+(def recovered-added "+ The Flow Nexus holds a flow's state as the last of its transitions, each recorded with its cause, for every harness alike. When the Flow Nexus subscribes, the harness's Nexus answers with every session as it is observed now.")
+(defn proposal-source [& body]
+  (str "Presentation.{ «Blank» Review }\n\n# Blank\n\n### Proposal 1: Recovered · repo › a.md\n\n"
+       (str/join "\n" body) "\n"))
+(deftest a-blank-line-between-removed-and-added-paragraphs-keeps-their-word-marks
+  (let [together (book-build/build (proposal-source recovered-removed recovered-added) "")
+        apart (book-build/build (proposal-source recovered-removed "" recovered-added) "")]
+    (is (= together apart))
+    (is (str/includes? apart "class=\"del replacement-old\""))
+    (is (str/includes? apart "<del>the event that caused it</del>"))
+    (is (str/includes? apart "<ins>"))
+    (is (not (str/includes? apart "class=\"del\"")))
+    (is (not (str/includes? apart "class=\"add\"")))
+    (is (= [] (book-check/check-built-page apart)))))
+(deftest runs-of-paragraphs-pair-in-order-across-blank-lines
+  (let [html (book-build/build (proposal-source "- The old first rule." "" "- The old second rule."
+                                                "" "+ The new first rule." "" "+ The new second rule.") "")]
+    (is (str/includes? html "<p>The <del>old</del> first rule.</p>"))
+    (is (str/includes? html "<p>The <ins>new</ins> second rule.</p>"))
+    (is (= 4 (count (re-seq #"replacement-(?:old|new)" html))))))
+(deftest a-removed-and-an-added-fence-stay-two-figures-across-a-blank-line
+  (let [fence (fn [sign body] [(str sign " ```mermaid") (str sign " " body) (str sign " ```")])
+        source (proposal-source (str/join "\n" (fence "-" "flowchart TB; a-->b")) ""
+                                (str/join "\n" (fence "+" "flowchart TB; a-->c")))
+        fences (filter #(= :fence (first %)) (book-build/blocks source))]
+    (is (= 2 (count fences)))
+    (is (every? #(every? (fn [l] (str/starts-with? l (if (some (fn [x] (str/includes? x "a-->b")) (nth % 2)) "-" "+")))
+                         (nth % 2))
+                fences))))
 (let [{:keys [fail error]} (run-tests 'book-replacement-test)] (System/exit (if (zero? (+ fail error)) 0 1)))
