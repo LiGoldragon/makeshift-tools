@@ -242,5 +242,20 @@
     (is (= "Haiku" (:creator (book-proposal/read-directory-manifest (str (fs/path root "second"))))) "the creator is changed again")
     (is (str/includes? (page source) "<meta name=\"book-kind\" content=\"review\">"))))
 
+(deftest creator-is-added-to-a-directory-already-made
+  (let [root (make-root repositories)
+        directory (str (fs/path root "old"))
+        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T" :creator "Sonnet"} root)
+        path (book-proposal/manifest-path directory)
+        copy (slurp (copy-file directory "psyche-belief" "vision/first/0.md"))]
+    (spit path (str/replace-first (slurp path) " Proposal Sonnet\n" " Proposal\n"))
+    (is (thrown? Exception (book-proposal/read-directory-manifest directory)) "the older form is refused")
+    (is (thrown-with-msg? Exception #"Creator is one of" (book-proposal/set-creator! directory "Nobody")))
+    (book-proposal/set-creator! directory "Haiku")
+    (is (= "Haiku" (:creator (book-proposal/read-directory-manifest directory))))
+    (book-proposal/set-creator! directory "Fable")
+    (is (= "Fable" (:creator (book-proposal/read-directory-manifest directory))) "and changed again")
+    (is (= copy (slurp (copy-file directory "psyche-belief" "vision/first/0.md"))) "the copies are as they were")))
+
 (let [{:keys [fail error]} (run-tests 'book-proposal-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

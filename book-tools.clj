@@ -157,6 +157,7 @@
   (str "Usage: book-tools copy DIRECTORY MODULE... [--title TITLE] [--creator MODEL] [--kind Proposal|Review] [--root DIRECTORY]\n"
        "       book-tools new DIRECTORY REPOSITORY MODULE [--title TITLE] [--creator MODEL] [--kind Proposal|Review] [--root DIRECTORY]\n"
        "       book-tools remove DIRECTORY MODULE [--title TITLE] [--creator MODEL] [--kind Proposal|Review] [--root DIRECTORY]\n"
+       "       book-tools creator DIRECTORY MODEL      (names the creator of a directory already made)\n"
        "       book-tools replace COPY OLD NEW      (OLD and NEW are files; - is standard input)\n"
        "       book-tools land DIRECTORY [--root DIRECTORY]\n"
        "       book-tools source DIRECTORY [--root DIRECTORY]      (prints the book source the builder reads)\n"
@@ -192,6 +193,9 @@
       "remove" (let [[directory module] arguments]
                  (when-not (and directory module) (refuse usage))
                  (println "Removed:" (book-proposal/remove! directory module options root)))
+      "creator" (let [[directory creator] arguments]
+                  (when-not (and directory creator) (refuse usage))
+                  (println "Creator:" (book-proposal/set-creator! directory creator)))
       "replace" (let [[copy old new] arguments]
                   (when-not (and copy old new) (refuse usage))
                   (when (= "-" old new) (refuse "Only one of OLD and NEW may be standard input."))
@@ -207,7 +211,7 @@
   (try
     (let [[command path & more] args]
       (when-not path (refuse usage))
-      (if (#{"copy" "new" "remove" "replace" "land" "source"} command)
+      (if (#{"copy" "new" "remove" "creator" "replace" "land" "source"} command)
         (do (proposal-command command (rest args)) 0)
       (do
       (case command

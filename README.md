@@ -12,6 +12,7 @@ Install the author, builder and checker together into a directory on PATH:
     book-tools copy DIRECTORY vision:belief-modules:0 knowledge:book:0 --title TITLE --creator MODEL [--kind Review]
     book-tools new DIRECTORY REPOSITORY vision:fresh:0
     book-tools remove DIRECTORY vision:old:0
+    book-tools creator DIRECTORY MODEL
     book-tools replace COPY OLD NEW
     book-tools land DIRECTORY
     book-tools source DIRECTORY
@@ -25,7 +26,8 @@ origin main into `DIRECTORY/<repository>/<path>`, recording the revision it came
 `new` begins a module that does not exist as an empty copy to be written; `remove` names a
 module as removed. `--title` and `--creator` (the model that created the proposal, one of `subtitle-models` in
 `book-check.clj`) are needed when the directory is new, and `--kind` is Proposal
-(the default) or Review; each may be given again to change it. `replace` edits a copy
+(the default) or Review; each may be given again to change it. `creator` names the creating model in a directory already made, including one whose manifest
+has none, and leaves the copies as they are. `replace` edits a copy
 without reading it: OLD and NEW are files, `-` being standard input for one of them, each
 without the one newline that ends it; the replacement is refused when OLD is absent or occurs
 twice, or when COPY is no copy of the directory. `land` applies each copy to its repository,

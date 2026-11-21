@@ -131,6 +131,18 @@
 (defn- write-directory-manifest! [directory manifest]
   (spit (manifest-path directory) (manifest-text manifest) :encoding "UTF-8"))
 
+(defn set-creator!
+  "Name the creating model in an existing proposal directory, whose manifest may be of the
+  older form with no creator. The copies are not touched."
+  [directory creator]
+  (when-not (some #{creator} book-check/subtitle-models)
+    (refuse (str "Creator is one of " (str/join ", " book-check/subtitle-models) ", not " creator)))
+  (let [text (slurp (manifest-path directory) :encoding "UTF-8")
+        headed (str/replace-first text #"^(Manifest\.\{ «[^»]*» (?:Proposal|Review))(?: [A-Za-z]+)?(?=\n)"
+                                  (str "$1 " creator))]
+    (write-directory-manifest! directory (read-manifest headed))
+    creator))
+
 (defn copy-path
   "Where the copy of an entry's module lies in the proposal directory."
   [directory {:keys [repository path]}] (str (fs/path directory repository path)))
