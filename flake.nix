@@ -57,6 +57,9 @@
             export PATH=${pkgs.lib.makeBinPath (runtimeInputs pkgs)}:$PATH
             export BOOK_ETHOS=${environment.BOOK_ETHOS}
             export BOOK_GRAMMARS=${environment.BOOK_GRAMMARS}
+            # tree-sitter keeps one compiled parser per language name in its cache;
+            # a cache of this package's own grammars cannot hold another version's parser.
+            export XDG_CACHE_HOME="''${XDG_CACHE_HOME:-$HOME/.cache}/book-tools/$(basename "$BOOK_GRAMMARS" | cut -c1-32)"
             exec bb ${self}/${name}.clj "$@"
           '';
         in pkgs.symlinkJoin {
