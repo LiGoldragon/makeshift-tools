@@ -1287,5 +1287,13 @@
       (is (str/includes? err "refusal notice not sent"))
       (is (false? sent)))))
 
+(deftest a-figures-own-title-is-no-page-heading
+  (let [page (fn [& lines] (str "<article class=\"module diff\">\n" (str/join "\n" lines) "\n</article>\n"))
+        reasons #(map :reason (book-check/check-built-page %))]
+    (is (empty? (reasons (page "<svg viewBox=\"0 0 1 1\"><title>A figure</title></svg>"))) "one line")
+    (is (empty? (reasons (page "<svg viewBox=\"0 0 1 1\">" "<title>A figure</title>" "</svg>"))) "several lines")
+    (is (= ["book-heading-inside-module-view"] (reasons (page "<svg></svg>" "<title>The page</title>"))) "a page title still refused")
+    (is (= ["book-heading-inside-module-view"] (reasons (page "<svg><title>x</title></svg><title>The page</title>"))))))
+
 (let [{:keys [fail error]} (run-tests 'book-check-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

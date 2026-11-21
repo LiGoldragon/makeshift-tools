@@ -257,5 +257,32 @@
     (is (= "Fable" (:creator (book-proposal/read-directory-manifest directory))) "and changed again")
     (is (= copy (slurp (copy-file directory "psyche-belief" "vision/first/0.md"))) "the copies are as they were")))
 
+(deftest figures-are-numbered-as-the-builder-numbers-them
+  (let [with-figure (str "---\ndescription: Drawn.\ndependencies: []\n---\n\n# Drawn\n\n"
+                         "```mermaid\nflowchart LR\n    a --> b\n```\n\nText.\n\n"
+                         "```mermaid\nflowchart LR\n    c --> d\n```\n")
+        root (make-root {"psyche-belief" {"vision/drawn/0.md" with-figure}})
+        directory (str (fs/path root "proposal"))
+        _ (book-proposal/copy! directory ["vision:drawn:0"] {:title "T" :creator "Sonnet"} root)
+        _ (book-proposal/replace! (copy-file directory "psyche-belief" "vision/drawn/0.md") "    a --> b" "    a --> z")
+        figures (book-build/directory-figures directory root)]
+    (is (= [1 2 3] (keys figures)) "the old figure, the new figure, then the unchanged one")
+    (is (= ["flowchart LR" "    a --> b"] (:lines (figures 1))))
+    (is (= ["flowchart LR" "    a --> z"] (:lines (figures 2))))
+    (is (= ["flowchart LR" "    c --> d"] (:lines (figures 3))))
+    (is (every? :mermaid? (vals figures)))))
+
+(deftest source-output-is-not-cut-by-a-pipe
+  (let [big (str "---\ndescription: Big.\ndependencies: []\n---\n\n# Big\n\n"
+                 (apply str (for [n (range 900)] (str "Line number " n " of a module larger than a pipe buffer.\n\n"))))
+        root (make-root {"psyche-belief" {"vision/big/0.md" big}})
+        directory (str (fs/path root "proposal"))
+        _ (book-proposal/copy! directory ["vision:big:0"] {:title "T" :creator "Sonnet"} root)
+        expected (book-proposal/directory-source directory root)
+        {:keys [out]} @(process/process ["bb" (str (fs/path tools-directory "book-tools.clj")) "source" directory "--root" root]
+                                         {:out :string :err :string})]
+    (is (< 24576 (count expected)) "the source is larger than the cut seen")
+    (is (= (count expected) (count out)) "a piped book-tools source holds all of it")))
+
 (let [{:keys [fail error]} (run-tests 'book-proposal-test)]
   (System/exit (if (zero? (+ fail error)) 0 1)))

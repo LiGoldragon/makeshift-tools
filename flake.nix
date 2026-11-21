@@ -79,6 +79,7 @@
             packages = testInputs pkgs;
             shellHook = ''
               export XDG_CACHE_HOME="$(mktemp -d)"
+              export BOOK_NOTICE_CONFIGURATION="$PWD/test/refusal-notice-off.datom"
             '';
           });
         });

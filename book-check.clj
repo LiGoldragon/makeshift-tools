@@ -1639,17 +1639,30 @@
   [html]
   (loop [lines (map-indexed vector (str/split-lines html))
          in-module false
+         in-figure false
          errors []]
     (if-let [[index line] (first lines)]
       (let [opened (str/includes? line "<article class=\"module diff\">")
             here (or in-module opened)
+            ;; a figure is an SVG, whose own <title> names it: it is no heading of the page,
+            ;; so only the line's text outside every figure is read
+            outside (let [rest-of (if in-figure
+                                    (if-let [at (str/index-of line "</svg>")] (subs line (+ at 6)) "")
+                                    line)
+                          closed-out (str/replace rest-of #"<svg\b.*?</svg>" "")]
+                      (if-let [at (str/index-of closed-out "<svg")] (subs closed-out 0 at) closed-out))
+            figure (let [rest-of (if in-figure
+                                   (if-let [at (str/index-of line "</svg>")] (subs line (+ at 6)) nil)
+                                   line)]
+                     (boolean (and rest-of (re-find #"<svg\b" (str/replace rest-of #"<svg\b.*?</svg>" "")))))
+            figure (or figure (and in-figure (not (str/includes? line "</svg>"))))
             bad (when here
                   (cond
-                    (str/includes? line "<meta ") "meta"
-                    (str/includes? line "<title>") "title"
-                    (str/includes? line "<h1 class=\"book-title\">") "h1.book-title"))
+                    (str/includes? outside "<meta ") "meta"
+                    (str/includes? outside "<title>") "title"
+                    (str/includes? outside "<h1 class=\"book-title\">") "h1.book-title"))
             closed (and here (str/includes? line "</article>"))]
-        (recur (next lines) (and here (not closed))
+        (recur (next lines) (and here (not closed)) figure
                (cond-> errors bad (conj {:line (inc index)
                                          :reason "book-heading-inside-module-view"
                                          :element bad}))))
@@ -1707,7 +1720,13 @@
     ;; A proposal directory is checked by its manifest and copies, in book-proposal.
     (fs/directory? (first args))
     (do (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-proposal.clj")))
-        (let [faults ((resolve 'book-proposal/check-directory) (first args) @(resolve 'book-proposal/repository-root))]
+        (let [structural ((resolve 'book-proposal/check-directory) (first args) @(resolve 'book-proposal/repository-root))
+              ;; the directory the checker passes is one the builder reads: all but the figures' presence
+              faults (if (seq structural)
+                       structural
+                       (do (System/setProperty "book-check.nested" "true") ; book-build loads this file again, which must not run main
+                           (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-build.clj")))
+                           ((resolve 'book-build/directory-page-faults) (first args))))]
           (if (seq faults)
             (let [refusal (json/generate-string {:errors faults})]
               (binding [*out* *err*] (println refusal))
@@ -1728,5 +1747,7 @@
               1)
             (do (println (json/generate-string {:checked true :source (first args)})) 0)))))))
 
-(when (= *file* (System/getProperty "babashka.file"))
-  (System/exit (main *command-line-args*)))
+(when (and (= *file* (System/getProperty "babashka.file")) (nil? (System/getProperty "book-check.nested")))
+  (let [exit-code (main *command-line-args*)]
+    (flush)
+    (System/exit exit-code)))

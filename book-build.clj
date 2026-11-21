@@ -2115,6 +2115,11 @@
       (vec (concat (take head parts) [colour-key] (drop head parts))))
     parts))
 
+(def ^:dynamic *figure-sink*
+  "An atom, or nil. When set, the figures the build wants are recorded in it, each by its number
+  as {:lines :mermaid?}, and none is read: the build checks everything but that the figures are present."
+  nil)
+
 (defn build [src code]
   (let [nfig (or *shared-figure-counter* (volatile! 0))
         heading-where (volatile! nil)
@@ -2133,6 +2138,9 @@
                      (let [n (vswap! nfig inc)
                            name (str "fig-" n ".svg")
                            f (when *figures-dir* (fs/path *figures-dir* name))]
+                       (cond
+                         *figure-sink* (do (swap! *figure-sink* assoc n {:lines (vec lines) :mermaid? required?}) "")
+                         :else
                        (if (and f (fs/exists? f))
                          (let [svg (slurp (str f) :encoding "UTF-8")]
                            (try (illustration-el svg (str "f" n "-"))
@@ -2148,7 +2156,7 @@
                                            {:figure name}))
                            (do (binding [*out* *err*]
                                  (println (str "book-build: figure " name " not found; diagram " n " left out")))
-                               "")))))
+                               ""))))))
         show-fig (fn [lines] (render-fig lines false))
         show-mermaid (fn [lines] (render-fig lines true))
         module-figures (fn [drawing] {:drawing drawing :mermaid show-mermaid})
@@ -2568,6 +2576,27 @@
                                  " figures")
                             {:kind :figure-unused :figures unused})))))
       page)))
+
+(defn directory-figures
+  "The figures the page of a proposal directory wants, {number {:lines :mermaid?}} in the
+  builder's own numbering; throws what the builder refuses. Nothing is read of any figure."
+  ([directory] (directory-figures directory book-proposal/repository-root))
+  ([directory root]
+  (let [sink (atom (sorted-map))]
+    (binding [*source-path* directory
+              *figure-sink* sink
+              *enforce-ethos* true
+              *changed-ethos-is-fragment* true]
+      (build (book-proposal/directory-source directory root)
+             (slurp (str (fs/path script-dir "book-code.html")) :encoding "UTF-8")))
+    @sink)))
+
+(defn directory-page-faults
+  "What the builder refuses of a proposal directory, as [{:reason ...}], with the figures
+  taken as present; empty when the directory builds."
+  [directory]
+  (try (directory-figures directory) []
+       (catch clojure.lang.ExceptionInfo e [{:reason (ex-message e)}])))
 
 (defn read-text
   "Read a UTF-8 file with newlines normalised to \\n."

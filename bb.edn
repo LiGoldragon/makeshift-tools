@@ -6,7 +6,7 @@
    :task (let [tests (sort (map str (fs/glob "test" "*-test.clj")))
                failed (remove (fn [t]
                                 (println "==" t)
-                                (zero? (:exit (shell {:continue true} "bb" t))))
+                                (zero? (:exit (shell {:continue true :extra-env {"BOOK_NOTICE_CONFIGURATION" (str (fs/absolutize "test/refusal-notice-off.datom"))}} "bb" t))))
                               tests)]
            (when (seq failed)
              (println "FAILED:" (clojure.string/join " " failed))

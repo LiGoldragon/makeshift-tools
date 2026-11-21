@@ -161,6 +161,7 @@
        "       book-tools replace COPY OLD NEW      (OLD and NEW are files; - is standard input)\n"
        "       book-tools land DIRECTORY [--root DIRECTORY]\n"
        "       book-tools source DIRECTORY [--root DIRECTORY]      (prints the book source the builder reads)\n"
+       "       book-tools figures DIRECTORY OUTDIR      (writes each figure the builder wants as fig-N.mmd, or fig-N.txt for a drawing)\n"
        "       book-tools start SOURCE TITLE MODULE... | edit SOURCE MODULE ANCHOR --after | --replace-old OLD --replace-new NEW"))
 
 (defn split-options
@@ -200,6 +201,14 @@
                   (when-not (and copy old new) (refuse usage))
                   (when (= "-" old new) (refuse "Only one of OLD and NEW may be standard input."))
                   (println "Replaced in:" (book-proposal/replace! copy (read-replacement-text old) (read-replacement-text new))))
+      "figures" (let [[directory output] arguments]
+                  (when-not (and directory output) (refuse usage))
+                  (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-build.clj")))
+                  (fs/create-dirs output)
+                  (doseq [[number {:keys [lines mermaid?]}] ((resolve 'book-build/directory-figures) directory)
+                          :let [file (str (fs/path output (str "fig-" number (if mermaid? ".mmd" ".txt"))))]]
+                    (spit file (str (str/join "\n" lines) "\n") :encoding "UTF-8")
+                    (println "Figure:" file)))
       "source" (let [[directory] arguments]
                  (when-not directory (refuse usage))
                  (print (book-proposal/directory-source directory root)))
@@ -211,7 +220,7 @@
   (try
     (let [[command path & more] args]
       (when-not path (refuse usage))
-      (if (#{"copy" "new" "remove" "creator" "replace" "land" "source"} command)
+      (if (#{"copy" "new" "remove" "creator" "replace" "land" "source" "figures"} command)
         (do (proposal-command command (rest args)) 0)
       (do
       (case command
@@ -234,4 +243,8 @@
         (refuse (str "Unknown command: " command)))
       (println (str "Written: " path)) 0)))
     (catch Exception e (binding [*out* *err*] (println (ex-message e))) 1)))
-(when (= *file* (System/getProperty "babashka.file")) (System/exit (main *command-line-args*)))
+(when (= *file* (System/getProperty "babashka.file"))
+  (let [exit-code (main *command-line-args*)]
+    ;; standard output into a pipe is buffered, and System/exit does not flush it
+    (flush)
+    (System/exit exit-code)))
