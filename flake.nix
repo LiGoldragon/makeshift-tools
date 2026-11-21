@@ -47,7 +47,28 @@
         ));
         FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
       };
+      runtimeInputs = pkgs: with pkgs; [ babashka git nix coreutils tree-sitter stdenv.cc ];
+      # The installed commands: each runs the checkout's script with the pinned
+      # babashka, tree-sitter, compiler, ethos-zero and grammars on its path.
+      bookTools = pkgs:
+        let
+          environment = testEnvironment pkgs;
+          command = name: pkgs.writeShellScriptBin name ''
+            export PATH=${pkgs.lib.makeBinPath (runtimeInputs pkgs)}:$PATH
+            export BOOK_ETHOS=${environment.BOOK_ETHOS}
+            export BOOK_GRAMMARS=${environment.BOOK_GRAMMARS}
+            exec bb ${self}/${name}.clj "$@"
+          '';
+        in pkgs.symlinkJoin {
+          name = "book-tools";
+          paths = map command [ "book-tools" "book-build" "book-check" ];
+        };
     in {
+      packages = forSystems (system: {
+        default = bookTools nixpkgs.legacyPackages.${system};
+        book-tools = bookTools nixpkgs.legacyPackages.${system};
+      });
+
       devShells = forSystems (system:
         let pkgs = nixpkgs.legacyPackages.${system};
         in {

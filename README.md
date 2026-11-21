@@ -80,7 +80,7 @@ as they are; figures and fences are drawn as in any page. A Review shows the sam
 landed. `book-label` labels a directory in the title of its manifest. A presentation that
 changes no module, an account among them, keeps its plain source, and a page already
 published from a source of `+` and `-` lines is built as before; `book-tools start` and `edit`
-write that older form. The installer takes `--repository CHECKOUT` and `--babashka EXECUTABLE`.
+write that older form. The installer takes `--repository CHECKOUT` and `--flake REFERENCE`: each installed command runs the flake's `book-tools` package, which carries babashka, tree-sitter, a compiler, git, ethos-zero and the grammars, so the tools run the same on every host (chromium and inotify-tools are for the tests, in `nix develop`).
 Without installation, run `bb book-tools.clj` with the same arguments.
 
 The older form, a source of `+` and `-` lines:

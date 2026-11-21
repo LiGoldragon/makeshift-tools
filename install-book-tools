@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Install the book commands from a chosen checkout into a chosen PATH directory."""
+"""Install the book commands into a chosen PATH directory, each running the flake package with its dependencies."""
 import argparse
 from pathlib import Path
 import shlex
+import subprocess
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("bin_directory", type=Path)
 parser.add_argument("--repository", type=Path, default=Path(__file__).resolve().parent)
-parser.add_argument("--babashka", default="bb")
+parser.add_argument("--flake", help="flake reference of the package to run, default the repository's committed tree")
 args = parser.parse_args()
 repository = args.repository.resolve()
 commands = {name: repository / (name + ".clj")
@@ -15,12 +16,14 @@ commands = {name: repository / (name + ".clj")
 for source in commands.values():
     if not source.is_file():
         parser.error(f"Missing source: {source}")
+flake = args.flake or "git+file://" + str(repository)
+built = subprocess.run(["nix", "build", "--no-link", "--print-out-paths", flake + "#book-tools"],
+                       check=True, capture_output=True, text=True).stdout.split()[-1]
 args.bin_directory.mkdir(parents=True, exist_ok=True)
 for name, source in commands.items():
     target = args.bin_directory / name
     if target.is_symlink():
         parser.error(f"Refusing to replace symlink: {target}")
-    target.write_text("#!/bin/sh\nexec " + shlex.quote(args.babashka) + " "
-                      + shlex.quote(str(source)) + ' "$@"\n')
+    target.write_text("#!/bin/sh\nexec " + shlex.quote(built + "/bin/" + name) + ' "$@"\n')
     target.chmod(0o755)
     print(target)
