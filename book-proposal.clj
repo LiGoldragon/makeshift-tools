@@ -59,7 +59,7 @@
 ;; ------------------------------------------------------------- manifest
 ;;
 ;; One datom in the proposal directory:
-;;   Manifest.{ «Title» Proposal
+;;   Manifest.{ «Title» Proposal Creator
 ;;   [ Changed.{ «repository» «path» «revision» }
 ;;     New.{ «repository» «path» }
 ;;     Removed.{ «repository» «path» «revision» } ] }
@@ -68,8 +68,8 @@
 (def state-names {:changed "Changed" :new "New" :removed "Removed"})
 (def kinds ["Proposal" "Review"])
 
-(defn manifest-text [{:keys [title kind entries]}]
-  (str "Manifest.{ «" title "» " kind "\n"
+(defn manifest-text [{:keys [title kind creator entries]}]
+  (str "Manifest.{ «" title "» " kind " " creator "\n"
        "[ " (str/join "\n  " (for [{:keys [state repository path revision]} entries]
                                (str (state-names state) ".{ «" repository "» «" path "»"
                                     (when revision (str " «" revision "»")) " }")))
@@ -98,17 +98,19 @@
       [forms nil])))
 
 (defn read-manifest
-  "The manifest a text holds: {:title :kind :entries [{:state :repository :path :revision}]}."
+  "The manifest a text holds: {:title :kind :creator :entries [{:state :repository :path :revision}]}."
   [text]
   (let [[forms rest-tokens] (read-forms (tokens text))
         [tag name inside] (first forms)]
     (when-not (and (= 1 (count forms)) (nil? rest-tokens) (= [:variant "Manifest"] [tag name]))
       (refuse "Manifest: one Manifest.{ ... } datom is expected."))
-    (let [[title kind entries] inside
+    (let [[title kind creator entries] inside
           entries (when (= :group (first entries)) (second entries))]
       (when-not (and (string? title) (some #{kind} kinds) entries)
-        (refuse "Manifest: Manifest.{ «Title» Proposal|Review [ entries ] } is expected."))
-      {:title title :kind kind
+        (refuse "Manifest: Manifest.{ «Title» Proposal|Review Creator [ entries ] } is expected."))
+      (when-not (some #{creator} book-check/subtitle-models)
+        (refuse (str "Manifest: the creator is one of " (str/join ", " book-check/subtitle-models) ".")))
+      {:title title :kind kind :creator creator
        :entries (vec (for [[_ state-name fields] entries
                            :let [state (some (fn [[state name]] (when (= name state-name) state)) state-names)
                                  [repository path revision] fields]]
@@ -168,16 +170,20 @@
 
 (defn- start-manifest
   "The manifest of a proposal directory, made when the directory has none."
-  [directory {:keys [title kind]}]
+  [directory {:keys [title kind creator]}]
   (if (fs/exists? (manifest-path directory))
     (read-directory-manifest directory)
     (do (when-not title (refuse "A new proposal directory needs --title."))
+        (when-not creator (refuse "A new proposal directory needs --creator."))
         (fs/create-dirs directory)
-        {:title (clean-title title) :kind (or kind "Proposal") :entries []})))
+        {:title (clean-title title) :kind (or kind "Proposal") :creator creator :entries []})))
 
-(defn- with-options [manifest {:keys [title kind]}]
+(defn- with-options [manifest {:keys [title kind creator]}]
   (cond-> manifest
     title (assoc :title (clean-title title))
+    creator (assoc :creator (if (some #{creator} book-check/subtitle-models)
+                              creator
+                              (refuse (str "Creator is one of " (str/join ", " book-check/subtitle-models) ", not " creator))))
     kind (assoc :kind (if (some #{kind} kinds) kind (refuse (str "Kind is Proposal or Review, not " kind))))))
 
 (defn- same-module? [a b] (and (= (:repository a) (:repository b)) (= (:path a) (:path b))))
@@ -680,7 +686,7 @@
   "The book source a proposal directory shows: its title and kind, then each module of the
   manifest, in its order, as a whole module view."
   [directory root]
-  (let [{:keys [title kind entries]} (read-directory-manifest directory)
+  (let [{:keys [title kind creator entries]} (read-directory-manifest directory)
         state (if (= kind "Review") "landed" "proposed")
         counter (atom 0)
         next-number! #(swap! counter inc)
@@ -694,7 +700,7 @@
                       entries)
         moves (numbered-moves modules next-number!)
         index (move-index modules moves)]
-    (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\n"
+    (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\nCreated by " creator ".\n\n"
          (str/join "\n" (mapcat #(concat (module-view modules index % state next-number!) [""])
                                 (range (count modules)))))))
 

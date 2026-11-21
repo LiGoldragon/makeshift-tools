@@ -13,7 +13,7 @@
 (def old-label-pattern #"^[A-Z]\d+ · ")
 (def presentation-pattern #"^Presentation\.\{ «([^»]*)»(?: (\w+))? \}$")
 ;; A proposal directory's manifest holds the title on its first line.
-(def manifest-pattern #"^Manifest\.\{ «([^»]*)»(?: (\w+))?$")
+(def manifest-pattern #"^Manifest\.\{ «([^»]*)»(?: (\w+))?(?: \w+)?$")
 (def manifest-file "manifest.datom")
 
 ;; The configuration: one datom, the highest revision published per name.

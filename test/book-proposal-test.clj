@@ -59,20 +59,21 @@
 (defn- copy-file [directory repository path] (str (fs/path directory repository path)))
 
 (deftest the-manifest-is-one-small-datom
-  (let [manifest {:title "A title" :kind "Review"
+  (let [manifest {:title "A title" :kind "Review" :creator "Luna"
                   :entries [{:state :changed :repository "psyche-belief" :path "vision/a/0.md" :revision (apply str (repeat 40 "a"))}
                             {:state :new :repository "mind-belief" :path "knowledge/b/0.md"}
                             {:state :removed :repository "psyche-belief" :path "vision/c/0.md" :revision (apply str (repeat 40 "b"))}]}]
     (is (= manifest (book-proposal/read-manifest (book-proposal/manifest-text manifest))) "it reads back as written")
-    (is (str/starts-with? (book-proposal/manifest-text manifest) "Manifest.{ «A title» Review\n"))
-    (doseq [bad ["" "Manifest.{ «T» Essay [ ] }" "Manifest.{ «T» Proposal [ Changed.{ «r» «p» } ] }"
-                 "Manifest.{ «T» Proposal [ New.{ «r» «p» «x» } ] }" "Other.{ «T» Proposal [ ] }"]]
+    (is (str/starts-with? (book-proposal/manifest-text manifest) "Manifest.{ «A title» Review Luna\n"))
+    (doseq [bad ["" "Manifest.{ «T» Essay Luna [ ] }" "Manifest.{ «T» Proposal Luna [ Changed.{ «r» «p» } ] }"
+                 "Manifest.{ «T» Proposal Luna [ New.{ «r» «p» «x» } ] }" "Other.{ «T» Proposal Luna [ ] }"
+                 "Manifest.{ «T» Proposal [ ] }" "Manifest.{ «T» Proposal Nobody [ ] }"]]
       (is (thrown? Exception (book-proposal/read-manifest bad)) bad))))
 
 (deftest copy-takes-a-module-by-its-name-and-records-its-revision
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        copied (book-proposal/copy! directory ["vision:first:0" "knowledge:third:0"] {:title "T"} root)
+        copied (book-proposal/copy! directory ["vision:first:0" "knowledge:third:0"] {:title "T" :creator "Sonnet"} root)
         manifest (book-proposal/read-directory-manifest directory)
         revision (str/trim (sh (fs/path root "psyche-belief") "rev-parse" "HEAD"))]
     (is (= 2 (count copied)))
@@ -84,16 +85,18 @@
     (is (thrown-with-msg? Exception #"already holds" (book-proposal/copy! directory ["vision:first:0"] {} root)) "a module once")
     (is (thrown-with-msg? Exception #"stands in none" (book-proposal/copy! directory ["vision:nothing:0"] {} root)))
     (is (thrown-with-msg? Exception #"Not a module name" (book-proposal/copy! directory ["nonsense"] {} root)))
-    (is (thrown-with-msg? Exception #"needs --title" (book-proposal/copy! (str (fs/path root "other")) ["vision:first:0"] {} root)))
+    (is (thrown-with-msg? Exception #"needs --title" (book-proposal/copy! (str (fs/path root "other")) ["vision:first:0"] {:creator "Sonnet"} root)))
+    (is (thrown-with-msg? Exception #"needs --creator" (book-proposal/copy! (str (fs/path root "other")) ["vision:first:0"] {:title "T"} root)))
+    (is (thrown-with-msg? Exception #"Creator is one of" (book-proposal/copy! (str (fs/path root "other")) ["vision:first:0"] {:title "T" :creator "Nobody"} root)))
     (testing "a module that stands in two repositories is refused"
       (commit! root "mind-belief" {"vision/first/0.md" module-a} "same module")
       (is (thrown-with-msg? Exception #"several repositories"
-                            (book-proposal/copy! (str (fs/path root "again")) ["vision:first:0"] {:title "T"} root))))))
+                            (book-proposal/copy! (str (fs/path root "again")) ["vision:first:0"] {:title "T" :creator "Sonnet"} root))))))
 
 (deftest replace-is-exact-and-unique
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T"} root)
+        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T" :creator "Sonnet"} root)
         file (copy-file directory "psyche-belief" "vision/first/0.md")]
     (book-proposal/replace! file "The rule is old" "The rule is new")
     (is (str/includes? (slurp file) "The rule is new and it stands"))
@@ -109,7 +112,7 @@
 (deftest land-applies-the-difference-to-the-module-as-it-stands
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T"} root)
+        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T" :creator "Sonnet"} root)
         file (copy-file directory "psyche-belief" "vision/first/0.md")
         target (str (fs/path root "psyche-belief" "vision/first/0.md"))]
     (book-proposal/replace! file "The rule is old" "The rule is new")
@@ -133,7 +136,7 @@
 (deftest land-new-and-removed-modules
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T"} root)
+        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T" :creator "Sonnet"} root)
         _ (book-proposal/new! directory "psyche-belief" "vision:fresh:0" {} root)
         _ (book-proposal/remove! directory "vision:second:0" {} root)
         fresh (copy-file directory "psyche-belief" "vision/fresh/0.md")]
@@ -152,7 +155,7 @@
 (deftest a-directory-is-checked
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))]
-    (book-proposal/copy! directory ["vision:first:0"] {:title "T"} root)
+    (book-proposal/copy! directory ["vision:first:0"] {:title "T" :creator "Sonnet"} root)
     (is (= [] (book-proposal/check-directory directory root)))
     (fs/delete (copy-file directory "psyche-belief" "vision/first/0.md"))
     (is (= ["copy-missing"] (map :reason (book-proposal/check-directory directory root))))
@@ -166,7 +169,7 @@
 (deftest a-module-shows-whole-under-its-name-with-every-change-in-place
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/copy! directory ["vision:first:0"] {:title "A page"} root)
+        _ (book-proposal/copy! directory ["vision:first:0"] {:title "A page" :creator "Sonnet"} root)
         file (copy-file directory "psyche-belief" "vision/first/0.md")
         _ (book-proposal/replace! file "The rule is old and it stands" "The rule is new and it stands")
         _ (book-proposal/replace! file "- a bullet\n" "- a bullet\n- an added bullet\n")
@@ -185,7 +188,7 @@
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
         passage "A passage long enough to be seen as one that moved to another module."
-        _ (book-proposal/copy! directory ["vision:first:0" "vision:second:0"] {:title "T"} root)
+        _ (book-proposal/copy! directory ["vision:first:0" "vision:second:0"] {:title "T" :creator "Sonnet"} root)
         _ (book-proposal/replace! (copy-file directory "psyche-belief" "vision/first/0.md") (str passage "\n\n") "")
         _ (book-proposal/replace! (copy-file directory "psyche-belief" "vision/second/0.md")
                                   "The home of the second module.\n"
@@ -201,7 +204,7 @@
 (deftest a-new-module-shows-whole-as-added-and-a-removed-one-whole-as-removed
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/new! directory "psyche-belief" "vision:fresh:0" {:title "T"} root)
+        _ (book-proposal/new! directory "psyche-belief" "vision:fresh:0" {:title "T" :creator "Sonnet"} root)
         _ (write-text (copy-file directory "psyche-belief" "vision/fresh/0.md")
                       "---\ndescription: Fresh one.\ndependencies: [vision:first:0]\n---\n\n# Fresh\n\nNew text.\n\n```text\ncode\n```\n")
         _ (book-proposal/remove! directory "vision:second:0" {} root)
@@ -217,7 +220,7 @@
   (let [module (str "# Code\n\nIntro line.\n\n```text\nfirst\nsecond\nthird\n```\n\n- listed\n- also listed\n")
         root (make-root {"psyche-belief" {"vision/code/0.md" module}})
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/copy! directory ["vision:code:0"] {:title "T"} root)
+        _ (book-proposal/copy! directory ["vision:code:0"] {:title "T" :creator "Sonnet"} root)
         file (copy-file directory "psyche-belief" "vision/code/0.md")
         _ (book-proposal/replace! file "second" "SECOND")
         _ (book-proposal/replace! file "Intro line." "Intro line changed.")
@@ -229,10 +232,14 @@
 (deftest a-review-shows-the-changes-as-landed
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
-        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T" :kind "Review"} root)
+        _ (book-proposal/copy! directory ["vision:first:0"] {:title "T" :creator "Sonnet" :kind "Review"} root)
         _ (book-proposal/replace! (copy-file directory "psyche-belief" "vision/first/0.md") "The rule is old" "The rule is new")
         source (book-proposal/directory-source directory root)]
     (is (str/starts-with? source "Presentation.{ «T» Review }"))
+    (is (str/includes? source "# T\n\nCreated by Sonnet.\n\n") "the creator stands under the title")
+    (book-proposal/copy! (str (fs/path root "second")) ["vision:first:0"] {:title "T" :creator "Sonnet"} root)
+    (book-proposal/remove! (str (fs/path root "second")) "vision:second:0" {:creator "Haiku"} root)
+    (is (= "Haiku" (:creator (book-proposal/read-directory-manifest (str (fs/path root "second"))))) "the creator is changed again")
     (is (str/includes? (page source) "<meta name=\"book-kind\" content=\"review\">"))))
 
 (let [{:keys [fail error]} (run-tests 'book-proposal-test)]

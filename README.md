@@ -9,7 +9,7 @@ manifest and the edited copies of the modules it changes, read by the publisher 
 Install the author, builder and checker together into a directory on PATH:
 
     ./install-book-tools ~/.local/bin
-    book-tools copy DIRECTORY vision:belief-modules:0 knowledge:book:0 --title TITLE [--kind Review]
+    book-tools copy DIRECTORY vision:belief-modules:0 knowledge:book:0 --title TITLE --creator MODEL [--kind Review]
     book-tools new DIRECTORY REPOSITORY vision:fresh:0
     book-tools remove DIRECTORY vision:old:0
     book-tools replace COPY OLD NEW
@@ -23,8 +23,9 @@ Install the author, builder and checker together into a directory on PATH:
 several; `REPOSITORY › path` names any other file), and copies the module as it stands on
 origin main into `DIRECTORY/<repository>/<path>`, recording the revision it came from.
 `new` begins a module that does not exist as an empty copy to be written; `remove` names a
-module as removed. `--title` is needed when the directory is new, and `--kind` is Proposal
-(the default) or Review; both may be given again to change them. `replace` edits a copy
+module as removed. `--title` and `--creator` (the model that created the proposal, one of `subtitle-models` in
+`book-check.clj`) are needed when the directory is new, and `--kind` is Proposal
+(the default) or Review; each may be given again to change it. `replace` edits a copy
 without reading it: OLD and NEW are files, `-` being standard input for one of them, each
 without the one newline that ends it; the replacement is refused when OLD is absent or occurs
 twice, or when COPY is no copy of the directory. `land` applies each copy to its repository,
@@ -37,15 +38,17 @@ already stands, and a removal of a module that has changed, are refused. `land` 
 files and commits nothing. `source` prints the book source the builder reads from the
 directory, where the figures are numbered.
 
-The manifest, `DIRECTORY/manifest.datom`, is one datom: the title, the kind, and the entries in
+The manifest, `DIRECTORY/manifest.datom`, is one datom: the title, the kind, the creating model, and the entries in
 the order he reads the modules. The revision is the commit of the repository's origin main
 the copy was taken from; the modules are named by their paths, and a page names them by
 `<type>:<topic>:<version>`.
 
 ```ethos
-Manifest.{ Title Kind Entries }
+Manifest.{ Title Kind Creator Entries }
 Title.String
 Kind.[ Proposal Review ]
+Creator.Model
+Model.[ Fable Opus Sonnet Haiku Astra Sol Luna Terra ]
 Entries.Vector<Entry>
 Entry.[ Changed.{ Repository Path Revision }
         New.{ Repository Path }
@@ -56,10 +59,13 @@ Revision.String
 ```
 
 ```datom
-Manifest.{ «Panel.1 · The book form» Proposal
+Manifest.{ «Panel.1 · The book form» Proposal Opus
 [ Changed.{ «psyche-belief» «vision/book/0.md» «0123456789abcdef0123456789abcdef01234567» }
   New.{ «psyche-belief» «vision/book-copy/0.md» } ] }
 ```
+
+`source` prints `Created by <Model>.` under the title; the checker refuses a manifest without a creator
+or with one that is no model.
 
 `book-build DIRECTORY` and `book-check /abs/DIRECTORY` take the directory in place of a
 source. The builder compares each copy with the module at its recorded revision and shows the

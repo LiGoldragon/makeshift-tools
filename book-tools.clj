@@ -154,9 +154,9 @@
       (edit-source source spec anchored-line :replace (str/replace-first anchored-line old new)))))
 
 (def usage
-  (str "Usage: book-tools copy DIRECTORY MODULE... [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
-       "       book-tools new DIRECTORY REPOSITORY MODULE [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
-       "       book-tools remove DIRECTORY MODULE [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
+  (str "Usage: book-tools copy DIRECTORY MODULE... [--title TITLE] [--creator MODEL] [--kind Proposal|Review] [--root DIRECTORY]\n"
+       "       book-tools new DIRECTORY REPOSITORY MODULE [--title TITLE] [--creator MODEL] [--kind Proposal|Review] [--root DIRECTORY]\n"
+       "       book-tools remove DIRECTORY MODULE [--title TITLE] [--creator MODEL] [--kind Proposal|Review] [--root DIRECTORY]\n"
        "       book-tools replace COPY OLD NEW      (OLD and NEW are files; - is standard input)\n"
        "       book-tools land DIRECTORY [--root DIRECTORY]\n"
        "       book-tools source DIRECTORY [--root DIRECTORY]      (prints the book source the builder reads)\n"
