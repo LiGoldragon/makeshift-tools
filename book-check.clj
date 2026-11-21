@@ -32,9 +32,25 @@
   (boolean (and (#{\+ \-} (first line))
                 (or (= 1 (count line)) (= \space (nth line 1))))))
 
+(defn changed-mermaid-sides
+  "[old new], each the source lines of a Mermaid figure whole, when a fence changes some of
+  its lines: a line opens with - (old only), + (new only) or two spaces (both), the sign
+  alone or a blank line is blank, at least one line is signed and at least one line is
+  two-space context; else nil."
+  [lines]
+  (let [context? #(str/starts-with? % "  ")
+        strip-sign #(if (< (count %) 2) "" (subs % 2))
+        sign-of #(when (signed-fence-line? %) (first %))]
+    (when (and (seq lines)
+               (every? #(or (str/blank? %) (context? %) (sign-of %)) lines)
+               (some sign-of lines) (some context? lines))
+      [(mapv strip-sign (remove #(= \+ (sign-of %)) lines))
+       (mapv strip-sign (remove #(= \- (sign-of %)) lines))])))
+
 (defn- coherent-signed-mermaid? [lines]
-  (and (seq lines) (every? signed-fence-line? lines)
-       (apply = (map first lines))))
+  (or (and (seq lines) (every? signed-fence-line? lines)
+           (apply = (map first lines)))
+      (boolean (changed-mermaid-sides lines))))
 
 (defn- ethos-fence-kind [lines]
   (let [nonblank (remove str/blank? lines)

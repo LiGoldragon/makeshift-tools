@@ -1008,6 +1008,10 @@
 
 (declare check-rendered-ethos! check-signed-ethos! guess-code-language)
 (def ^:dynamic *validate-rendered-ethos* true)
+(def ^:dynamic *changed-ethos-is-fragment*
+  "Whether a changed Ethos fence claims no whole-file validity: true for a proposal directory,
+  whose changed fence is a part of a module copy, and its types may be declared by another module."
+  false)
 (def ^:dynamic *rendered-ethos-reference* nil)
 
 (defn code-html
@@ -2063,7 +2067,7 @@
   [language lines]
   (let [head (some-> (str/join "\n" lines) strip-ethos-comments str/trim
                      (str/split #"[^A-Za-z0-9_]" 2) first)]
-    (when (or (ethos-roots head) (ethos-fragment-heads head))
+    (when (and (not *changed-ethos-is-fragment*) (or (ethos-roots head) (ethos-fragment-heads head)))
       (check-rendered-ethos! language lines))))
 
 (defn comment-html
@@ -2454,7 +2458,7 @@
                        (panel "-" [:fig (show-mermaid (removed-mermaid lang lines))]) "</div>"))
 
             ;; a figure proposed for the module it will live in: all + is added, all - removed
-            (and (in-change?) (signed-figure lang lines))
+            (and (or (in-change?) (= raw-lang "mermaid")) (signed-figure lang lines))
             (let [[sign stripped] (signed-figure lang lines)]
               (emit (str "<div class=\"diff\">"
                          (panel sign [:fig ((if (= lang "mermaid") show-mermaid show-fig) stripped)])
@@ -2463,9 +2467,16 @@
             (and (= lang "figure") (try (read-figure lines) (catch Exception _ nil)))
             (emit (show-fig lines))
 
+            ;; a figure changed in some lines: the old figure whole under the removed margin,
+            ;; then the new figure whole under the added margin
+            (and (= raw-lang "mermaid") (book-check/changed-mermaid-sides lines))
+            (let [[old new] (book-check/changed-mermaid-sides lines)]
+              (emit (str "<div class=\"diff\">" (panel "-" [:fig (show-mermaid old)])
+                         (panel "+" [:fig (show-mermaid new)]) "</div>")))
+
             ;; a Mermaid flowchart is a diagram: shown as its fig-N.svg
             (and (= raw-lang "mermaid") (some signed-line? lines))
-            (throw (ex-info "mixed Mermaid change: every line must carry the same + or - marker"
+            (throw (ex-info (str "mixed Mermaid change: every line must carry the same + or - marker " (pr-str (take 3 lines)))
                             {:kind :mixed-mermaid-change}))
 
             (= raw-lang "mermaid")
@@ -2600,7 +2611,8 @@
                          (do (check-directory! src-path)
                              (book-proposal/directory-source src-path book-proposal/repository-root))
                          (let [src (read-text src-path)] (check-source! src) src))]
-               (binding [*enforce-ethos* true]
+               (binding [*enforce-ethos* true
+                         *changed-ethos-is-fragment* directory?]
                  (spit out-path (build src (read-text code-path)) :encoding "UTF-8")))
              (catch clojure.lang.ExceptionInfo e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))

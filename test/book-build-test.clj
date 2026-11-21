@@ -878,6 +878,24 @@
          (is (not (re-find #"class=\"(add|del)\"" plain)) "an unsigned figure renders as before")
          (is (str/includes? plain "<div class=\"figure\""))))))
 
+;; A figure changed in some lines shows the old figure whole under the removed margin,
+;; then the new figure whole under the added margin.
+(deftest a-changed-mermaid-figure-shows-old-then-new
+  (let [source (str head "```mermaid\n  flowchart LR\n-     a --> b\n+     a --> c\n```\n")]
+    (with-figures {"fig-1.svg" a-to-b "fig-2.svg" a-to-b}
+      #(let [html (built source)]
+         (is (= 2 (count (re-seq #"<svg" html))) "two figures")
+         (is (< (str/index-of html "figmark fig-del") (str/index-of html "figmark fig-add")) "old then new")))))
+
+;; A changed Ethos fence of a proposal directory is a part of a module copy: no whole-file claim.
+(deftest a-directory-changed-ethos-fence-is-a-fragment
+  (let [calls (atom [])]
+    (binding [book-build/*enforce-ethos* true
+              book-build/*changed-ethos-is-fragment* true
+              book-build/*ethos-check* (fn [text] (swap! calls conj text) "Rejected.invalid")]
+      (book-build/build "### Proposal 1: Ethos · repo › x.ethos\n\n```ethos\n  Library\n  []\n- [ Old.Integer ]\n+ [ New.Integer ]\n  []\n  []\n  []\n```\n" ""))
+    (is (empty? @calls))))
+
 (deftest uniformly-signed-mermaid-renders-one-svg-in-its-change-margin
   (let [source (fn [sign] (str head "```mermaid\n"
                                sign " flowchart LR\n"

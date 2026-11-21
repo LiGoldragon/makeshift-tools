@@ -99,6 +99,8 @@
     (is (= [] (check (fence (str "+ flowchart LR\n+     a[\"" (rep "x" 70) "\"] --> b")))))
     (is (= [] (check (fence (str "- flowchart LR\n-     a[\"" (rep "x" 70) "\"] --> b")))))
     (is (= ["mixed-mermaid-change"] (reasons (fence "+ flowchart LR\n-     a --> b"))))
+    (is (= [] (check (fence "  flowchart LR\n-     a --> b\n+     a --> c"))) "a changed figure: context, old and new lines")
+    (is (= [] (check (fence "  flowchart LR\n+     a --> c"))) "a figure with a line added")
     (is (= ["mixed-mermaid-change"] (reasons (fence "+ flowchart LR\n\n+     a --> b")))
         "a bare blank is unmarked; write the sign alone for an intentional blank")
     (is (= [] (check (fence (str "flowchart LR\n    a[\"" (rep "x" 170) "\"] --> b"))))
