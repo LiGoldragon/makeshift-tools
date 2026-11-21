@@ -135,4 +135,14 @@
     (is (every? #(every? (fn [l] (str/starts-with? l (if (some (fn [x] (str/includes? x "a-->b")) (nth % 2)) "-" "+")))
                          (nth % 2))
                 fences))))
+(deftest code-fences-of-one-language-pair-across-a-blank-line-line-by-line
+  (let [fence (fn [sign lang & body] (concat [(str sign " ```" lang)] (map #(str sign " " %) body) [(str sign " ```")]))
+        built (fn [gap new-lang] (binding [book-build/*highlight* false]
+                                   (book-build/build (apply proposal-source (concat (fence "-" "rust" "let a = 1;" "let b = 2;") gap
+                                                                                    (fence "+" new-lang "let a = 2;" "let b = 2;"))) "")))
+        together (built [] "rust") apart (built [""] "rust")]
+    (is (= together apart))
+    (is (= 2 (count (re-seq #"ln ln-replace" apart))))
+    (is (str/includes? apart "let a = <del>1</del><ins>2</ins>;"))
+    (is (not (str/includes? apart "class=\"del\"")))))
 (let [{:keys [fail error]} (run-tests 'book-replacement-test)] (System/exit (if (zero? (+ fail error)) 0 1)))

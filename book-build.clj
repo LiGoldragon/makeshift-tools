@@ -1463,13 +1463,13 @@
 
 (defn- signed-only
   "The lines of a block read line by line when every one carries the sign and
-  none is a code fence line; else nil."
+  none opens a Mermaid fence; else nil."
   [block sign]
   (when (and (= :fence (first block)) (= :per-line (nth block 3 nil)))
     (let [lines (nth block 2)]
       (when (and (seq lines) (every? signed-line? lines)
                  (every? #(= sign (subs % 0 1)) lines)
-                 (not-any? #(re-find #"^[-+~] ?(`{3}|~{3})" %) lines))
+                 (not-any? #(re-find #"^[-+~] ?(?:`{3}|~{3})\s*mermaid\b" %) lines))
         lines))))
 
 (defn pair-across-blank-lines
@@ -1477,8 +1477,8 @@
   between them in the source, is one change: the blocks read as one block, a blank
   line between paragraphs, so each removed paragraph pairs with the added
   paragraph after it and marks its words, as when no blank line separates
-  them. A block holding a code fence line stays as it is, so a removed and an
-  added fence stay two figures."
+  them, a removed and an added code fence among them. A block opening a Mermaid
+  fence stays as it is, so a removed and an added Mermaid fence stay two figures."
   [blocks]
   (loop [bs (vec blocks) out []]
     (if (empty? bs)
