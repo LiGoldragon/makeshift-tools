@@ -14,6 +14,7 @@ Install the author, builder and checker together into a directory on PATH:
     book-tools remove DIRECTORY vision:old:0
     book-tools replace COPY OLD NEW
     book-tools land DIRECTORY
+    book-tools source DIRECTORY
     book-check /abs/DIRECTORY
     book-build DIRECTORY OUT.html
 
@@ -33,7 +34,8 @@ since the recorded revision that is the copy itself; where it has, the differenc
 copy and the recorded revision is applied to the module as it stands, and a part that does not
 apply refuses the whole landing, naming the module, with nothing written. A new module that
 already stands, and a removal of a module that has changed, are refused. `land` writes the
-files and commits nothing.
+files and commits nothing. `source` prints the book source the builder reads from the
+directory, where the figures are numbered.
 
 The manifest, `DIRECTORY/manifest.datom`, is one datom: the title, the kind, and the entries in
 the order he reads the modules. The revision is the commit of the repository's origin main

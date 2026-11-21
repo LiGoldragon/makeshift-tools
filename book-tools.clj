@@ -159,6 +159,7 @@
        "       book-tools remove DIRECTORY MODULE [--title TITLE] [--kind Proposal|Review] [--root DIRECTORY]\n"
        "       book-tools replace COPY OLD NEW      (OLD and NEW are files; - is standard input)\n"
        "       book-tools land DIRECTORY [--root DIRECTORY]\n"
+       "       book-tools source DIRECTORY [--root DIRECTORY]      (prints the book source the builder reads)\n"
        "       book-tools start SOURCE TITLE MODULE... | edit SOURCE MODULE ANCHOR --after | --replace-old OLD --replace-new NEW"))
 
 (defn split-options
@@ -195,6 +196,9 @@
                   (when-not (and copy old new) (refuse usage))
                   (when (= "-" old new) (refuse "Only one of OLD and NEW may be standard input."))
                   (println "Replaced in:" (book-proposal/replace! copy (read-replacement-text old) (read-replacement-text new))))
+      "source" (let [[directory] arguments]
+                 (when-not directory (refuse usage))
+                 (print (book-proposal/directory-source directory root)))
       "land" (let [[target] arguments
                    directory (if (fs/directory? target) target (str (fs/parent (fs/absolutize target))))]
                (doseq [line (book-proposal/land! directory root)] (println line))))))
@@ -203,7 +207,7 @@
   (try
     (let [[command path & more] args]
       (when-not path (refuse usage))
-      (if (#{"copy" "new" "remove" "replace" "land"} command)
+      (if (#{"copy" "new" "remove" "replace" "land" "source"} command)
         (do (proposal-command command (rest args)) 0)
       (do
       (case command
