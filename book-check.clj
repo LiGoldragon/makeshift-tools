@@ -895,8 +895,8 @@
        (registry-names (git "show" (str revision ":modules.datom")))))))
 
 (defn data-figure-line [line]
-  (when-let [[_ alt-text filename] (re-matches #"!\[([^\]]*)\]\((.*)\)\s*" line)]
-    {:alt-text alt-text :filename filename}))
+  (when-let [[_ sign alt-text filename] (re-matches #"(?:(\+|-) )?!\[([^\]]*)\]\((.*)\)\s*" line)]
+    {:sign sign :alt-text alt-text :filename filename}))
 
 (defn- svg-document? [bytes]
   (try
@@ -911,14 +911,15 @@
     (catch Exception _ false)))
 
 (defn read-data-figure
-  "Read a sibling SVG as drawn, returning its validated bytes."
+  "Read a source SVG as drawn, returning its validated bytes."
   [source-path {:keys [filename]}]
   (let [refuse (fn [reason]
                  (throw (ex-info (str reason ": " filename) {:reason reason :filename filename})))
         _ (when-not (re-matches #"(?i)[^/\\:\s\p{Cntrl}()]+\.svg" filename)
             (refuse "data-figure-sibling-svg-required"))
         _ (when-not source-path (refuse "data-figure-source-path-required"))
-        directory (fs/parent (fs/absolutize source-path))
+        source (fs/absolutize source-path)
+        directory (if (fs/directory? source) source (fs/parent source))
         file (fs/path directory filename)
         bytes (try
                 (when (and (fs/regular-file? file)
@@ -933,7 +934,7 @@
   "Source text -> vector of {:line n :reason \"...\"}. Option :read-module is
   (fn [repository path]) -> file text; it throws when the module is unavailable.
   Option :dependency-names is a zero-argument reader of the registry ID set.
-  Option :source-path locates SVG data figures beside the source."
+  Option :source-path locates SVG data figures beside the source file or inside the proposal directory."
   ([source] (check-book source {}))
   ([source {:keys [read-module dependency-names source-path]
             :or {read-module read-context-module dependency-names registry-dependency-names}}]
@@ -1456,6 +1457,10 @@
                data-figure
                (do (flush-plain!)
                    (when (section) (set-section! #(assoc % :body true)))
+                   (when (:sign data-figure)
+                     (cond
+                       (section) (mark-changed!)
+                       (not= "Account" (:kind @st)) (err! number "text-outside-proposal-without-module")))
                    (check-data-figure! number data-figure))
 
                opening

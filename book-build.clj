@@ -1511,6 +1511,7 @@
   [src]
   (let [lines (vec (str/split src #"\n" -1))
         n (count lines)
+        unfenced (set (book-check/unfenced-indices lines 0 n))
         skip #"(?U)^(<!--.*-->|Presentation\.\{.*\})\s*$"
         fence-open-re #"(?U)^(`{3,}|~{3,})(\w*(?: sketch)?)\s*$"
         move-open-re #"^::: move(?:\s+.*)?$"
@@ -1539,7 +1540,7 @@
           (recur (inc i) (-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-open opened]))
                  [] (str "Proposal " number))
         (let [l (lines i)
-              data-figure (book-check/data-figure-line l)
+              data-figure (when (unfenced i) (book-check/data-figure-line l))
               before proposal
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
                              (and (empty? para) (:new? (book-check/module-view-heading l))) "New module"
@@ -2440,9 +2441,13 @@
                      "<a href=\"#" (module-anchor to) "\">" (esc to) "</a></p></section>")))
 
         (= :data-figure (first b))
-        (do (vreset! module-first false)
-            (vreset! after-title false)
-            (emit (data-figure-html (second b))))
+        (let [{:keys [sign] :as figure} (second b)
+              html (data-figure-html figure)]
+          (vreset! module-first false)
+          (vreset! after-title false)
+          (if sign
+            (emit-panels (str "<div class=\"diff\">" (panel sign [:fig html]) "</div>"))
+            (emit html)))
 
         (= :fence (first b))
         (let [[_ raw-lang lines per-line] b

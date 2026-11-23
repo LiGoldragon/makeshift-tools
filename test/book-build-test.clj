@@ -1525,6 +1525,68 @@
         (is (not (str/includes? html "#3274a1")))
         (is (not (str/includes? html "#e1812c")))))))
 
+(deftest changed-data-figures-keep-their-images-and-change-margins
+  (fs/with-temp-dir [dir {}]
+    (let [path (fs/path dir "book.md")
+          target "psyche-belief › vision/example/0.md"
+          old-image "![Old figure](old.svg)"
+          new-image "![New figure](new.svg)"
+          svg #(str "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect fill=\"" % "\"/></svg>")
+          old-svg (svg "blue")
+          new-svg (svg "orange")
+          source (fn [kind in-place? proposed?]
+                   (str "Presentation.{ «Figures» " kind " }\n\n# Figures\n\nCreated by Sol.\n\n"
+                        (if in-place? (str "## " target "\n\n####") "###")
+                        " Proposal 1: Change the figure · " target "\n\n"
+                        (when proposed? "::: proposed\n\n")
+                        "- " old-image "\n+ " new-image "\n"))
+          options (fn [current] {:source-path path :read-module (constantly (str current "\n"))})
+          build (fn [src] (binding [book-build/*source-path* path] (book-build/build src "")))
+          panel (fn [change alt bytes]
+                  (str "<div class=\"figmark fig-" change "\"><img class=\"data-figure\""
+                       " style=\"display:block;max-width:100%;height:auto\" alt=\"" alt
+                       "\" src=\"data:image/svg+xml;base64,"
+                       (.encodeToString (java.util.Base64/getEncoder) (.getBytes bytes "UTF-8"))
+                       "\"></div>"))]
+      (spit (str (fs/path dir "old.svg")) old-svg)
+      (spit (str (fs/path dir "new.svg")) new-svg)
+      (doseq [in-place? [false true]
+              [kind proposed? current] [["Proposal" false old-image]
+                                        ["Review" false new-image]
+                                        ["Review" true old-image]]]
+        (testing (str kind ", in place: " in-place? ", proposed marker: " proposed?)
+          (let [src (source kind in-place? proposed?)
+                html (build src)
+                removed (str/index-of html (panel "del" "Old figure" old-svg))
+                added (str/index-of html (panel "add" "New figure" new-svg))]
+            (is (empty? (book-check/check-book src (options current))))
+            (is (and removed added (< removed added)))
+            (is (= 2 (count (re-seq #"data:image/svg\+xml;base64," html))))
+            (is (not (str/includes? html ".svg)")))
+            (is (= (= kind "Review") (str/includes? html "<meta name=\"book-kind\" content=\"review\">")))
+            (is (str/includes? html (str "class=\"proposal"
+                                         (when in-place? " in-place")
+                                         (when proposed? " proposed") "\""))))))
+      (testing "an added figure directly in a new module view, with directory assets"
+        (let [src (str "# Figures\n\n## " target ", a new file\n\n"
+                       "::: description\n+ An example figure.\n:::\n\n+ " new-image "\n")
+              opts {:source-path dir :read-module (fn [& _] (throw (ex-info "No such module" {})))}]
+          (is (empty? (book-check/check-book src opts)))
+          (is (str/includes? (binding [book-build/*source-path* dir] (book-build/build src ""))
+                             (panel "add" "New figure" new-svg)))))
+      (fs/delete (fs/path dir "new.svg"))
+      (doseq [in-place? [false true]]
+        (is (= ["data-figure-file-unavailable"]
+               (map :reason (book-check/check-book (source "Proposal" in-place? false)
+                                                  (options old-image))))))
+      (let [src (str "Presentation.{ «Figures» Proposal }\n\n# Figures\n\n"
+                     "### Proposal 1: Show Markdown syntax · " target "\n\n"
+                     "+ ```text\n+ ![Example](missing.svg)\n+ ```\n")
+            html (build src)]
+        (is (empty? (book-check/check-book src (options old-image))))
+        (is (str/includes? html "![Example](missing.svg)"))
+        (is (not (str/includes? html "data:image/svg+xml;base64,")))))))
+
 (deftest a-proposal-heading-is-the-module-name-alone
   (let [module "vision/belief-modules/0.md"
         html (book-build/build (str "# T\n\n### Proposal 4: A long title · psyche-belief › " module "\n\n+ Added.\n\nRuling, one number per line:\n\n1. Yes.\n") "")
