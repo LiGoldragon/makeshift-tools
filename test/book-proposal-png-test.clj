@@ -24,7 +24,7 @@
 (defn- write-proposal! [directory kind state body]
   (write-text! (fs/path directory "manifest.datom")
                (book-proposal/manifest-text
-                {:title "Drawn figures" :kind kind :creator "Sol"
+                {:title "DrawnFigures.1" :kind kind :creator "Sol" :drawer "Luna"
                  :entries [(cond-> {:state state :repository repository :path module-path}
                              (= :changed state) (assoc :revision revision))]}))
   (write-text! (fs/path directory repository module-path) (str front-matter body)))
@@ -34,6 +34,34 @@
                     {:out :string :err :string
                      :extra-env {"BOOK_NOTICE_CONFIGURATION"
                                  (str (fs/path tools "test/refusal-notice-off.datom"))}}))
+
+(deftest the-publication-gate-requires-the-drawing-model
+  (fs/with-temp-dir [directory {}]
+    (write-proposal! directory "Proposal" :new "Opening.\n")
+    (let [manifest (fs/path directory "manifest.datom")
+          out (fs/path directory "book.html")
+          undrawn (str/replace (slurp (str manifest)) " Some.Luna" " None")]
+      (write-text! manifest undrawn)
+      (is (str/includes? (:out (cli "book-tools" "source" directory)) "Created by Sol.\n"))
+      (is (= 0 (:exit (cli "book-tools" "figures" directory (fs/path directory "figures")))))
+      (doseq [result [(cli "book-check" directory) (cli "book-build" directory out)]]
+        (is (= 1 (:exit result)))
+        (is (str/includes? (:err result) "manifest-without-drawer")))
+      (is (not (fs/exists? out)))
+      (is (= 1 (:exit (cli "book-tools" "drawer" directory "Nobody"))))
+      (is (= undrawn (slurp (str manifest))))
+      (is (= 0 (:exit (cli "book-tools" "drawer" directory "Terra"))))
+      (is (= 0 (:exit (cli "book-build" directory out))))
+      (is (= 0 (:exit (cli "book-check" directory out))))
+      (let [html (slurp (str out))]
+        (is (str/includes? html "Created by Sol. Drawn by Terra."))
+        (doseq [[from to reason] [["Drawn by Terra." "Drawn by Haiku." "publication-signature-mismatch"]
+                                  ["{ Vision figures 0 }" "psyche-belief › vision/figures/0.md" "publication-module-headings-mismatch"]
+                                  ["<title>DrawnFigures.1" "<title>Other.1" "publication-title-mismatch"]]]
+          (write-text! out (str/replace html from to))
+          (is (str/includes? (:err (cli "book-check" directory out)) reason))))
+      (write-text! manifest (str/replace (slurp (str manifest)) "DrawnFigures.1" "Drawn figures"))
+      (is (str/includes? (:err (cli "book-check" directory)) "manifest-presentation-name-invalid")))))
 
 (deftest two-images-in-the-new-module-margin
   (fs/with-temp-dir [directory {}]
@@ -50,7 +78,7 @@
       (when (fs/exists? out)
         (let [html (slurp (str out))
               article (re-find #"(?s)<article class=\"module diff\">.*?</article>" html)
-              sequence ["<span class=\"module-state\">New</span>"
+              sequence ["{ Vision figures 0 }</code></h2></header>"
                         "<div class=\"add\"><p>Figures as drawn.</p>"
                         "<div class=\"add\"><p>Opening.</p>"
                         "<div class=\"add\"><img"
@@ -198,7 +226,7 @@
               (is (str/includes? middle-add second-png))
               (is (str/includes? (or (re-find #"<div class=\"del\"><img [^>]*alt=\"Middle\"[^>]*>" html) "")
                                  first-png))
-              (is (str/includes? html "<span class=\"module-state\">New</span>"))
+              (is (str/includes? html "{ Vision figures 0 }</code></h2></header>"))
               (is (empty? (reasons html)))
               (is (= ["proposal-artifact-image-placement-mismatch"]
                      (reasons (str/replace html middle-add (str/replace middle-add "class=\"add\"" "class=\"ctx\""))))))

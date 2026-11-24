@@ -2,7 +2,7 @@
      Markup, all optional except what the source has:
        <h1 class="book-title">                       the book's title
        <article class="proposal">                    one proposal (one ## section)
-         <header><h2>the module name, vision:belief-modules:0</h2></header>
+         <header><h2>the module identity, { Vision belief-modules 0 }</h2></header>
          <p class="target"><code>repo/skills/name.md</code></p>   the target file, as a chip
          <p>…</p>                                    the section's prose, as text
          <div class="diff">                          one change
@@ -18,7 +18,6 @@
          <span class="move move-proposed|move-landed move-placeholder move-inline">Moved to <a href="#module-…">repo › path</a></span>
                                                      the same block inline in a line, where a sentence left it
        </article>
-       A new module, one view, every line added: <article class="module diff"><header><h2 class="target">…</h2><span class="module-state">New</span></header>
        A module as it stands (not a proposal): <article class="module"><header><span class="mlabel">as it stands</span><h2 class="target"><code>repo/path.md</code></h2></header> … its headings as h3, h4 … </article>
        A module's description, at the head of its module view or proposal (a labelled block; changed, one passage
        under a change margin, with only its changed words marked inline):
@@ -29,13 +28,11 @@
            <p class="target"><code>flows/ab12cd/vision/topic.md</code></p>   the module deleted
            <div class="ctx">…</div>                  its text, shown whole
          </div>
-       The proposal author's note on the proposal it sits in, before its lines (plain, with no label):
-         <aside class="comment"><div class="comment-body"><p>…</p></div></aside>
        Each alternative is its own proposal; there is no alternatives group.
        A review (<meta name="book-kind" content="review"> in the page) shows every added and removed line
        under the double margin of a landed change; a proposal or an account shows the single margin.
        A proposal of a review that declared itself proposed (class "proposal proposed", from `::: proposed`) shows the single margin too.
-       <p class="book-subtitle">Created by …</p>   the signature line under the title: the creating model and each helper's help
+       <p class="book-subtitle">Created by … Drawn by …</p>   the models named in the manifest
        <aside class="key">…</aside>                 the key to the colours, after the title and signature line of a page that carries a change (the builder emits it)
        <div class="figure"><svg>…</svg></div>       a figure: its ink var(--fg), its fills var(--chip), written by the builder, so it follows the theme
        <section class="rulings"><h2>Rulings</h2><ol>   (a single ruling may sit inside its proposal; <li value="N"> keeps its number)
@@ -86,8 +83,6 @@
 .move-placeholder a{color:inherit}
 /* The same block, inline in a line a sentence left: small, in the move colour, its margin a rule beside it. */
 .move-inline{display:inline-block;margin:0 .15em;padding:0 .4em 0 .5em;font-family:var(--f-label);font-size:.8em;line-height:1.4;vertical-align:baseline}
-/* A new module's view: its sheet's state, beside its path. */
-.module-state{font-family:var(--f-label);font-size:.78rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#121815;--sheet:#1a211d;--fg:#e4e9e5;--muted:#93a199;--line:#2c3631;--chip:#25302a;
   --add-bg:#16301f;--add-proposed-edge:#5cc47a;--add-fg:#cdeed5;
@@ -217,9 +212,6 @@ th{color:var(--muted);font-weight:600;letter-spacing:.03em}
 /* A proposal of a review that declared itself proposed (`::: proposed`): its marks show the single margin. */
 .proposal.proposed{--rail:transparent;--rail-width:0px}
 
-/* The author's note on the lines that follow: plain text, no box and no label, never module text. */
-.comment{margin:18px 0 20px;min-width:0;font-family:var(--f-label);font-size:.95rem;line-height:1.5;color:var(--fg)}
-.comment-body> :first-child{margin-top:0}.comment-body> :last-child{margin-bottom:0}.comment-body p{overflow-wrap:anywhere}
 
 /* An excerpt of its named source module as it stands: a fourth colour beside added, removed and moved. */
 .shown{border:1px solid var(--shown-edge);border-left-width:5px;border-radius:8px;background:var(--shown-bg);color:var(--shown-fg);margin:16px 0;padding:10px 12px;min-width:0}

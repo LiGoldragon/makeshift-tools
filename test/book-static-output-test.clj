@@ -28,26 +28,16 @@
       (is (not (re-find #"(?m)^[+-] " html)) (str name " fence leaves no sign for page JavaScript")))))
 
 (deftest page-form-controls-are-structural
-  (let [without (book-build/build
-                 (str "# Book\n\n"
-                      "## psyche-belief › vision/book.md\n\n"
-                      "Why: the module keeps the rendering rule.\n\n"
-                      "The module stands whole.\n") "")]
-    (is (not (str/includes? without "class=\"pnum\""))
-        "a module-change page emits no numbered Proposal badge")
-    (is (not (str/includes? without "class=\"comment\""))
-        "a module-change page emits no comment aside")
-    (is (not (str/includes? without ">Why:")) "the source marker is not emitted as a label")
-    (is (str/includes? without "<p>the module keeps the rendering rule.</p>")
-        "the reason remains as ordinary prose"))
-  (let [with (book-build/build
-              (str "## Proposal 7: change a module\n\n"
-                   "::: comment\nThe reason is wanted here.\n:::\n\n"
-                   "+ Added.\n") "")]
-    (is (not (str/includes? with "class=\"pnum\"")) "a numbered Proposal form shows no number")
-    (is (str/includes? with "<aside class=\"comment\"><div class=\"comment-body\">")
-        "an explicit comment container renders as a plain note")
-    (is (not (str/includes? with "Why")) "with no label")))
+  (let [html (book-build/build
+               (str "# Book\n\n## psyche-belief › vision/book/0.md\n\n"
+                    "The module stands whole.\n\n"
+                    "#### Proposal 1: Added · psyche-belief › vision/book/0.md\n\n"
+                    "::: comment\nAn author note about the change.\n:::\n\n"
+                    "+ The added line.\n") "")]
+    (is (str/includes? html "{ Vision book 0 }</code></h2></header>"))
+    (is (str/includes? html "The module stands whole."))
+    (is (str/includes? html "The added line."))
+    (is (not (str/includes? html "An author note about the change.")))))
 
 (deftest whole-module-inline-proposal-marks
   (let [html (str/replace (book-build/build

@@ -364,6 +364,13 @@
          (reasons (str "# T\n\n" sig "\nOther prose.\n\n" after-title*)))
       "only the paragraph that opens Created by"))
 
+(deftest a-drawn-signature-names-two-models
+  (let [source (fn [signature]
+                 (str "Presentation.{ WhereAVectorIsRead.1 }\n\n# WhereAVectorIsRead.1\n\n"
+                      signature "\n\n" after-title*))]
+    (is (= [] (reasons (source "Created by Fable. Drawn by Sonnet."))))
+    (is (= ["subtitle-not-creator"] (reasons (source "Created by Fable. Drawn by the visualizer."))))))
+
 (deftest mermaid-figures
   (let [mermaid (str "```mermaid\nflowchart LR\n    a[\"x\"] -- \"to\" --> b[\"b\"]\n```\n")
         long-mermaid (str "```mermaid\nflowchart LR\n    a[\"" (rep "x" 80) "\"] -- \"to\" --> b[\"b\"]\n```\n")]

@@ -24,10 +24,9 @@
 ;; replaced line's changed words are, in the move's shade. A ::: description
 ;; container is a module's description, shown as a labelled block at the head
 ;; of its module view or proposal: as it stands, or changed, its removed and
-;; added text each marking its own changed words. Inside a proposal,
-;; a ::: comment container is the author's note, plain and unlabelled, before the
-;; module text it explains. Each alternative is its own proposal. The first line may be a
-;; Presentation datom, Presentation.{ «title» Kind }, Kind being Proposal
+;; added text each marking its own changed words. An author's comment stays in
+;; the source. Each alternative is its own proposal. The first line may be a
+;; Presentation datom, Presentation.{ Name.Revision Kind }, Kind being Proposal
 ;; (the default when absent), Review or Account: a Review shows its added and
 ;; removed lines under the double margin of a landed change. A paragraph opening "Created by" under the
 ;; title is the subtitle, shown as written. Proposals one after another into the same
@@ -1608,16 +1607,16 @@
                         (throw (ex-info (str "comment container outside proposal at source line " line-no) {})))
                     out (cond-> out (seq para) (into (flush para proposal)))
                     start (inc i)
-                    [end body] (loop [j start]
-                                 (if (>= j n)
-                                   (throw (ex-info (str "unclosed comment container at source line " line-no) {}))
-                                   (let [x (lines j)]
-                                     (cond
-                                       (= x ":::") [j (subvec lines start j)]
-                                       (re-find container-open-re x)
-                                       (throw (ex-info (str "nested container at source line " (inc j)) {}))
-                                       :else (recur (inc j))))))]
-                (recur (inc end) (conj out [:comment body]) [] proposal))
+                    end (loop [j start]
+                          (if (>= j n)
+                            (throw (ex-info (str "unclosed comment container at source line " line-no) {}))
+                            (let [x (lines j)]
+                              (cond
+                                (= x ":::") j
+                                (re-find container-open-re x)
+                                (throw (ex-info (str "nested container at source line " (inc j)) {}))
+                                :else (recur (inc j))))))]
+                (recur (inc end) out [] proposal))
             (if-let [[_ kind] (re-find metadata-open-re l)]
               (let [line-no (inc i)
                     _ (when-not (= l (str "::: " kind))
@@ -1763,40 +1762,23 @@
   [path]
   (get file-langs (some-> path (str/split #"\.") rest last) "text"))
 
-(defn presentation-title
-  "The title of the Presentation datom on the source's first line that is not
-  a comment, or nil."
-  [src]
-  (let [l (first (remove #(or (blank? %) (re-find #"(?U)^<!--.*-->\s*$" %)) (str/split-lines src)))]
-    (some->> l (re-find #"(?U)^Presentation\.\{\s*«([^»]*)».*\}\s*$") second strip not-empty)))
-
-(def presentation-kinds #{"Proposal" "Review" "Account"})
-
-(defn presentation-kind
-  "The kind of the Presentation datom: Proposal, Review or Account; Proposal when
-  the datom names none or no datom is there."
-  [src]
-  (let [l (first (remove #(or (blank? %) (re-find #"(?U)^<!--.*-->\s*$" %)) (str/split-lines src)))
-        k (some->> l (re-find #"(?U)^Presentation\.\{\s*«[^»]*»\s*(\w+)\s*\}\s*$") second)]
-    (if (presentation-kinds k) k "Proposal")))
-
-(defn proposal-module-names
-  "The module names a proposal heading's title says it lands in (`repo › path`, two
+(defn proposal-module-locations
+  "The module locations a proposal heading's title says it lands in (`repo › path`, two
   joined by \", and\", a new or deleted file suffix on the last), or nil when the title
   names no location."
   [title]
   (let [located (-> title strip (str/replace #"(?U)^.+ · " "") (str/replace #", a (?:new|deleted) file$" ""))
         locations (map #(re-matches #"([^\s›·]+) › ([^\s,]+)" %) (str/split located #", and "))]
     (when (and (seq locations) (every? some? locations))
-      (mapv (fn [[_ repository path]] (book-check/module-display-name repository path)) locations))))
+      (mapv (fn [[_ repository path]] {:repository repository :path path}) locations))))
 
 (defn proposal-title-html
   "A proposal's heading line, where the page shows the module's name alone: the
   names the title's location gives, or nil when the title names none."
   [title]
-  (when-let [names (proposal-module-names title)]
+  (when-let [locations (proposal-module-locations title)]
     (str "<h2 class=\"target\"><code style=\"font-size:.95rem\">"
-         (esc (str/join ", " names)) "</code></h2>")))
+         (esc (str/join ", " (map book-check/module-display-name locations))) "</code></h2>")))
 
 (defn proposal-header
   "The opening of a proposal's sheet. When its title says where it lands, the
@@ -1819,16 +1801,11 @@
   (str "module-" (str/replace (str/lower-case location) #"[^a-z0-9]+" "-")))
 
 (defn module-header
-  "Open a proposal authored as the whole module, with its path and no badge or
-  state label. `heading` is the text of a \"## repo › path\" heading. A new
-  module's view carries the state New; a view a placeholder links to carries
-  its anchor."
-  ([heading] (module-header heading false nil))
-  ([heading new? anchor]
-   (str "<article class=\"module diff\"><header" (when anchor (str " id=\"" anchor "\"")) ">"
-        "<h2 class=\"target\"><code style=\"font-size:.95rem\">" (esc (str/replace heading "`" "")) "</code></h2>"
-        (when new? "<span class=\"module-state\">New</span>")
-        "</header>")))
+  "Open the whole-module sheet under its typed identity, with an anchor when linked."
+  [view anchor]
+  (str "<article class=\"module diff\"><header" (when anchor (str " id=\"" anchor "\"")) ">"
+       "<h2 class=\"target\"><code style=\"font-size:.95rem\">"
+       (esc (book-check/module-display-name view)) "</code></h2></header>"))
 
 ;; ------------------------------------------------------------- ethos check
 ;;
@@ -2089,12 +2066,6 @@
     (when (and (not *changed-ethos-is-fragment*) (or (ethos-roots head) (ethos-fragment-heads head)))
       (check-rendered-ethos! language lines))))
 
-(defn comment-html
-  "The proposal author's note, apart from the module text it explains: plain, with no label."
-  [lines]
-  (str "<aside class=\"comment\">"
-       "<div class=\"comment-body\">" (markdown-html lines) "</div></aside>"))
-
 (defn shown-html
   "A checked excerpt of the named source module as it stands. Prose is text that
   wraps: a Markdown module's excerpt is rendered, a plain-text module's keeps its
@@ -2102,8 +2073,8 @@
   [repository path lines]
   (let [lang (file-language path)
         ext (str/lower-case (or (some-> path (str/split #"\.") rest last) ""))]
-    (str "<section class=\"shown\"><header><span class=\"mlabel\">as it stands</span>"
-         "<code>" (esc (str repository " › " path)) "</code></header>"
+    (str "<section class=\"shown\"><header><code>"
+         (esc (book-check/module-display-name {:repository repository :path path})) "</code></header>"
          (cond (markdown-languages lang) (str "<div class=\"markdown\">" (markdown-html lines) "</div>")
                (text-languages ext) (str "<div class=\"textblock\">" (esc (str/join "\n" lines)) "</div>")
                :else (code-html lang lines))
@@ -2145,10 +2116,10 @@
         heading-where (volatile! nil)
         ;; the number of the proposal last opened, which a ruling card carries as its value
         proposal-number (volatile! nil)
-        ;; the module names of the proposal sheet still open, which a next proposal into the same modules continues
-        proposal-names (volatile! nil)
-        datom-title (presentation-title src)
-        kind (presentation-kind src)
+        ;; Consecutive proposals to the same locations can share a sheet.
+        proposal-locations (volatile! nil)
+        {datom-title :title kind :kind :or {kind "Proposal"}}
+        (book-check/source-presentation (book-check/source-lines src))
         bs (vec (blocks src))
         ;; the block after block i, past its `::: proposed` marker when it has one
         proposed-next? (fn [i] (= [:proposed] (get bs (inc i))))
@@ -2207,7 +2178,7 @@
         ;; whether a proposal into `names` (nil when its heading names no module) with this proposed state
         ;; goes on in the sheet still open: the proposal before it was into the same modules
         continues-sheet? (fn [names proposed?]
-                           (boolean (and names @in-article (= names @proposal-names) (= proposed? @declared-proposed))))
+                           (boolean (and names @in-article (= names @proposal-locations) (= proposed? @declared-proposed))))
         ;; inside a proposal, or a new module's view, a signed line is a change
         in-change? (fn [] (or @in-article (and @in-module @module-new)))
         module-first (volatile! false)
@@ -2265,7 +2236,7 @@
                 (when (not= "Proposal" kind)
                   (append! (str "<meta name=\"book-kind\" content=\"" (str/lower-case kind) "\">")))
                 (vreset! after-title true))
-              (append! (str "<h1 class=\"book-title\">" (esc title) "</h1>")))
+              (append! (str "<h1 class=\"book-title\">" (esc (or datom-title title)) "</h1>")))
 
             (and @in-module (str/starts-with? first-line "### ") (not (str/starts-with? first-line "### Proposal ")))
             (append! (str "<h4>" (inline (strip (subs first-line 4))) "</h4>"))
@@ -2278,13 +2249,13 @@
                 (vreset! target nil)
                 (vreset! heading-where nil)
                 (let [m (re-find #"(?U)^### Proposal (\d+): (.*)$" text)
-                      names (some-> m (nth 2) proposal-module-names)
+                      names (some-> m (nth 2) proposal-module-locations)
                       continue? (continues-sheet? names (proposed-next? i))]
                   (when (and @in-article (not continue?)) (append! "</article>"))
                   (if m
                     (do (vreset! declared-proposed (proposed-next? i))
                         (vreset! proposal-number (m 1))
-                        (vreset! proposal-names names)
+                        (vreset! proposal-locations names)
                         (when-not continue?
                           (append! (proposal-header (m 1) (m 2) false (proposed-next? i)))))
                     (append! (str "<h3>" (inline (strip (subs first-line 4))) "</h3>")))
@@ -2298,12 +2269,12 @@
               (vreset! target nil)
               (vreset! heading-where (when-not (file-next? i) (str/replace (strip where) "`" "")))
               (when @in-module (append! "</article>") (vreset! in-module false))
-              (let [names (proposal-module-names (strip where))
+              (let [names (proposal-module-locations (strip where))
                     continue? (continues-sheet? names (proposed-next? i))]
                 (when (and @in-article (not continue?)) (append! "</article>"))
                 (vreset! declared-proposed (proposed-next? i))
                 (vreset! proposal-number n)
-                (vreset! proposal-names names)
+                (vreset! proposal-locations names)
                 (when-not continue?
                   (append! (proposal-header n (strip where) (not (file-next? i)) (proposed-next? i))))
                 (vreset! in-article true)))
@@ -2316,8 +2287,7 @@
               (vreset! glue false)
               (when @in-article (append! "</article>") (vreset! in-article false))
               (when @in-module (append! "</article>"))
-              (append! (module-header location new?
-                                      (when (linked location) (module-anchor location))))
+              (append! (module-header view (when (linked location) (module-anchor location))))
               (vreset! module-md (str/ends-with? path ".md"))
               (vreset! module-file path)
               (vreset! module-location location)
@@ -2355,12 +2325,6 @@
               (close-record)
               (vreset! heading-where t)
               (emit (str "<" h " class=\"part\"><code>" (esc t) "</code></" h ">")))
-
-            ;; A module-change page carries its short reason as ordinary prose.
-            ;; `Why:` is source notation for that reason, not a label in this
-            ;; page form, so neither the label nor a comment node is emitted.
-            (and @in-module (str/starts-with? text "Why:"))
-            (emit (str "<p>" (inline (strip (subs text 4))) "</p>"))
 
             (str/starts-with? first-line "File: `")
             (do (when (and @rulings @pending-close) (close-rulings true))
@@ -2407,7 +2371,7 @@
       ;; an inline moved mark takes the shade of the proposal it stands in
       (binding [*inline-moved-state* (if (and (= "Review" kind) (not @declared-proposed)) "landed" "proposed")]
       (cond
-        ;; a proposal in place: its heading, comment and added lines where they land
+        ;; a proposal in place: its added lines where they land
         (= :in-place-open (first b))
         (let [{:keys [number title]} (second b)]
           (vreset! declared-proposed (proposed-next? i))
@@ -2425,9 +2389,6 @@
         (do (close-record)
             (append! "</section>")
             (vreset! in-article false))
-
-        (= :comment (first b))
-        (emit (comment-html (second b)))
 
         (= :dependencies (first b))
         (let [{:keys [ids errors]} (book-check/dependencies-read (second b))]
@@ -2638,7 +2599,7 @@
                         *proposal-image-html* (fn [{:keys [slot]}]
                                                 (str "<span data-proposal-image-slot=\"" slot "\"></span>"))]
                 (render-directory directory plan code))]
-    {:slots slots :images (:images plan) :figures @sink}))
+    {:slots slots :images (:images plan) :manifest (:manifest plan) :figures @sink}))
 
 (defn directory-figures
   "The figures the page of a proposal directory wants, {number {:lines :mermaid?}} in the
@@ -2653,13 +2614,14 @@
   ([directory artifact] (directory-page-faults directory artifact nil))
   ([directory artifact prior]
    (try
-     (let [{:keys [slots images]} (probe-directory directory book-proposal/repository-root prior)]
+     (let [{:keys [slots images manifest]} (probe-directory directory book-proposal/repository-root prior)]
        (if artifact
          (let [actual (try
                         (when (fs/regular-file? artifact) (slurp artifact :encoding "UTF-8"))
                         (catch java.io.IOException _ nil))]
            (if (and actual (not (blank? actual)))
-             (book-check/check-proposal-artifact images slots actual)
+             (into (book-check/check-publication-form manifest actual)
+                   (book-check/check-proposal-artifact images slots actual))
              [{:reason "proposal-artifact-unreadable-or-empty" :artifact artifact}]))
          []))
      (catch clojure.lang.ExceptionInfo e [{:reason (ex-message e)}])

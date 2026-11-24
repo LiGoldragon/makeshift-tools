@@ -9,9 +9,13 @@
             [clojure.string :as str]
             [babashka.fs :as fs]))
 
-;; The models that can create a book. The subtitle under the title is `Created by <Model>.`
-;; with one of these, and nothing else on that line.
 (def subtitle-models ["Fable" "Opus" "Sonnet" "Haiku" "Astra" "Sol" "Luna" "Terra"])
+
+(defn presentation-name? [text]
+  (boolean (and (string? text) (re-matches #"[A-Z][A-Za-z0-9]*\.[0-9]+" text))))
+
+(defn presentation-signature [creator drawer]
+  (str "Created by " creator "." (when drawer (str " Drawn by " drawer "."))))
 
 ;; A proposal names one location, or two locations joined by ", and", in its heading.
 ;; A new/deleted-file suffix belongs to the final location.
@@ -24,9 +28,11 @@
                (re-find #"^\*\*(?:Archive|Destroy)\*\*" line))))
 
 (defn subtitle-is-creator?
-  "Whether a subtitle is exactly `Created by <Model>.`, one of `subtitle-models`."
+  "The creating model and, once drawn, the drawing model."
   [text]
-  (boolean (re-matches (re-pattern (str "Created by (?:" (str/join "|" subtitle-models) ")\\.")) text)))
+  (let [[_ creator drawer] (re-matches #"Created by ([A-Za-z]+)\.(?: Drawn by ([A-Za-z]+)\.)?" text)]
+    (boolean (and (some #{creator} subtitle-models)
+                  (or (nil? drawer) (some #{drawer} subtitle-models))))))
 
 (defn- signed-fence-line? [line]
   (boolean (and (#{\+ \-} (first line))
@@ -80,23 +86,17 @@
           (and (re-find file-path relative-path)
                (not-any? #(or (= % ".") (= % "..")) (str/split relative-path #"/" -1)))))))
 
-(defn module-name
-  "A module's name, <type>:<topic>:<version>, from its path in a belief repository
-  (vision/belief-modules/0.md is vision:belief-modules:0). A path that is not a
-  module's is its own name."
-  [path]
-  (if-let [[_ kind topic version] (re-matches #"([^/]+)/([^/]+)/([^/]+)\.md" path)]
-    (str kind ":" topic ":" version)
+(defn module-display-name
+  "The typed module identity displayed on a page. Other files show their path."
+  [{:keys [repository path]}]
+  (if-let [[_ kind topic version] (and (re-matches context-repository repository)
+                                      (re-matches context-module path)
+                                      (re-matches #"([^/]+)/([^/]+)/([^/]+)\.md" path))]
+    (str "{ " (str/capitalize kind) " " topic " " version " }")
     path))
 
-(defn module-display-name
-  "What a page calls a module: its name when its path is a module's, else `repository › path`."
-  [repository path]
-  (let [name (module-name path)]
-    (if (= name path) (str repository " › " path) name)))
-
 (defn module-location-text
-  "The repository and path displayed in a whole-module heading."
+  "The source locator: repository and path used for comparison and linking."
   [{:keys [repository path]}]
   (str repository " › " path))
 
@@ -788,16 +788,21 @@
 (defn source-lines [source]
   (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1)))
 
+(defn presentation-line [line]
+  (when-let [[_ quoted-name bare-name kind]
+             (re-matches #"Presentation\.\{\s+(?:«([^»]*)»|([A-Z][A-Za-z0-9]*\.[0-9]+))(?:\s+(\w+))?\s+\}" line)]
+    {:title (or quoted-name bare-name) :kind (or kind "Proposal")}))
+
+(defn source-presentation [lines]
+  (some->> lines
+           (remove #(or (str/blank? %) (re-matches #"<!--.*-->\s*" %)))
+           first
+           presentation-line))
+
 (defn source-kind
-  "The kind its Presentation line gives a source, before any heading: Proposal,
-  Review or Account; Proposal when it names none."
+  "The kind of the source's Presentation, defaulting to Proposal for a plain draft."
   [lines]
-  (let [kind (some (fn [l]
-                     (cond (re-find #"^ {0,3}#" l) ::none
-                           (re-find #"^Presentation\.\{ «[^»]*»(?: \w+)? \}\z" l)
-                           (or (second (re-find #"»(?: (\w+))? \}\z" l)) "Proposal")))
-                   lines)]
-    (if (string? kind) kind "Proposal")))
+  (or (:kind (source-presentation lines)) "Proposal"))
 
 (defn- kind-sign [kind] (if (= "Review" kind) :added :removed))
 
@@ -1597,10 +1602,10 @@
                      (when (and (not (section)) (not (str/blank? line)))
                        (cond
                          (and (not (:presentation @st)) (not (:title @st)) (zero? (:proposals @st))
-                              (empty? (:shown @st)) (re-find #"^Presentation\.\{ «[^»]*»(?: \w+)? \}\z" line))
-                         (let [kind (second (re-find #"»(?: (\w+))? \}\z" line))]
-                           (swap! st assoc :presentation true :kind (or kind "Proposal"))
-                           (when-not (#{"Proposal" "Review" "Account"} (or kind "Proposal"))
+                              (empty? (:shown @st)) (presentation-line line))
+                         (let [{:keys [kind]} (presentation-line line)]
+                           (swap! st assoc :presentation true :kind kind)
+                           (when-not (#{"Proposal" "Review" "Account"} kind)
                              (err! number "presentation-kind-unknown")))
 
                          ;; The signature line: the paragraph under the title naming the creating
@@ -1789,20 +1794,34 @@
                  (map #(module-artifact-shape slots %)))
         (.select document "article.module")))
 
-(defn- in-planned-margin? [{:keys [module new-module? revised-new? sign]} node]
+(defn- in-planned-margin? [{:keys [heading new-module? revised-new? sign]} node]
   (let [article (.closest node "article.module")
         title (when article (.selectFirst article "header > h2.target"))
-        badge (when article (.selectFirst article "header > .module-state"))
         proposal (.closest node "section.proposal.in-place")
         parent (.parent node)]
-    (and title (= module (.text title))
-         (if new-module?
-           (and (.hasClass article "diff") badge (= "New" (.text badge)))
-           (nil? badge))
+    (and title (= heading (.text title))
+         (.hasClass article "diff")
          (if (= :keep sign)
            (and revised-new? (if proposal (.hasClass parent "ctx") (= article parent)))
            (and (.hasClass parent (name sign))
                 (if (and new-module? (not revised-new?)) (nil? proposal) proposal))))))
+
+(defn check-publication-form
+  "Check that the built title, signature, and module headings agree with the manifest."
+  [{:keys [title creator drawer entries]} html]
+  (let [document (org.jsoup.Jsoup/parse html)
+        texts (fn [selector] (mapv #(.text %) (.select document selector)))
+        headers (.select document "article.module > header")]
+    (cond-> []
+      (not (and (= [title] (texts "head > title")) (= [title] (texts "h1.book-title"))))
+      (conj {:reason "publication-title-mismatch"})
+      (not= [(presentation-signature creator drawer)] (texts "p.book-subtitle"))
+      (conj {:reason "publication-signature-mismatch"})
+      (or (not= (mapv module-display-name entries) (texts "article.module > header > h2.target"))
+          (not-every? #(and (= 1 (.childrenSize %)) (str/blank? (.ownText %))) headers))
+      (conj {:reason "publication-module-headings-mismatch"})
+      (seq (.select document "aside.comment"))
+      (conj {:reason "publication-comment-rendered"}))))
 
 (defn check-proposal-artifact
   "Check built PNGs against the authenticated source plan, with a projected DOM of

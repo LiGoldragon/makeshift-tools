@@ -59,7 +59,7 @@
 ;; ------------------------------------------------------------- manifest
 ;;
 ;; One datom in the proposal directory:
-;;   Manifest.{ «Title» Proposal Creator
+;;   Manifest.{ «Title» Proposal Creator Option<Drawer>
 ;;   [ Changed.{ «repository» «path» «revision» }
 ;;     New.{ «repository» «path» }
 ;;     Removed.{ «repository» «path» «revision» } ] }
@@ -68,8 +68,8 @@
 (def state-names {:changed "Changed" :new "New" :removed "Removed"})
 (def kinds ["Proposal" "Review"])
 
-(defn manifest-text [{:keys [title kind creator entries]}]
-  (str "Manifest.{ «" title "» " kind " " creator "\n"
+(defn manifest-text [{:keys [title kind creator drawer entries]}]
+  (str "Manifest.{ «" title "» " kind " " creator " " (if drawer (str "Some." drawer) "None") "\n"
        "[ " (str/join "\n  " (for [{:keys [state repository path revision]} entries]
                                (str (state-names state) ".{ «" repository "» «" path "»"
                                     (when revision (str " «" revision "»")) " }")))
@@ -98,19 +98,25 @@
       [forms nil])))
 
 (defn read-manifest
-  "The manifest a text holds: {:title :kind :creator :entries [{:state :repository :path :revision}]}."
+  "Read the manifest and its entries. Authored snapshots before Drawer are undrawn."
   [text]
   (let [[forms rest-tokens] (read-forms (tokens text))
         [tag name inside] (first forms)]
     (when-not (and (= 1 (count forms)) (nil? rest-tokens) (= [:variant "Manifest"] [tag name]))
       (refuse "Manifest: one Manifest.{ ... } datom is expected."))
-    (let [[title kind creator entries] inside
-          entries (when (= :group (first entries)) (second entries))]
-      (when-not (and (string? title) (some #{kind} kinds) entries)
-        (refuse "Manifest: Manifest.{ «Title» Proposal|Review Creator [ entries ] } is expected."))
+    (let [[title kind creator drawer-option entry-group]
+          (if (= 4 (count inside))
+            (into (subvec inside 0 3) ["None" (peek inside)])
+            inside)
+          entries (when (and (vector? entry-group) (= :group (first entry-group))) (second entry-group))
+          drawer (when (string? drawer-option) (second (re-matches #"Some\.([A-Za-z]+)" drawer-option)))]
+      (when-not (and (#{4 5} (count inside)) (string? title) (some #{kind} kinds) entries)
+        (refuse "Manifest: Manifest.{ «Title» Proposal|Review Creator Option<Drawer> [ entries ] } is expected."))
       (when-not (some #{creator} book-check/subtitle-models)
         (refuse (str "Manifest: the creator is one of " (str/join ", " book-check/subtitle-models) ".")))
-      {:title title :kind kind :creator creator
+      (when-not (or (= "None" drawer-option) (some #{drawer} book-check/subtitle-models))
+        (refuse "Manifest: Drawer must be None or Some followed by a model, as in Some.Sonnet."))
+      (cond-> {:title title :kind kind :creator creator
        :entries (vec (for [[_ state-name fields] entries
                            :let [state (some (fn [[state name]] (when (= name state-name) state)) state-names)
                                  [repository path revision] fields]]
@@ -119,7 +125,8 @@
                              (refuse (str "Manifest: an entry is Changed.{ «repository» «path» «revision» }, "
                                           "New.{ «repository» «path» } or Removed.{ «repository» «path» «revision» }.")))
                            (cond-> {:state state :repository repository :path path}
-                             revision (assoc :revision revision)))))})))
+                             revision (assoc :revision revision)))))}
+        drawer (assoc :drawer drawer)))))
 
 (defn manifest-path [directory] (str (fs/path directory manifest-file)))
 
@@ -138,18 +145,26 @@
   (when-not (some #{creator} book-check/subtitle-models)
     (refuse (str "Creator is one of " (str/join ", " book-check/subtitle-models) ", not " creator)))
   (let [text (slurp (manifest-path directory) :encoding "UTF-8")
-        headed (str/replace-first text #"^(Manifest\.\{ «[^»]*» (?:Proposal|Review))(?: [A-Za-z]+)?(?=\n)"
+        headed (str/replace-first text #"^(Manifest\.\{ «[^»]*» (?:Proposal|Review))(?: (?!None\b|Some\.)[A-Za-z]+)?(?=\s)"
                                   (str "$1 " creator))]
     (write-directory-manifest! directory (read-manifest headed))
     creator))
+
+(defn set-drawer!
+  "Record the model that drew the page, leaving the creator and module copies in place."
+  [directory drawer]
+  (when-not (some #{drawer} book-check/subtitle-models)
+    (refuse (str "Drawer is one of " (str/join ", " book-check/subtitle-models) ", not " drawer)))
+  (write-directory-manifest! directory (assoc (read-directory-manifest directory) :drawer drawer))
+  drawer)
 
 (defn copy-path
   "Where the copy of an entry's module lies in the proposal directory."
   [directory {:keys [repository path]}] (str (fs/path directory repository path)))
 
 (defn- clean-title [title]
-  (when (or (str/blank? title) (re-find #"[\r\n«»]" title))
-    (refuse "Title must be one nonempty line without guillemets."))
+  (when-not (book-check/presentation-name? title)
+    (refuse "Title must be a PascalCase Presentation name and revision, such as WhereAVectorIsRead.1."))
   title)
 
 ;; ------------------------------------------------------ copy, new, remove
@@ -790,7 +805,8 @@
                          (empty? (fences position))
                          (not (contains? moves position)) figure)
             (refuse text))
-          (assoc figure :bytes (or image-bytes (book-check/read-proposal-png
+          (assoc figure :heading (book-check/module-display-name entry)
+                 :bytes (or image-bytes (book-check/read-proposal-png
                                                   (if (and previous (= :del sign)) previous directory) figure))
                  :module location
                  :new-module? new? :revised-new? (boolean previous) :sign sign :body-line (inc (if (= :del sign) b c)) :text text))))))
@@ -799,7 +815,7 @@
   "Project module copies to book source and the PNGs the comparison places in it."
   ([directory root] (directory-page directory root nil))
   ([directory root prior]
-   (let [{:keys [title kind creator entries] :as manifest} (read-directory-manifest directory)
+   (let [{:keys [title kind creator drawer entries] :as manifest} (read-directory-manifest directory)
          previous (when prior (revised-module manifest prior))
          state (if (= kind "Review") "landed" "proposed")
          counter (atom 0)
@@ -820,7 +836,8 @@
                        entries)
          moves (numbered-moves modules next-number!)
          index (move-index modules moves)]
-     {:source (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\nCreated by " creator ".\n\n"
+     {:manifest manifest
+      :source (str "Presentation.{ " title " " kind " }\n\n# " title "\n\n" (book-check/presentation-signature creator drawer) "\n\n"
                    (str/join "\n" (mapcat #(concat (module-view modules index % state next-number!) [""])
                                            (range (count modules)))))
       :images (into [] (map-indexed #(assoc %2 :slot (str %1)))
@@ -832,11 +849,13 @@
   ([directory root prior] (:source (directory-page directory root prior))))
 
 (defn check-directory
-  "The faults of a proposal directory, as [{:reason ...}], empty when the builder can read it."
+  "The structural faults that prevent a proposal directory from being built for publication."
   [directory root]
   (try
-    (let [{:keys [entries]} (read-directory-manifest directory)
+    (let [{:keys [title drawer entries]} (read-directory-manifest directory)
           faults (concat
+                  (when-not (book-check/presentation-name? title) [{:reason "manifest-presentation-name-invalid"}])
+                  (when-not drawer [{:reason "manifest-without-drawer"}])
                   (when (empty? entries) [{:reason "manifest-without-modules"}])
                   (for [[a b] (map vector entries (rest entries)) :when (same-module? a b)]
                     {:reason "module-repeated" :module (book-check/module-location-text a)})

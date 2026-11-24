@@ -13,6 +13,7 @@ Install the author, builder and checker together into a directory on PATH:
     book-tools new DIRECTORY REPOSITORY vision:fresh:0
     book-tools remove DIRECTORY vision:old:0
     book-tools creator DIRECTORY MODEL
+    book-tools drawer DIRECTORY MODEL
     book-tools replace COPY OLD NEW
     book-tools land DIRECTORY
     book-tools source DIRECTORY
@@ -38,18 +39,20 @@ copy and the recorded revision is applied to the module as it stands, and a part
 apply refuses the whole landing, naming the module, with nothing written. A new module that
 already stands, and a removal of a module that has changed, are refused. `land` writes the
 files and commits nothing. `source` prints the book source the builder reads from the
-directory, where the figures are numbered.
+directory, where the figures are numbered. The drawing step records its model with
+`book-tools drawer DIRECTORY MODEL` once it has drawn the page.
 
-The manifest, `DIRECTORY/manifest.datom`, is one datom: the title, the kind, the creating model, and the entries in
+The manifest, `DIRECTORY/manifest.datom`, is one datom: the Presentation name and revision, the kind, the creating model, the optional drawing model, and the entries in
 the order he reads the modules. The revision is the commit of the repository's origin main
-the copy was taken from; the modules are named by their paths, and a page names them by
-`<type>:<topic>:<version>`.
+the copy was taken from; the entries locate modules by repository and path. The page
+uses the Presentation name as its title and each module identity as its section heading.
 
 ```ethos
-Manifest.{ Title Kind Creator Entries }
+Manifest.{ Title Kind Creator Option<Drawer> Entries }
 Title.String
 Kind.[ Proposal Review ]
 Creator.Model
+Drawer.Model
 Model.[ Fable Opus Sonnet Haiku Astra Sol Luna Terra ]
 Entries.Vector<Entry>
 Entry.[ Changed.{ Repository Path Revision }
@@ -61,13 +64,14 @@ Revision.String
 ```
 
 ```datom
-Manifest.{ «Panel.1 · The book form» Proposal Opus
+Manifest.{ «Panel.1» Proposal Opus Some.Sonnet
 [ Changed.{ «psyche-belief» «vision/book/0.md» «0123456789abcdef0123456789abcdef01234567» }
   New.{ «psyche-belief» «vision/book-copy/0.md» } ] }
 ```
 
-`source` prints `Created by <Model>.` under the title; the checker refuses a manifest without a creator
-or with one that is no model.
+`source` prints `Created by Opus. Drawn by Sonnet.` for this manifest. An undrawn
+manifest has `None` and produces a draft signed by its creator alone. Figure extraction
+works on that draft; a publication build and check require the drawing model.
 
 A refusal tells a flow: when `book-build` or `book-check` refuses, it sends
 `Soft.Notice.«<tool> refused <path>: <refusal>»` through `flow` before it exits non-zero. The
@@ -169,20 +173,13 @@ revised directory separately. Pass the same options to `book-tools source`
 or `book-tools figures` to inspect the source projection or prepare numbered
 figures. Leaving both options out preserves ordinary New and Changed builds.
 
-A whole-module view is headed by its full `repository › path`. A New view
-also carries its New badge. Standalone proposal headings render as the module's name alone,
-`<type>:<topic>:<version>`
-(`vision/belief-modules/0.md` is `vision:belief-modules:0`), taken from the heading's
-`repository › path`; a path that is not a module's is shown as it is. The proposal
-number, its title and the repository do not render. Proposals one after another into
-the same modules, in the same state, render under one heading in one sheet, their
-changes in source order; a proposal in place stands under its module view's own
-heading and adds none. The source heading keeps its form for the checker. A
-`::: comment` container is optional everywhere and never required by the checker;
-when present it renders as a plain note with no label. The subtitle, the line under
-the title, is `Created by <Model>.`, the model one of `subtitle-models` at the head
-of `book-check.clj`, and the checker refuses anything else on that line
-(`subtitle-not-creator`, at the line); the builder renders it as written.
+A module section is headed by its identity alone, for example `{ Vision belief-modules 0 }`.
+Whole-module views and standalone proposals use the same identity. Proposals one after
+another into the same modules, in the same state, share a sheet and keep source order;
+a proposal in place shares the module's heading. Source headings retain their repository
+and path for the checker to locate the modules. Author notes in `::: comment` containers
+stay in the source. The page title is the Presentation name and revision, such as
+`WhereAVectorIsRead.1`, with its signature below.
 
 A replaced passage is one text, read once: unchanged words stand once, removed
 words are struck through and shaded red, added words are underlined and shaded
@@ -221,7 +218,7 @@ landed changes: the line's colour, the same as when proposed, beside a rail of
 the page's text colour, each as wide as a whole single margin. A Proposal shows
 the single margin, the mark of proposed changes. A Review that holds both declares each proposed part with the line
 `::: proposed`, the first nonblank line under that proposal's heading (before
-its `::: comment`). It is one line with no closing `:::`, in the words of
+an author comment, when present). It is one line with no closing `:::`, in the words of
 `::: move proposed`, and takes the same single margin. A proposal without it stays
 dark. It stands under a `### Proposal` heading or an in-place `#### Proposal`
 heading:
@@ -301,9 +298,8 @@ The checker option `:dependency-names` supplies the membership reader in tests.
 
 A module view is headed `## repo › path`. The heading is defined once, in
 book-check (`module-view-pattern`), and the checker and the builder both match
-it through that definition. The builder displays the full `repo › path` in
-the module sheet’s heading, with the New badge only on a new module. A
-module's file name may be a number, a span or `all` (`vision/flow-nexus/0-1.md`).
+it through that definition. The builder derives the module identity from that source
+locator. A module version may be a number, a span or `all` (`{ Vision flow-nexus 0-1 }`).
 
 A move is read where it lands. In the view of the module it enters, an
 in-place proposal holds the move container at the place the passage lands. Its
@@ -396,8 +392,7 @@ required (`new-module-without-description`). An unsigned line, or a fence
 holding anything but added lines, is refused (`new-module-line-not-added`). The
 view counts as a proposal, and a move may land in it under an in-place heading
 that names the module without the suffix. In a Proposal no file is read. In a
-Review the view's added side is checked against the landed file. book-build
-marks the view's sheet New:
+Review the view's added side is checked against the landed file. A new view's source reads:
 
     ## psyche-belief › intent/sonnet/0.md, a new file
 
