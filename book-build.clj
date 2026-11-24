@@ -1538,8 +1538,8 @@
         ;; A proposal in place opens at its heading and closes where its module resumes.
         in-place (book-check/source-in-place-proposals src)
         in-place-ends (set (map :end (vals in-place)))
-        ;; A new module's view is its proposal: every line in it is a change.
-        new-views (filter :new? (book-check/module-views (book-check/source-lines src)))
+        ;; A whole addition is its own proposal; a revised New module has context.
+        new-views (filter #(and (:new? %) (not (:revised-new? %))) (book-check/module-views (book-check/source-lines src)))
         new-module (fn [i] (when (some #(< (:heading %) i (:end %)) new-views) "New module"))
         close-in-place (fn [i out para proposal]
                          (if (in-place-ends i)
@@ -1555,10 +1555,13 @@
         (let [l (lines i)
               data-figure (when (unfenced i)
                             (let [figure (book-check/data-figure-line l)]
-                              (when-not (book-check/png-figure? figure) figure)))
+                              (when-not (and (:sign figure) (book-check/png-figure? figure))
+                                figure)))
               before proposal
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
-                             (and (empty? para) (:new? (book-check/module-view-heading l))) "New module"
+                             (and (empty? para)
+                                  (let [view (book-check/module-view-heading l)]
+                                    (and (:new? view) (not (:revised-new? view))))) "New module"
                              (and (empty? para) (str/starts-with? l "## ")) nil
                              :else proposal)]
           (if (= l "::: proposed")
@@ -1673,7 +1676,7 @@
             (cond
               data-figure
               (recur (inc i) (conj (cond-> out (seq para) (into (flush para proposal)))
-                                   [:data-figure data-figure]) [] proposal)
+                                   [:data-figure data-figure l]) [] proposal)
               ;; Exactly two spaces mark an unchanged line in a diff paragraph;
               ;; don't mistake that context marker for a paragraph separator.
               (and (blank? l) (not= "  " l))
@@ -2187,7 +2190,7 @@
         module-location (volatile! nil)
         module-new (volatile! false)
         take-proposal-image (fn [sign line]
-                              (let [key [@module-location ({"+" :add "-" :del} sign) line]
+                              (let [key [@module-location ({"+" :add "-" :del " " :keep} sign) line]
                                     remaining (get @images key)]
                                 (when-not (seq remaining)
                                   (throw (ex-info (str "proposal-image-placement-unsupported: "
@@ -2306,7 +2309,7 @@
                 (vreset! in-article true)))
 
             (book-check/module-view-heading first-line)
-            (let [{:keys [path new?] :as view} (book-check/module-view-heading first-line)
+            (let [{:keys [path new? revised-new?] :as view} (book-check/module-view-heading first-line)
                   location (book-check/module-location-text view)]
               (close-rulings false)
               (close-record)
@@ -2318,7 +2321,7 @@
               (vreset! module-md (str/ends-with? path ".md"))
               (vreset! module-file path)
               (vreset! module-location location)
-              (vreset! module-new new?)
+              (vreset! module-new (and new? (not revised-new?)))
               (vreset! module-first true)
               (vreset! in-module true))
 
@@ -2468,9 +2471,11 @@
                      "<a href=\"#" (module-anchor to) "\">" (esc to) "</a></p></section>")))
 
         (= :data-figure (first b))
-        (let [{:keys [sign alt-text] :as figure} (second b)
-              html (data-figure-html "image/svg+xml" alt-text
-                                    (book-check/read-data-figure *source-path* figure))]
+        (let [[_ {:keys [sign alt-text] :as figure} line] b
+              html (if (book-check/png-figure? figure)
+                     (*proposal-image-html* (take-proposal-image " " line))
+                     (data-figure-html "image/svg+xml" alt-text
+                                       (book-check/read-data-figure *source-path* figure)))]
           (vreset! module-first false)
           (vreset! after-title false)
           (if sign
@@ -2622,12 +2627,12 @@
             *changed-ethos-is-fragment* true]
     (build source code)))
 
-(defn- build-directory [directory root code]
-  (render-directory directory (book-proposal/directory-page directory root) code))
+(defn- build-directory [directory root prior code]
+  (render-directory directory (book-proposal/directory-page directory root prior) code))
 
-(defn- probe-directory [directory root]
+(defn- probe-directory [directory root prior]
   (let [sink (atom (sorted-map))
-        plan (book-proposal/directory-page directory root)
+        plan (book-proposal/directory-page directory root prior)
         code (slurp (str (fs/path script-dir "book-code.html")) :encoding "UTF-8")
         slots (binding [*figure-sink* sink
                         *proposal-image-html* (fn [{:keys [slot]}]
@@ -2640,22 +2645,25 @@
   builder's own numbering; throws what the builder refuses. Numbered SVGs
   are not read; PNGs named by the proposal are validated as in a build."
   ([directory] (directory-figures directory book-proposal/repository-root))
-  ([directory root] (:figures (probe-directory directory root))))
+  ([directory root] (directory-figures directory root nil))
+  ([directory root prior] (:figures (probe-directory directory root prior))))
 
 (defn directory-page-faults
   "Check the source build, with numbered figures taken as present, and optionally the built artifact."
-  [directory artifact]
-  (try
-    (let [{:keys [slots images]} (probe-directory directory book-proposal/repository-root)]
-      (if artifact
-        (let [actual (try
-                       (when (fs/regular-file? artifact) (slurp artifact :encoding "UTF-8"))
-                       (catch java.io.IOException _ nil))]
-          (if (and actual (not (blank? actual)))
-            (book-check/check-proposal-artifact images slots actual)
-            [{:reason "proposal-artifact-unreadable-or-empty" :artifact artifact}]))
-        []))
-    (catch clojure.lang.ExceptionInfo e [{:reason (ex-message e)}])))
+  ([directory artifact] (directory-page-faults directory artifact nil))
+  ([directory artifact prior]
+   (try
+     (let [{:keys [slots images]} (probe-directory directory book-proposal/repository-root prior)]
+       (if artifact
+         (let [actual (try
+                        (when (fs/regular-file? artifact) (slurp artifact :encoding "UTF-8"))
+                        (catch java.io.IOException _ nil))]
+           (if (and actual (not (blank? actual)))
+             (book-check/check-proposal-artifact images slots actual)
+             [{:reason "proposal-artifact-unreadable-or-empty" :artifact artifact}]))
+         []))
+     (catch clojure.lang.ExceptionInfo e [{:reason (ex-message e)}])
+     (catch java.io.IOException e [{:reason (ex-message e)}]))))
 
 (defn read-text
   "Read a UTF-8 file with newlines normalised to \\n."
@@ -2680,7 +2688,7 @@
   (let [args (vec args)]
     (when (< (count args) 2)
       (binding [*out* *err*]
-        (println "usage: bb book-build.clj SOURCE.md|DIRECTORY OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]"))
+        (println "usage: bb book-build.clj SOURCE.md|DIRECTORY OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF] [--prior-proposal STORE_DIRECTORY --prior-sha256 NAR_SRI]"))
       (System/exit 1))
     (let [[src-path out-path] args
           ci (.indexOf args "--code")
@@ -2694,10 +2702,13 @@
                 *figures-dir* (when (>= fi 0) (get args (inc fi)))
                 *ethos-zero* (if (>= ei 0) (get args (inc ei)) configured-ethos-zero)
                 *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) configured-ethos-zero)]
-        (try (let [code (read-text code-path)
+        (try (let [prior (book-proposal/prior-options (drop 2 args))
+                   _ (when (and prior (not (fs/directory? src-path)))
+                       (book-proposal/refuse "prior-proposal-requires-proposal-directory"))
+                   code (read-text code-path)
                    page (if (fs/directory? src-path)
                           (do (check-directory! src-path)
-                              (build-directory src-path book-proposal/repository-root code))
+                              (build-directory src-path book-proposal/repository-root prior code))
                           (let [src (read-text src-path)]
                             (check-source! src)
                             (binding [*enforce-ethos* true] (build src code))))]

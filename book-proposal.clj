@@ -400,11 +400,12 @@
     (temporary-files [(str (str/join "\n" base) (when (seq base) "\n"))
                       (str (str/join "\n" copy) (when (seq copy) "\n"))]
                      (fn [[base-path copy-path]]
-                       (let [output (:out (deref (process/process ["git" "diff" "--no-index" "--no-color" "--patience" "-U0"
-                                                                   "--no-ext-diff" base-path copy-path]
-                                                                  {:out :string :err :string :in ""})
-                                                 60000 ::timeout))
-                             hunks (for [[_ a b c d] (re-seq #"(?m)^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@" output)]
+                       (let [diff (deref (process/process ["git" "diff" "--no-index" "--no-color" "--patience" "--text" "-U0"
+                                                          "--no-ext-diff" base-path copy-path]
+                                                         {:out :string :err :string :in ""})
+                                         60000 ::timeout)
+                             _ (when-not (= 1 (:exit diff)) (refuse "module-line-comparison-unavailable"))
+                             hunks (for [[_ a b c d] (re-seq #"(?m)^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@" (:out diff))]
                                      [(parse-long a) (if b (parse-long b) 1) (parse-long c) (if d (parse-long d) 1)])]
                          (loop [hunks hunks i 0 ops []]
                            (if-let [[a b c d] (first hunks)]
@@ -574,12 +575,12 @@
 (defn- prepare-module
   "A module of the manifest read for comparison: the entry, its lines before and after,
   and the ops between them."
-  [{:keys [state] :as entry} base-text copy-text]
+  [{:keys [state] :as entry} base-text copy-text compare-ops]
   (let [old (when base-text (front-matter-and-body base-text))
         new (when copy-text (front-matter-and-body copy-text))
         base (or (:body old) [])
         copy (or (:body new) [])
-        ops (diff-ops base copy)
+        ops (vec (compare-ops (diff-ops base copy)))
         base-fences (fence-ids base)
         copy-fences (fence-ids copy)]
     {:entry entry
@@ -623,38 +624,39 @@
   "The lines of one module's view: its heading, its description, and its body whole with
   every change standing in its place."
   [modules index m state next-number!]
-  (let [{:keys [entry ops fences new? old-description new-description old-front new-front]} (modules m)
+  (let [{:keys [entry ops fences new? revised-new? old-description new-description old-front new-front]} (modules m)
+        whole-addition? (and new? (not revised-new?))
         move-at (index m)
-        heading (str "## " (book-check/module-location-text entry) (when new? ", a new file"))
+        heading (str "## " (book-check/module-location-text entry) (cond revised-new? ", a revised new file" new? ", a new file"))
         description
         (cond
-          new? (when new-description (container "description" (map #(signed "+" %) (str/split-lines new-description))))
+          whole-addition? (when new-description (container "description" (map #(signed "+" %) (str/split-lines new-description))))
           (= old-description new-description)
           (when new-description (container "description" (str/split-lines new-description)))
           :else (concat [(proposal-head (next-number!) entry) ""]
                         (container "description"
                                    (concat (map #(signed "-" %) (some-> old-description str/split-lines))
                                            (map #(signed "+" %) (some-> new-description str/split-lines))))))
-        dependencies (when new?
+        dependencies (when whole-addition?
                        (some-> (first (filter #(front-key? "dependencies" %) new-front))
                                (str/replace-first #"^dependencies:\s*" "")
                                (as-> value (container "dependencies" [(str "+ " value)]))))
-        front (when (and (not new?) (not= old-front new-front))
+        front (when (and (not whole-addition?) (not= old-front new-front))
                 (concat [(proposal-head (next-number!) entry) "" "```yaml"]
                         (region-render (diff-ops old-front new-front))
                         ["```"]))
-        regions (if new?
+        regions (if whole-addition?
                   (if (seq ops) [[0 (dec (count ops))]] [])
                   (change-regions ops fences))
         head (-> [heading ""]
                  (into (when description (concat description [""])))
                  (into (when dependencies (concat dependencies [""])))
                  (into (when front (concat front [""]))))
-        tail-after-head? (boolean (or (and (not new?) (not= old-description new-description)) front))
+        tail-after-head? (boolean (or (and (not whole-addition?) (not= old-description new-description)) front))
         emit-segment (fn [out segment]
                        (if (some #(not (str/blank? (:text %))) segment)
                          (let [lines (region-render segment)]
-                           (if new?
+                           (if whole-addition?
                              (into out lines)
                              (-> (with-blank-before out)
                                  (conj (proposal-head (next-number!) entry))
@@ -692,53 +694,142 @@
         (let [[plain _] (plain-lines (map :text (subvec ops p)) tail?)]
           (into out plain))))))
 
-(defn- module-images [directory kind {:keys [entry new? ops fences old-description new-description old-front new-front]} moves]
+(defn prior-options
+  "Read the optional pin pair from command options, with each input present exactly once."
+  [arguments]
+  (let [value (fn [flag]
+                (let [positions (keep-indexed #(when (= flag %2) %1) arguments)]
+                  (when (> (count positions) 1)
+                    (refuse (str "duplicate-option: " flag)))
+                  (when-let [position (first positions)]
+                    (let [argument (get (vec arguments) (inc position))]
+                      (when (or (str/blank? argument) (str/starts-with? argument "--"))
+                        (refuse (str "option-value-required: " flag)))
+                      argument))))
+        directory (value "--prior-proposal")
+        sha256 (value "--prior-sha256")]
+    (cond
+      (and directory sha256) {:directory directory :sha256 sha256}
+      (or directory sha256) (refuse "prior-proposal-and-sha256-required"))))
+
+(defn- prior-store-directory [{:keys [directory sha256]}]
+  (let [store (or (System/getenv "NIX_STORE_DIR") "/nix/store")
+        canonical (try (fs/real-path directory) (catch java.io.IOException _ nil))]
+    (when-not (and (re-matches #"sha256-[A-Za-z0-9+/]{43}=" sha256)
+                   canonical (fs/directory? canonical)
+                   (= directory (str canonical))
+                   (= store (str (fs/parent canonical))))
+      (refuse "prior-proposal-requires-store-directory-and-nar-sha256"))
+    (let [run (fn [arguments]
+                @(process/process arguments {:in "" :out :string :err :string}))
+          registration (run ["nix-store" "--check-validity" directory])]
+      (when-not (zero? (:exit registration))
+        (refuse "prior-proposal-store-path-unregistered"))
+      (let [hash (run ["nix" "--extra-experimental-features" "nix-command"
+                       "hash" "path" "--algo" "sha256" "--sri" directory])]
+        (when-not (and (zero? (:exit hash)) (= sha256 (str/trim (:out hash))))
+          (refuse "prior-proposal-digest-mismatch"))))
+    directory))
+
+(defn- snapshot-file [directory file]
+  (let [expected (fs/absolutize file)]
+    (when-not (try (and (fs/regular-file? expected)
+                        (= expected (fs/real-path expected))
+                        (fs/starts-with? expected (fs/path directory)))
+                   (catch java.io.IOException _ false))
+      (refuse "prior-proposal-snapshot-file-unavailable"))
+    expected))
+
+(defn- revised-module [manifest prior]
+  (let [directory (prior-store-directory prior)
+        previous (read-manifest (slurp (str (snapshot-file directory (manifest-path directory)))))
+        [old] (:entries previous)
+        [new] (:entries manifest)]
+    (when-not (and (= "Proposal" (:kind previous) (:kind manifest))
+                   (= 1 (count (:entries previous)) (count (:entries manifest)))
+                   (= :new (:state old) (:state new))
+                   (same-module? old new)
+                   (book-check/valid-location? (:repository new) (:path new))
+                   (str/ends-with? (:path new) ".md"))
+      (refuse "prior-proposal-new-module-identity-mismatch"))
+    {:directory directory
+     :text (slurp (str (snapshot-file directory (copy-path directory old))) :encoding "UTF-8")}))
+
+(defn- compare-kept-images
+  "A reused image reference is context only when its snapshots give it the same bytes."
+  [directory previous-directory ops]
+  (mapcat (fn [{:keys [sign text] :as op}]
+            (let [figure (when (= :keep sign) (book-check/data-figure-line text))]
+              (if (book-check/png-figure? figure)
+                (let [old (book-check/read-proposal-png previous-directory figure)
+                      new (book-check/read-proposal-png directory figure)]
+                  (if (java.util.Arrays/equals ^bytes old ^bytes new)
+                    [(assoc op :image-bytes new)]
+                    [(assoc op :sign :del :image-bytes old)
+                     (assoc op :sign :add :image-bytes new)]))
+                [op])))
+          ops))
+
+(defn- module-images [directory previous kind {:keys [entry new? ops fences old-description new-description old-front new-front]} moves]
   (when (str/ends-with? (:path entry) ".md")
     (let [location (book-check/module-location-text entry)
+          planned-reference? (if previous book-check/image-reference? book-check/proposal-image-reference?)
           refuse (fn [text] (refuse (str "proposal-image-placement-unsupported: " location ": " text)))]
       (doseq [line (concat old-front new-front [old-description new-description])
-              :when (and line (book-check/proposal-image-reference? line))]
+              :when (and line (planned-reference? line))]
         (refuse line))
-      (for [[position {:keys [text sign b c]}] (map-indexed vector ops)
-            :when (book-check/proposal-image-reference? text)
+      (for [[position {:keys [text sign b c image-bytes]}] (map-indexed vector ops)
+            :when (planned-reference? text)
             :let [figure (book-check/data-figure-line text)]]
         (do
           (when-not (and (= "Proposal" kind)
-                         (or (= :add sign) (and (= :del sign) (= :changed (:state entry))))
+                         (case sign
+                           :add true
+                           :del (or previous (= :changed (:state entry)))
+                           :keep (boolean previous))
                          (empty? (fences position))
                          (not (contains? moves position)) figure)
             (refuse text))
-          (assoc figure :bytes (book-check/read-proposal-png directory figure)
+          (assoc figure :bytes (or image-bytes (book-check/read-proposal-png
+                                                  (if (and previous (= :del sign)) previous directory) figure))
                  :module location
-                 :new-module? new? :sign sign :body-line (inc (if (= :del sign) b c)) :text text))))))
+                 :new-module? new? :revised-new? (boolean previous) :sign sign :body-line (inc (if (= :del sign) b c)) :text text))))))
 
 (defn directory-page
-  "Project authenticated module copies to book source and the PNGs their signed body lines name."
-  [directory root]
-  (let [{:keys [title kind creator entries]} (read-directory-manifest directory)
-        state (if (= kind "Review") "landed" "proposed")
-        counter (atom 0)
-        next-number! #(swap! counter inc)
-        modules (mapv (fn [{:keys [state repository path revision] :as entry}]
-                        (prepare-module entry
-                                        (when revision
-                                          (or (text-at root repository revision path)
-                                              (refuse (str repository " › " path " stands nowhere at revision " revision "."))))
-                                        (when-not (= state :removed)
-                                          (slurp (copy-path directory entry) :encoding "UTF-8"))))
-                      entries)
-        moves (numbered-moves modules next-number!)
-        index (move-index modules moves)]
-    {:source (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\nCreated by " creator ".\n\n"
-                  (str/join "\n" (mapcat #(concat (module-view modules index % state next-number!) [""])
-                                          (range (count modules)))))
-     :images (into [] (map-indexed #(assoc %2 :slot (str %1)))
-                   (mapcat #(module-images directory kind %1 %2) modules index))}))
+  "Project module copies to book source and the PNGs the comparison places in it."
+  ([directory root] (directory-page directory root nil))
+  ([directory root prior]
+   (let [{:keys [title kind creator entries] :as manifest} (read-directory-manifest directory)
+         previous (when prior (revised-module manifest prior))
+         state (if (= kind "Review") "landed" "proposed")
+         counter (atom 0)
+         next-number! #(swap! counter inc)
+         modules (mapv (fn [{:keys [state repository path revision] :as entry}]
+                         (let [comparison-text (cond
+                                                 previous (:text previous)
+                                                 revision (or (text-at root repository revision path)
+                                                              (refuse (str repository " › " path
+                                                                           " stands nowhere at revision " revision "."))))
+                               copy (when-not (= state :removed)
+                                      (slurp (copy-path directory entry) :encoding "UTF-8"))
+                               compare-ops (if previous
+                                             (partial compare-kept-images directory (:directory previous))
+                                             identity)]
+                           (assoc (prepare-module entry comparison-text copy compare-ops)
+                                  :revised-new? (boolean previous))))
+                       entries)
+         moves (numbered-moves modules next-number!)
+         index (move-index modules moves)]
+     {:source (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\nCreated by " creator ".\n\n"
+                   (str/join "\n" (mapcat #(concat (module-view modules index % state next-number!) [""])
+                                           (range (count modules)))))
+      :images (into [] (map-indexed #(assoc %2 :slot (str %1)))
+                    (mapcat #(module-images directory (:directory previous) kind %1 %2) modules index))})))
 
 (defn directory-source
   "The book source a proposal directory shows."
-  [directory root]
-  (:source (directory-page directory root)))
+  ([directory root] (directory-source directory root nil))
+  ([directory root prior] (:source (directory-page directory root prior))))
 
 (defn check-directory
   "The faults of a proposal directory, as [{:reason ...}], empty when the builder can read it."

@@ -110,10 +110,10 @@
   (fs/with-temp-dir [directory {}]
     (write-proposal! directory "Proposal" :new "Opening.\n\n![Marks](marks.png)\n\nEnding.\n")
     (write-png! directory "marks.png" first-png)
-    (let [{:keys [images slots]} (#'book-build/probe-directory directory directory)
-          good (#'book-build/build-directory directory directory "")
+    (let [{:keys [images slots]} (#'book-build/probe-directory directory directory nil)
+          good (#'book-build/build-directory directory directory nil "")
           broken (binding [book-build/*proposal-image-html* (constantly "")]
-                   (#'book-build/build-directory directory directory ""))]
+                   (#'book-build/build-directory directory directory nil ""))]
       (is (= [{:slot "0" :body-line 3 :module "psyche-belief › vision/figures/0.md"}]
              (mapv #(select-keys % [:slot :body-line :module]) images)))
       (is (not (str/includes? slots "data:image/png")))
@@ -130,8 +130,8 @@
     (with-redefs [book-proposal/text-at (fn [_ repo rev path]
                                         (is (= [repository revision module-path] [repo rev path]))
                                         (str front-matter "Before.\n\nAfter.\n"))]
-      (let [html (#'book-build/build-directory directory directory "")
-            {:keys [images slots]} (#'book-build/probe-directory directory directory)]
+      (let [html (#'book-build/build-directory directory directory nil "")
+            {:keys [images slots]} (#'book-build/probe-directory directory directory nil)]
         (is (empty? (book-check/check-proposal-artifact images slots html)))
         (is (re-find #"(?s)Before\.</p>\s*<section class=\"proposal in-place\">\s*<div class=\"diff\"><div class=\"add\"><img.*?</section>\s*<p>After\.</p>" html))))))
 
@@ -144,8 +144,8 @@
     (with-redefs [book-proposal/text-at (fn [_ repo rev path]
                                         (is (= [repository revision module-path] [repo rev path]))
                                         (str front-matter "Before.\n\n![Old figure](old.png)\n\nAfter.\n"))]
-      (let [html (#'book-build/build-directory directory directory "")
-            {:keys [images slots]} (#'book-build/probe-directory directory directory)
+      (let [html (#'book-build/build-directory directory directory nil "")
+            {:keys [images slots]} (#'book-build/probe-directory directory directory nil)
             check (fn [artifact] (mapv :reason (book-check/check-proposal-artifact images slots artifact)))
             [old-image new-image] (re-seq #"<img [^>]*>" html)]
         (is (= [[:del 3 "old.png"] [:add 3 "new.png"]]
@@ -165,7 +165,52 @@
                                    (str "<div class=\"del\">" new-image))))))
       (fs/delete (fs/path directory "old.png"))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"proposal-image-file-unavailable: old.png"
-                            (#'book-build/build-directory directory directory ""))))))
+                            (#'book-build/build-directory directory directory nil ""))))))
+
+(deftest revised-new-module-compares-source-and-assets-across-snapshots
+  (fs/with-temp-dir [before {}]
+    (fs/with-temp-dir [after {}]
+      (let [opening "## First\n\n![First](first.png)\n\n## Middle\n\n"
+            ending "\n\n## Last\n\n![Last](last.png)\n"
+            prior {:directory (str before)}
+            location (str repository " › " module-path)]
+        (write-proposal! before "Proposal" :new
+                         (str opening "![Middle](middle.png)\n\nOld prose." ending))
+        (write-proposal! after "Proposal" :new
+                         (str opening "![Middle](middle.png)\n\nNew prose." ending))
+        (doseq [directory [before after] name ["first.png" "last.png"]]
+          (write-png! directory name first-png))
+        (write-png! before "middle.png" first-png)
+        (write-png! after "middle.png" second-png)
+        (with-redefs-fn {#'book-proposal/prior-store-directory :directory
+                        #'book-proposal/text-at (fn [& _] (throw (ex-info "Git base read" {})))}
+          (fn []
+            (let [{:keys [images slots]} (#'book-build/probe-directory after after prior)
+                  source (book-proposal/directory-source after after prior)
+                  html (#'book-build/build-directory after after prior "")
+                  reasons (fn [artifact] (mapv :reason (book-check/check-proposal-artifact images slots artifact)))
+                  middle-add (second (re-find #"(<div class=\"add\"><img [^>]*alt=\"Middle\"[^>]*></div>)" html))]
+              (is (str/includes? source (str "## " location ", a revised new file")))
+              (is (str/includes? source "- ![Middle](middle.png)\n+ ![Middle](middle.png)"))
+              (is (str/includes? source "- Old prose.\n+ New prose."))
+              (is (= [[:keep "First"] [:del "Middle"] [:add "Middle"] [:keep "Last"]]
+                     (mapv (juxt :sign :alt-text) images)))
+              (is (str/includes? middle-add second-png))
+              (is (str/includes? (or (re-find #"<div class=\"del\"><img [^>]*alt=\"Middle\"[^>]*>" html) "")
+                                 first-png))
+              (is (str/includes? html "<span class=\"module-state\">New</span>"))
+              (is (empty? (reasons html)))
+              (is (= ["proposal-artifact-image-placement-mismatch"]
+                     (reasons (str/replace html middle-add (str/replace middle-add "class=\"add\"" "class=\"ctx\""))))))
+            (write-proposal! after "Proposal" :changed "Still another module state.
+")
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"prior-proposal-new-module-identity-mismatch"
+                                  (book-proposal/directory-page after after prior)))
+            (write-proposal! after "Proposal" :new
+                             (str opening "![Middle](middle.png)\n\nNew prose." ending))
+            (fs/delete (fs/path before "middle.png"))
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"proposal-image-file-unavailable: middle.png"
+                                  (book-proposal/directory-page after after prior)))))))))
 
 (deftest unsupported-assets-and-placements-refuse-in-both-cli-commands
   (doseq [[kind body reason put-file]

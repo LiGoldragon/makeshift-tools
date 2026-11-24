@@ -183,8 +183,11 @@
     (if (str/ends-with? text "\n") (subs text 0 (dec (count text))) text)))
 
 (defn proposal-command [command arguments]
-  (let [[arguments options] (split-options arguments)
+  (let [prior (book-proposal/prior-options arguments)
+        [arguments options] (split-options arguments)
         root (or (:root options) book-proposal/repository-root)]
+    (when (and prior (not (#{"source" "figures"} command)))
+      (refuse "prior-proposal-requires-source-or-figures"))
     (case command
       "copy" (let [[directory & modules] arguments]
                (doseq [path (book-proposal/copy! directory modules options root)] (println "Copied:" path)))
@@ -205,13 +208,13 @@
                   (when-not (and directory output) (refuse usage))
                   (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-build.clj")))
                   (fs/create-dirs output)
-                  (doseq [[number {:keys [lines mermaid?]}] ((resolve 'book-build/directory-figures) directory)
+                  (doseq [[number {:keys [lines mermaid?]}] ((resolve 'book-build/directory-figures) directory root prior)
                           :let [file (str (fs/path output (str "fig-" number (if mermaid? ".mmd" ".txt"))))]]
                     (spit file (str (str/join "\n" lines) "\n") :encoding "UTF-8")
                     (println "Figure:" file)))
       "source" (let [[directory] arguments]
                  (when-not directory (refuse usage))
-                 (print (book-proposal/directory-source directory root)))
+                 (print (book-proposal/directory-source directory root prior)))
       "land" (let [[target] arguments
                    directory (if (fs/directory? target) target (str (fs/parent (fs/absolutize target))))]
                (doseq [line (book-proposal/land! directory root)] (println line))))))

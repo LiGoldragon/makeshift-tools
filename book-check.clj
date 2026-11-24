@@ -111,19 +111,20 @@
 ;; A module view is headed `## repo › path`, or `## repo › path, a new file` for a
 ;; module the view creates. This is the one definition of that heading: the
 ;; checker and the builder both match it through these.
-(def ^:private module-view-pattern "([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\\s,›·]+)(, a new file)?")
+(def ^:private module-view-pattern "([A-Za-z0-9][A-Za-z0-9_.-]*) › ([^\\s,›·]+)(, a (?:revised )?new file)?")
 ;; A module view heading's text, after `## `: groups repository, path, new-file suffix.
 (def module-view-text (re-pattern (str "^" module-view-pattern "\\z")))
 ;; A module view heading line, as the renderer reads it.
 (def module-view-line (re-pattern (str "^## " module-view-pattern "\\s*\\z")))
 
 (defn module-view-heading
-  "The module view a line heads: {:repository :path :new? :location}, or nil when
-  the line heads none or names an invalid location."
+  "The module view a line heads, or nil for an invalid heading. A revised view
+  has New identity and compares to a prior proposal instead of a new file's empty base."
   [line]
   (when-let [[_ repository path new-file] (re-matches module-view-line line)]
     (when (valid-location? repository path)
-      {:repository repository :path path :new? (boolean new-file) :location [repository path]})))
+      {:repository repository :path path :location [repository path]
+       :new? (boolean new-file) :revised-new? (= ", a revised new file" new-file)})))
 
 ;; The closing Questions section of a Proposal, Review or Account page opens at
 ;; this heading and runs, plain prose, to the end of the source.
@@ -1575,6 +1576,10 @@
                        (let [account? (= "Account" (:kind @st))
                              view (when (= level 2) (module-view-heading (str "## " text)))]
                          (cond
+                           (:revised-new? view)
+                           (do (err! number "revised-new-module-requires-pinned-proposal-directory")
+                               (swap! st update :shown into (range (inc i) (module-view-end lines i))))
+
                            view
                            (handle-module-view! i number view)
 
@@ -1784,15 +1789,20 @@
                  (map #(module-artifact-shape slots %)))
         (.select document "article.module")))
 
-(defn- in-planned-margin? [{:keys [module new-module? sign]} node]
+(defn- in-planned-margin? [{:keys [module new-module? revised-new? sign]} node]
   (let [article (.closest node "article.module")
         title (when article (.selectFirst article "header > h2.target"))
-        badge (when article (.selectFirst article "header > .module-state"))]
-    (and (.hasClass (.parent node) (name sign))
-         title (= module (.text title))
+        badge (when article (.selectFirst article "header > .module-state"))
+        proposal (.closest node "section.proposal.in-place")
+        parent (.parent node)]
+    (and title (= module (.text title))
          (if new-module?
            (and (.hasClass article "diff") badge (= "New" (.text badge)))
-           (.closest node "section.proposal.in-place")))))
+           (nil? badge))
+         (if (= :keep sign)
+           (and revised-new? (if proposal (.hasClass parent "ctx") (= article parent)))
+           (and (.hasClass parent (name sign))
+                (if (and new-module? (not revised-new?)) (nil? proposal) proposal))))))
 
 (defn check-proposal-artifact
   "Check built PNGs against the authenticated source plan, with a projected DOM of
@@ -1830,12 +1840,21 @@
           :else [])))))
 
 (defn main [args]
-  (let [[source artifact] args
+  (let [[positional options] (split-with #(not (str/starts-with? % "--")) args)
+        [source artifact] positional
         directory? (and source (fs/directory? source))]
     (cond
-      (or (not source) (> (count args) 2) (not (fs/absolute? source)))
+      (or (not source) (> (count positional) 2) (not (fs/absolute? source)))
       (do (binding [*out* *err*]
             (println (json/generate-string {:errors [{:reason "one-absolute-source-path-required"}]})))
+          2)
+      (and (seq options)
+           (or (not directory?)
+               (not= 4 (count options))
+               (not= #{"--prior-proposal" "--prior-sha256"} (set (take-nth 2 options)))
+               (some #(or (str/blank? %) (str/starts-with? % "--")) (take-nth 2 (rest options)))))
+      (do (binding [*out* *err*]
+            (println (json/generate-string {:errors [{:reason "prior-proposal-and-sha256-required-for-proposal-directory"}]})))
           2)
       (and artifact (or (not directory?) (not (fs/absolute? artifact))))
       (do (binding [*out* *err*]
@@ -1850,7 +1869,8 @@
                          structural
                          (do (System/setProperty "book-check.nested" "true") ; book-build loads this file again, which must not run main
                              (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-build.clj")))
-                             ((resolve 'book-build/directory-page-faults) source artifact)))]
+                             ((resolve 'book-build/directory-page-faults) source artifact
+                              ((resolve 'book-proposal/prior-options) options))))]
             (if (seq faults)
               (let [refusal (json/generate-string {:errors faults})]
                 (binding [*out* *err*] (println refusal))

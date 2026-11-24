@@ -150,7 +150,28 @@ the original assets. It maps the signed source lines to position slots in
 the module's addition and removal panels without rendering any expected PNG markup. The one-path
 `book-check /abs/PROPOSAL_DIRECTORY` checks the source alone.
 
-A proposal's heading renders as the module's name alone, `<type>:<topic>:<version>`
+To compare a revision of one unlanded New Markdown module, give the builder
+and checker the immutable prior proposal directory and its independently
+recorded SHA-256 NAR digest (SRI format):
+
+    book-build DIRECTORY OUT.html --prior-proposal "$PRIOR_STORE_DIRECTORY" --prior-sha256 "$PRIOR_NAR_SHA256"
+    book-check /abs/DIRECTORY [/abs/BUILT.html] --prior-proposal "$PRIOR_STORE_DIRECTORY" --prior-sha256 "$PRIOR_NAR_SHA256"
+
+Both manifests must describe one `New` module in a `Proposal`, with the same
+repository and path. The tools verify the prior store directory's contents
+against the pin before comparing. The module keeps its New badge; the changes
+are drawn in place against the prior proposal, with unchanged content in
+authored order. Removed PNGs use the prior assets, added PNGs use the revised
+assets, and a reused reference is unchanged only when both assets have the
+same bytes. The prior is a proposal snapshot, independent of Git. The caller
+supplies the digest from the earlier checked proposal and authorizes the
+revised directory separately. Pass the same options to `book-tools source`
+or `book-tools figures` to inspect the source projection or prepare numbered
+figures. Leaving both options out preserves ordinary New and Changed builds.
+
+A whole-module view is headed by its full `repository › path`. A New view
+also carries its New badge. Standalone proposal headings render as the module's name alone,
+`<type>:<topic>:<version>`
 (`vision/belief-modules/0.md` is `vision:belief-modules:0`), taken from the heading's
 `repository › path`; a path that is not a module's is shown as it is. The proposal
 number, its title and the repository do not render. Proposals one after another into
