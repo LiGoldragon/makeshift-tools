@@ -2287,7 +2287,8 @@
               (vreset! glue false)
               (when @in-article (append! "</article>") (vreset! in-article false))
               (when @in-module (append! "</article>"))
-              (append! (module-header (book-check/module-display-name repository path) new? (when (linked location) (module-anchor location))))
+              (append! (module-header location new?
+                                      (when (linked location) (module-anchor location))))
               (vreset! module-md (str/ends-with? path ".md"))
               (vreset! module-file path)
               (vreset! module-location location)

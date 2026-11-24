@@ -257,8 +257,9 @@ The checker option `:dependency-names` supplies the membership reader in tests.
 
 A module view is headed `## repo › path`. The heading is defined once, in
 book-check (`module-view-pattern`), and the checker and the builder both match
-it through that definition. A module's file name may be a number, a span or
-`all` (`vision/flow-nexus/0-1.md`).
+it through that definition. The builder displays the full `repo › path` in
+the module sheet’s heading, with the New badge only on a new module. A
+module's file name may be a number, a span or `all` (`vision/flow-nexus/0-1.md`).
 
 A move is read where it lands. In the view of the module it enters, an
 in-place proposal holds the move container at the place the passage lands. Its

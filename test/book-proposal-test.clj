@@ -166,7 +166,7 @@
 (defn- built [directory root]
   (page (book-proposal/directory-source directory root)))
 
-(deftest a-module-shows-whole-under-its-name-with-every-change-in-place
+(deftest a-module-shows-whole-under-its-location-with-every-change-in-place
   (let [root (make-root repositories)
         directory (str (fs/path root "proposal"))
         _ (book-proposal/copy! directory ["vision:first:0"] {:title "A page" :creator "Sonnet"} root)
@@ -175,7 +175,7 @@
         _ (book-proposal/replace! file "- a bullet\n" "- a bullet\n- an added bullet\n")
         _ (book-proposal/replace! file "description: The first module." "description: The first module, changed.")
         html (built directory root)]
-    (is (str/includes? html "<h2 class=\"target\"><code style=\"font-size:.95rem\">vision:first:0</code></h2>") "under its name")
+    (is (str/includes? html "<h2 class=\"target\"><code style=\"font-size:.95rem\">psyche-belief › vision/first/0.md</code></h2></header>") "Changed has its full location and no New badge")
     (is (str/includes? html "<title>A page</title>"))
     (is (str/includes? html "<p>The rule is <del>old</del><ins>new</ins> and it stands in this module.</p>") "the replaced line, read once")
     (is (str/includes? html "<div class=\"add\"><ul><li>an added bullet</li></ul></div>") "an added line")
@@ -209,7 +209,8 @@
                       "---\ndescription: Fresh one.\ndependencies: [vision:first:0]\n---\n\n# Fresh\n\nNew text.\n\n```text\ncode\n```\n")
         _ (book-proposal/remove! directory "vision:second:0" {} root)
         html (built directory root)]
-    (is (str/includes? html "vision:fresh:0</code></h2><span class=\"module-state\">New</span>"))
+    (is (str/includes? html "psyche-belief › vision/fresh/0.md</code></h2><span class=\"module-state\">New</span></header>") "New has its full location and a New badge")
+    (is (str/includes? html "psyche-belief › vision/second/0.md</code></h2></header>") "Removed has its full location and no New badge")
     (is (str/includes? html "<div class=\"add\"><p>New text.</p></div>"))
     (is (str/includes? html "<div class=\"add\"><p>Fresh one.</p></div>") "its description, added")
     (is (str/includes? html "<code>vision:first:0</code>") "its dependencies")
