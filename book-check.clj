@@ -1,4 +1,4 @@
-;; Structural check of a book source: `bb book-check.clj /abs/SOURCE.md`.
+;; Check a book source, or a proposal directory with an optional rendered HTML artifact.
 ;; Ported from book-check.mjs. check-book: source text -> vector of
 ;; {:line n :reason "..."} errors, sorted by line. This checks source
 ;; structure, not the merits of a proposed crystallization.
@@ -94,6 +94,11 @@
   [repository path]
   (let [name (module-name path)]
     (if (= name path) (str repository " › " path) name)))
+
+(defn module-location-text
+  "The repository and path displayed in a whole-module heading."
+  [{:keys [repository path]}]
+  (str repository " › " path))
 
 (defn module-path
   "The path in a belief repository of the module a name gives, or nil when the
@@ -898,6 +903,43 @@
   (when-let [[_ sign alt-text filename] (re-matches #"(?:(\+|-) )?!\[([^\]]*)\]\((.*)\)\s*" line)]
     {:sign sign :alt-text alt-text :filename filename}))
 
+(defn image-reference? [line]
+  (boolean (re-find #"!\[[^\]]*\]" line)))
+
+(defn png-figure? [{:keys [filename]}]
+  (and filename (boolean (re-find #"(?i)\.png$" filename))))
+
+(defn proposal-image-reference?
+  "An image reference handled by the proposal asset plan, rather than by the sibling SVG reader."
+  [line]
+  (and (image-reference? line)
+       (not (some->> (data-figure-line line) :filename (re-find #"(?i)\.svg$")))))
+
+(defn- sibling-bytes [directory filename]
+  (let [file (fs/path directory filename)]
+    (try
+      (when (and (fs/regular-file? file)
+                 (= (fs/real-path directory) (fs/parent (fs/real-path file))))
+        (fs/read-all-bytes file))
+      (catch java.io.IOException _ nil))))
+
+(defn read-proposal-png
+  "Read and validate the exact PNG bytes to embed from a proposal directory."
+  [directory {:keys [filename]}]
+  (let [refuse (fn [reason] (throw (ex-info (str reason ": " filename) {:reason reason})))
+        _ (when-not (re-matches #"(?i)[^/\\:\s\p{Cntrl}()]+\.png" filename)
+            (refuse "proposal-image-root-png-required"))
+        bytes (or (sibling-bytes directory filename)
+                  (refuse "proposal-image-file-unavailable"))]
+    (when-not (= [137 80 78 71 13 10 26 10] (mapv #(bit-and 255 %) (take 8 bytes)))
+      (refuse "proposal-image-invalid-png"))
+    (let [result (try @(process/process ["pngcheck" "-q"]
+                                        {:in bytes :out :string :err :string})
+                      (catch java.io.IOException _
+                        (refuse "proposal-image-validator-unavailable")))]
+      (when-not (zero? (:exit result)) (refuse "proposal-image-invalid-png")))
+    bytes))
+
 (defn- svg-document? [bytes]
   (try
     (with-open [input (java.io.ByteArrayInputStream. bytes)]
@@ -920,12 +962,7 @@
         _ (when-not source-path (refuse "data-figure-source-path-required"))
         source (fs/absolutize source-path)
         directory (if (fs/directory? source) source (fs/parent source))
-        file (fs/path directory filename)
-        bytes (try
-                (when (and (fs/regular-file? file)
-                           (= (fs/real-path directory) (fs/parent (fs/real-path file))))
-                  (fs/read-all-bytes file))
-                (catch java.io.IOException _ nil))]
+        bytes (sibling-bytes directory filename)]
     (when-not bytes (refuse "data-figure-file-unavailable"))
     (when-not (svg-document? bytes) (refuse "data-figure-invalid-svg"))
     bytes))
@@ -1260,6 +1297,13 @@
                        :else (err! number "context-module-differs"))))
                  (catch Throwable _ (err! number "context-module-unavailable"))))
              (swap! st update :shown into (range (inc i) end))))]
+     ;; Signed PNGs are authorized only by the module diff of a proposal directory.
+     ;; Standalone unsigned images already go through the sibling SVG rule.
+     (doseq [i (unfenced-indices lines 0 (count lines))
+             :let [line (lines i)]
+             :when (and (or (not (data-figure-line line)) (:sign (data-figure-line line)))
+                        (re-find #"(?i)!\[[^\]]*\]\([^)]*\.png\b" line))]
+       (err! (inc i) "proposal-image-directory-required"))
      (doseq [i (range (count lines))]
        (let [line (lines i)
              number (inc i)
@@ -1716,41 +1760,117 @@
           :off))
       (catch Exception e (say (ex-message e))))))
 
-(defn main [args]
+(def ^:private png-selector "img[src^=data:image/png]")
+(def ^:private slot-selector "[data-proposal-image-slot]")
+
+(defn- module-artifact-shape [slots node]
   (cond
-    (or (not= 1 (count args)) (not (fs/absolute? (first args))))
-    (do (binding [*out* *err*]
-          (println (json/generate-string {:errors [{:reason "one-absolute-source-path-required"}]})))
-        2)
-    ;; A proposal directory is checked by its manifest and copies, in book-proposal.
-    (fs/directory? (first args))
-    (do (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-proposal.clj")))
-        (let [structural ((resolve 'book-proposal/check-directory) (first args) @(resolve 'book-proposal/repository-root))
-              ;; the directory the checker passes is one the builder reads: all but the figures' presence
-              faults (if (seq structural)
-                       structural
-                       (do (System/setProperty "book-check.nested" "true") ; book-build loads this file again, which must not run main
-                           (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-build.clj")))
-                           ((resolve 'book-build/directory-page-faults) (first args))))]
-          (if (seq faults)
-            (let [refusal (json/generate-string {:errors faults})]
-              (binding [*out* *err*] (println refusal))
-              (notify-refusal! "book-check" (first args) refusal)
-              1)
-            (do (println (json/generate-string {:checked true :source (first args)})) 0))))
-    :else
-    (let [source (try (slurp (first args)) (catch Exception _ nil))]
-      (if (nil? source)
-        (do (binding [*out* *err*]
-              (println (json/generate-string {:errors [{:reason "source-unreadable"}]})))
-            2)
-        (let [errors (check-book source {:source-path (first args)})]
-          (if (seq errors)
-            (let [refusal (json/generate-string {:errors errors})]
-              (binding [*out* *err*] (println refusal))
-              (notify-refusal! "book-check" (first args) refusal)
-              1)
-            (do (println (json/generate-string {:checked true :source (first args)})) 0)))))))
+    (contains? slots node) [:image-slot (get slots node)]
+
+    (instance? org.jsoup.nodes.TextNode node)
+    (let [text (.getWholeText ^org.jsoup.nodes.TextNode node)]
+      (when-not (str/blank? text) text))
+
+    (instance? org.jsoup.nodes.Element node)
+    (let [element ^org.jsoup.nodes.Element node]
+      ;; The source check plans numbered drawings without reading their SVG files.
+      (when-not (and (= "div" (.tagName element)) (.hasClass element "figure"))
+        [(.tagName element)
+         (into {} (map #(vector (.getKey %) (.getValue %)) (.asList (.attributes element))))
+         (into [] (keep #(module-artifact-shape slots %)) (.childNodes element))]))))
+
+(defn- module-shapes [document selector slots]
+  (into [] (comp (filter #(seq (.select % selector)))
+                 (map #(module-artifact-shape slots %)))
+        (.select document "article.module")))
+
+(defn- in-planned-margin? [{:keys [module new-module? sign]} node]
+  (let [article (.closest node "article.module")
+        title (when article (.selectFirst article "header > h2.target"))
+        badge (when article (.selectFirst article "header > .module-state"))]
+    (and (.hasClass (.parent node) (name sign))
+         title (= module (.text title))
+         (if new-module?
+           (and (.hasClass article "diff") badge (= "New" (.text badge)))
+           (.closest node "section.proposal.in-place")))))
+
+(defn check-proposal-artifact
+  "Check built PNGs against the authenticated source plan, with a projected DOM of
+  position slots for the planned signed lines. The slots contain no PNG markup."
+  [images slot-html actual-html]
+  (let [actual (org.jsoup.Jsoup/parse actual-html)
+        rendered-images (.select actual png-selector)
+        expected-payload (fn [{:keys [alt-text bytes]}]
+                           [alt-text (str "data:image/png;base64,"
+                                          (.encodeToString (java.util.Base64/getEncoder) bytes))])]
+    (cond
+      (not= (count images) (count rendered-images))
+      [{:reason "proposal-artifact-image-count-mismatch"
+        :expected (count images) :actual (count rendered-images)}]
+
+      (not= (mapv expected-payload images)
+            (mapv #(vector (.attr % "alt") (.attr % "src")) rendered-images))
+      [{:reason "proposal-artifact-image-content-or-order-mismatch"}]
+
+      :else
+      (let [expected (org.jsoup.Jsoup/parse slot-html)
+            rendered-slots (.select expected slot-selector)
+            slot-ids (mapv :slot images)]
+        (cond
+          (or (not= slot-ids (mapv #(.attr % "data-proposal-image-slot") rendered-slots))
+              (not-every? true? (map #(boolean (in-planned-margin? %1 %2)) images rendered-slots)))
+          [{:reason "proposal-artifact-source-position-unavailable"
+            :positions (mapv #(select-keys % [:module :sign :body-line]) images)}]
+
+          (or (not-every? true? (map #(boolean (in-planned-margin? %1 %2)) images rendered-images))
+              (not= (module-shapes expected slot-selector (zipmap rendered-slots slot-ids))
+                    (module-shapes actual png-selector (zipmap rendered-images slot-ids))))
+          [{:reason "proposal-artifact-image-placement-mismatch"}]
+
+          :else [])))))
+
+(defn main [args]
+  (let [[source artifact] args
+        directory? (and source (fs/directory? source))]
+    (cond
+      (or (not source) (> (count args) 2) (not (fs/absolute? source)))
+      (do (binding [*out* *err*]
+            (println (json/generate-string {:errors [{:reason "one-absolute-source-path-required"}]})))
+          2)
+      (and artifact (or (not directory?) (not (fs/absolute? artifact))))
+      (do (binding [*out* *err*]
+            (println (json/generate-string {:errors [{:reason "artifact-check-requires-absolute-proposal-directory-and-html"}]})))
+          2)
+      ;; A proposal directory is checked by its manifest and copies, in book-proposal.
+      directory?
+      (do (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-proposal.clj")))
+          (let [structural ((resolve 'book-proposal/check-directory) (first args) @(resolve 'book-proposal/repository-root))
+                ;; the directory the checker passes is one the builder reads: all but the figures' presence
+                faults (if (seq structural)
+                         structural
+                         (do (System/setProperty "book-check.nested" "true") ; book-build loads this file again, which must not run main
+                             (load-file (str (fs/path (fs/parent (fs/absolutize *file*)) "book-build.clj")))
+                             ((resolve 'book-build/directory-page-faults) source artifact)))]
+            (if (seq faults)
+              (let [refusal (json/generate-string {:errors faults})]
+                (binding [*out* *err*] (println refusal))
+                (notify-refusal! "book-check" (first args) refusal)
+                1)
+              (do (println (json/generate-string (cond-> {:checked true :source source}
+                                                 artifact (assoc :artifact artifact)))) 0))))
+      :else
+      (let [source (try (slurp (first args)) (catch Exception _ nil))]
+        (if (nil? source)
+          (do (binding [*out* *err*]
+                (println (json/generate-string {:errors [{:reason "source-unreadable"}]})))
+              2)
+          (let [errors (check-book source {:source-path (first args)})]
+            (if (seq errors)
+              (let [refusal (json/generate-string {:errors errors})]
+                (binding [*out* *err*] (println refusal))
+                (notify-refusal! "book-check" (first args) refusal)
+                1)
+              (do (println (json/generate-string {:checked true :source (first args)})) 0))))))))
 
 (when (and (= *file* (System/getProperty "babashka.file")) (nil? (System/getProperty "book-check.nested")))
   (let [exit-code (main *command-line-args*)]

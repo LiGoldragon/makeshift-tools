@@ -614,12 +614,16 @@
 
 (def ^:dynamic *source-path* nil)
 
-(defn- data-figure-html [{:keys [alt-text] :as figure}]
-  (let [bytes (book-check/read-data-figure *source-path* figure)
-        encoded (.encodeToString (java.util.Base64/getEncoder) bytes)]
+(defn- data-figure-html [content-type alt-text bytes]
+  (let [encoded (.encodeToString (java.util.Base64/getEncoder) bytes)]
     (str "<img class=\"data-figure\" style=\"display:block;max-width:100%;height:auto\" alt=\""
-         (esc-attr alt-text) "\" src=\"data:image/svg+xml;base64," encoded "\">")))
+         (esc-attr alt-text) "\" src=\"data:" content-type ";base64," encoded "\">")))
 
+(defn- proposal-png-html [{:keys [alt-text bytes]}]
+  (data-figure-html "image/png" alt-text bytes))
+
+(def ^:dynamic *proposal-image-html* proposal-png-html)
+(def ^:dynamic *proposal-images* nil)
 (def ^:dynamic *figures-dir* nil)
 
 (def ^:dynamic *shared-figure-counter* nil)
@@ -1172,6 +1176,7 @@
             (code-html (first body) (second body)))
     :table (table-html body)
     :fig body
+    :data-image body
     (str "<p>" (inline body) "</p>")))
 
 (declare table-diff-html)
@@ -1363,7 +1368,8 @@
   after it, the whole removed text marked against the whole added text.
   A code fence inside whose lines carry different signs stays code."
   ([lines] (text-panels lines false))
-  ([lines per-line]
+  ([lines per-line] (text-panels lines per-line nil))
+  ([lines per-line take-image]
   (let [chunks (reduce
                 (fn [chunks raw]
                   (if (vector? raw)
@@ -1375,6 +1381,8 @@
                         joins? (and lst (= (first lst) sign)
                                     (or (not per-line) (continues? lst content)))]
                     (cond
+                      (and take-image (book-check/png-figure? (book-check/data-figure-line content)))
+                      (conj chunks [:proposal-png [sign (take-image sign content)]])
                       (and lst (= (first lst) sign) (in-fence? lst)) (conj (pop chunks) (-> lst (update 1 conj content) (update 2 conj sketch)))
                       (blank? content) (conj chunks nil)
                       joins? (conj (pop chunks) (-> lst (update 1 conj content) (update 2 conj sketch)))
@@ -1388,6 +1396,11 @@
         (let [[sign content] (chunks i)
               [nsign ncontent] (get chunks (inc i))]
           (cond
+            (= :proposal-png sign)
+            (let [[image-sign image] content]
+              (.append panels (panel image-sign [:data-image (*proposal-image-html* image)]))
+              (recur (inc i)))
+
             (= :tablediff sign)
             (do (.append panels (str "<div class=\"ctx\">" (table-diff-html content) "</div>")) (recur (inc i)))
 
@@ -1540,7 +1553,9 @@
           (recur (inc i) (-> out (cond-> (seq para) (into (flush para proposal))) (conj [:in-place-open opened]))
                  [] (str "Proposal " number))
         (let [l (lines i)
-              data-figure (when (unfenced i) (book-check/data-figure-line l))
+              data-figure (when (unfenced i)
+                            (let [figure (book-check/data-figure-line l)]
+                              (when-not (book-check/png-figure? figure) figure)))
               before proposal
               proposal (cond (re-find proposal-heading l) (second (re-find proposal-heading l))
                              (and (empty? para) (:new? (book-check/module-view-heading l))) "New module"
@@ -2122,7 +2137,8 @@
   nil)
 
 (defn build [src code]
-  (let [nfig (or *shared-figure-counter* (volatile! 0))
+  (let [images (volatile! *proposal-images*)
+        nfig (or *shared-figure-counter* (volatile! 0))
         heading-where (volatile! nil)
         ;; the number of the proposal last opened, which a ruling card carries as its value
         proposal-number (volatile! nil)
@@ -2170,6 +2186,16 @@
         ;; the view's module, `repo › path`, and whether the view creates it
         module-location (volatile! nil)
         module-new (volatile! false)
+        take-proposal-image (fn [sign line]
+                              (let [key [@module-location ({"+" :add "-" :del} sign) line]
+                                    remaining (get @images key)]
+                                (when-not (seq remaining)
+                                  (throw (ex-info (str "proposal-image-placement-unsupported: "
+                                                       @module-location ": " line) {})))
+                                (if (= 1 (count remaining))
+                                  (vswap! images dissoc key)
+                                  (vswap! images update key next))
+                                (first remaining)))
         ;; the modules a placeholder links to
         linked (into (set (keep (fn [b] (when (= :moved (first b)) (nth b 2))) bs))
                      (map second (re-seq inline-moved-mark-re src)))
@@ -2280,8 +2306,8 @@
                 (vreset! in-article true)))
 
             (book-check/module-view-heading first-line)
-            (let [{:keys [repository path new?]} (book-check/module-view-heading first-line)
-                  location (str repository " › " path)]
+            (let [{:keys [path new?] :as view} (book-check/module-view-heading first-line)
+                  location (book-check/module-location-text view)]
               (close-rulings false)
               (close-record)
               (vreset! glue false)
@@ -2442,8 +2468,9 @@
                      "<a href=\"#" (module-anchor to) "\">" (esc to) "</a></p></section>")))
 
         (= :data-figure (first b))
-        (let [{:keys [sign] :as figure} (second b)
-              html (data-figure-html figure)]
+        (let [{:keys [sign alt-text] :as figure} (second b)
+              html (data-figure-html "image/svg+xml" alt-text
+                                    (book-check/read-data-figure *source-path* figure))]
           (vreset! module-first false)
           (vreset! after-title false)
           (if sign
@@ -2549,7 +2576,9 @@
 
             (= lang "text")
             (emit-panels (binding [*figures* (module-figures show-mermaid)]
-                           (text-panels lines (= :per-line per-line))))
+                           (text-panels lines (= :per-line per-line)
+                                        (when (and *proposal-images* @module-md (in-change?) (= :per-line per-line))
+                                          take-proposal-image))))
 
             ;; Code written as a change: wholly added or removed takes one margin;
             ;; mixed, each side is highlighted whole and the lines interleave.
@@ -2560,6 +2589,9 @@
               (emit (or (signed-code-html shown lines) (code-html shown lines)))))))
         :else
         (render-prose i (second b)))))
+    (when (seq @images)
+      (throw (ex-info (str "proposal-image-placement-unsupported: "
+                           (str/join ", " (map (fn [[module sign line]] (str module ": " (name sign) " " line)) (keys @images)))) {})))
     (close-rulings false)
     (close-record)
     (when @in-module (append! "</article>"))
@@ -2583,26 +2615,47 @@
                             {:kind :figure-unused :figures unused})))))
       page)))
 
+(defn- render-directory [directory {:keys [source images]} code]
+  (binding [*source-path* directory
+            *proposal-images* (not-empty (group-by (juxt :module :sign :text) images))
+            *enforce-ethos* true
+            *changed-ethos-is-fragment* true]
+    (build source code)))
+
+(defn- build-directory [directory root code]
+  (render-directory directory (book-proposal/directory-page directory root) code))
+
+(defn- probe-directory [directory root]
+  (let [sink (atom (sorted-map))
+        plan (book-proposal/directory-page directory root)
+        code (slurp (str (fs/path script-dir "book-code.html")) :encoding "UTF-8")
+        slots (binding [*figure-sink* sink
+                        *proposal-image-html* (fn [{:keys [slot]}]
+                                                (str "<span data-proposal-image-slot=\"" slot "\"></span>"))]
+                (render-directory directory plan code))]
+    {:slots slots :images (:images plan) :figures @sink}))
+
 (defn directory-figures
   "The figures the page of a proposal directory wants, {number {:lines :mermaid?}} in the
-  builder's own numbering; throws what the builder refuses. Nothing is read of any figure."
+  builder's own numbering; throws what the builder refuses. Numbered SVGs
+  are not read; PNGs named by the proposal are validated as in a build."
   ([directory] (directory-figures directory book-proposal/repository-root))
-  ([directory root]
-  (let [sink (atom (sorted-map))]
-    (binding [*source-path* directory
-              *figure-sink* sink
-              *enforce-ethos* true
-              *changed-ethos-is-fragment* true]
-      (build (book-proposal/directory-source directory root)
-             (slurp (str (fs/path script-dir "book-code.html")) :encoding "UTF-8")))
-    @sink)))
+  ([directory root] (:figures (probe-directory directory root))))
 
 (defn directory-page-faults
-  "What the builder refuses of a proposal directory, as [{:reason ...}], with the figures
-  taken as present; empty when the directory builds."
-  [directory]
-  (try (directory-figures directory) []
-       (catch clojure.lang.ExceptionInfo e [{:reason (ex-message e)}])))
+  "Check the source build, with numbered figures taken as present, and optionally the built artifact."
+  [directory artifact]
+  (try
+    (let [{:keys [slots images]} (probe-directory directory book-proposal/repository-root)]
+      (if artifact
+        (let [actual (try
+                       (when (fs/regular-file? artifact) (slurp artifact :encoding "UTF-8"))
+                       (catch java.io.IOException _ nil))]
+          (if (and actual (not (blank? actual)))
+            (book-check/check-proposal-artifact images slots actual)
+            [{:reason "proposal-artifact-unreadable-or-empty" :artifact artifact}]))
+        []))
+    (catch clojure.lang.ExceptionInfo e [{:reason (ex-message e)}])))
 
 (defn read-text
   "Read a UTF-8 file with newlines normalised to \\n."
@@ -2641,14 +2694,14 @@
                 *figures-dir* (when (>= fi 0) (get args (inc fi)))
                 *ethos-zero* (if (>= ei 0) (get args (inc ei)) configured-ethos-zero)
                 *ethos-zero-real* (if (>= ri 0) (get args (inc ri)) configured-ethos-zero)]
-        (try (let [directory? (fs/directory? src-path)
-                   src (if directory?
-                         (do (check-directory! src-path)
-                             (book-proposal/directory-source src-path book-proposal/repository-root))
-                         (let [src (read-text src-path)] (check-source! src) src))]
-               (binding [*enforce-ethos* true
-                         *changed-ethos-is-fragment* directory?]
-                 (spit out-path (build src (read-text code-path)) :encoding "UTF-8")))
+        (try (let [code (read-text code-path)
+                   page (if (fs/directory? src-path)
+                          (do (check-directory! src-path)
+                              (build-directory src-path book-proposal/repository-root code))
+                          (let [src (read-text src-path)]
+                            (check-source! src)
+                            (binding [*enforce-ethos* true] (build src code))))]
+               (spit out-path page :encoding "UTF-8"))
              (catch clojure.lang.ExceptionInfo e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
                (book-check/notify-refusal! "book-build" src-path (ex-message e))

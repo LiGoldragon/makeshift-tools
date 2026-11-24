@@ -28,6 +28,7 @@
         coreutils
         nix
         tree-sitter
+        pngcheck
         stdenv.cc
       ];
       testEnvironment = pkgs: {
@@ -47,7 +48,7 @@
         ));
         FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.dejavu_fonts ]; };
       };
-      runtimeInputs = pkgs: with pkgs; [ babashka git nix coreutils tree-sitter stdenv.cc ];
+      runtimeInputs = pkgs: with pkgs; [ babashka git nix coreutils tree-sitter pngcheck stdenv.cc ];
       # The installed commands: each runs the checkout's script with the pinned
       # babashka, tree-sitter, compiler, ethos-zero and grammars on its path.
       bookTools = pkgs:

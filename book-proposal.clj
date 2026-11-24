@@ -557,10 +557,8 @@
 
 ;; --- one module's view
 
-(defn- location-text [{:keys [repository path]}] (str repository " › " path))
-
 (defn- proposal-head [number entry]
-  (str "#### Proposal " number ": " change-title " · " (location-text entry)))
+  (str "#### Proposal " number ": " change-title " · " (book-check/module-location-text entry)))
 
 (defn- container [name lines] (concat [(str "::: " name)] lines [":::"]))
 
@@ -627,7 +625,7 @@
   [modules index m state next-number!]
   (let [{:keys [entry ops fences new? old-description new-description old-front new-front]} (modules m)
         move-at (index m)
-        heading (str "## " (location-text entry) (when new? ", a new file"))
+        heading (str "## " (book-check/module-location-text entry) (when new? ", a new file"))
         description
         (cond
           new? (when new-description (container "description" (map #(signed "+" %) (str/split-lines new-description))))
@@ -667,15 +665,15 @@
                     (let [{:keys [id from to lines]} move
                           state-word state]
                       (-> (with-blank-before out)
-                          (conj (str "#### Proposal " id ": " change-title " · " (location-text entry)))
+                          (conj (str "#### Proposal " id ": " change-title " · " (book-check/module-location-text entry)))
                           (conj "")
                           (into (if (= side :to)
                                   (container (str "move " state-word)
-                                             (concat [(str "from: " (location-text (get-in modules [from :entry])))
-                                                      (str "to: " (location-text (get-in modules [to :entry]))) ""]
+                                             (concat [(str "from: " (book-check/module-location-text (get-in modules [from :entry])))
+                                                      (str "to: " (book-check/module-location-text (get-in modules [to :entry]))) ""]
                                                      lines))
                                   (container (str "moved " state-word)
-                                             [(str "to: " (location-text (get-in modules [to :entry])))]))))))
+                                             [(str "to: " (book-check/module-location-text (get-in modules [to :entry])))]))))))
         render-region (fn [out [s e]]
                         (loop [p s segment [] out out done #{}]
                           (if (> p e)
@@ -694,9 +692,28 @@
         (let [[plain _] (plain-lines (map :text (subvec ops p)) tail?)]
           (into out plain))))))
 
-(defn directory-source
-  "The book source a proposal directory shows: its title and kind, then each module of the
-  manifest, in its order, as a whole module view."
+(defn- module-images [directory kind {:keys [entry new? ops fences old-description new-description old-front new-front]} moves]
+  (when (str/ends-with? (:path entry) ".md")
+    (let [location (book-check/module-location-text entry)
+          refuse (fn [text] (refuse (str "proposal-image-placement-unsupported: " location ": " text)))]
+      (doseq [line (concat old-front new-front [old-description new-description])
+              :when (and line (book-check/proposal-image-reference? line))]
+        (refuse line))
+      (for [[position {:keys [text sign b c]}] (map-indexed vector ops)
+            :when (book-check/proposal-image-reference? text)
+            :let [figure (book-check/data-figure-line text)]]
+        (do
+          (when-not (and (= "Proposal" kind)
+                         (or (= :add sign) (and (= :del sign) (= :changed (:state entry))))
+                         (empty? (fences position))
+                         (not (contains? moves position)) figure)
+            (refuse text))
+          (assoc figure :bytes (book-check/read-proposal-png directory figure)
+                 :module location
+                 :new-module? new? :sign sign :body-line (inc (if (= :del sign) b c)) :text text))))))
+
+(defn directory-page
+  "Project authenticated module copies to book source and the PNGs their signed body lines name."
   [directory root]
   (let [{:keys [title kind creator entries]} (read-directory-manifest directory)
         state (if (= kind "Review") "landed" "proposed")
@@ -712,9 +729,16 @@
                       entries)
         moves (numbered-moves modules next-number!)
         index (move-index modules moves)]
-    (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\nCreated by " creator ".\n\n"
-         (str/join "\n" (mapcat #(concat (module-view modules index % state next-number!) [""])
-                                (range (count modules)))))))
+    {:source (str "Presentation.{ «" title "» " kind " }\n\n# " title "\n\nCreated by " creator ".\n\n"
+                  (str/join "\n" (mapcat #(concat (module-view modules index % state next-number!) [""])
+                                          (range (count modules)))))
+     :images (into [] (map-indexed #(assoc %2 :slot (str %1)))
+                   (mapcat #(module-images directory kind %1 %2) modules index))}))
+
+(defn directory-source
+  "The book source a proposal directory shows."
+  [directory root]
+  (:source (directory-page directory root)))
 
 (defn check-directory
   "The faults of a proposal directory, as [{:reason ...}], empty when the builder can read it."
@@ -724,7 +748,7 @@
           faults (concat
                   (when (empty? entries) [{:reason "manifest-without-modules"}])
                   (for [[a b] (map vector entries (rest entries)) :when (same-module? a b)]
-                    {:reason "module-repeated" :module (location-text a)})
+                    {:reason "module-repeated" :module (book-check/module-location-text a)})
                   (for [{:keys [state repository path revision] :as entry} entries
                         fault (concat
                                (when-not (book-check/valid-location? repository path) [{:reason "module-location-invalid"}])
@@ -735,6 +759,6 @@
                                  [{:reason "new-module-empty"}])
                                (when (and revision (not (re-matches #"[a-f0-9]{40}" revision)))
                                  [{:reason "revision-invalid"}]))]
-                    (assoc fault :module (location-text entry))))]
+                    (assoc fault :module (book-check/module-location-text entry))))]
       (vec faults))
     (catch clojure.lang.ExceptionInfo e [{:reason "manifest-invalid" :detail (ex-message e)}])))

@@ -127,6 +127,29 @@ Data figures do not use the Mermaid figure counter. The checker requires a
 local filename and a readable SVG document. When calling `book-check/check-book` directly, pass
 `:source-path` in its options so it can find the SVG.
 
+A proposal directory can show standalone `![alt text](drawing.png)` lines in
+the body of a Markdown module. Put each PNG at the proposal root beside
+`manifest.datom`. An added line uses the copy and appears under the green
+addition margin. In a Changed module, a removed line comes from the Git
+revision in the manifest and appears under the red removal margin. For an
+image replacement with different bytes, name separate root files for the old
+and new sides. Each panel embeds the exact validated bytes, in the order of
+the signed lines. Neither image uses a numbered SVG or a separate image request.
+
+Both commands check the PNG format, filename and placement. Supported
+placements are signed body lines in a Proposal: additions to New and Changed
+modules, and removals from Changed modules. Refusals go to the configured
+coordinator.
+The packaged commands include `pngcheck`; direct Babashka calls require
+`pngcheck` on PATH when a proposal names a PNG.
+
+To check a rendered artifact against its proposal, run
+`book-check /abs/PROPOSAL_DIRECTORY /abs/BUILT.html`. The checker compares the
+embedded PNGs in document order against the authenticated module copies and
+the original assets. It maps the signed source lines to position slots in
+the module's addition and removal panels without rendering any expected PNG markup. The one-path
+`book-check /abs/PROPOSAL_DIRECTORY` checks the source alone.
+
 A proposal's heading renders as the module's name alone, `<type>:<topic>:<version>`
 (`vision/belief-modules/0.md` is `vision:belief-modules:0`), taken from the heading's
 `repository › path`; a path that is not a module's is shown as it is. The proposal
