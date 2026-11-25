@@ -447,10 +447,12 @@ watcher follows its request and cursor; only a Delivered or Read receipt counts
 as delivery. The optional receipt file preserves pending and completed requests
 across restarts. A terminal refusal is recorded separately from delivery.
 
-    bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin N] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]
+    bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin N] [--model-window N] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]
 
-CriomOS-home sets the addresses, Codex homes, input-token threshold and escalation
-margin in restartable user units. Dry replay reads an explicit recording and
+CriomOS-home sets the addresses, Codex homes, effective model windows, and refresh
+and escalation thresholds in restartable user units. If a rollout reports a smaller
+window, the watcher reduces both thresholds by the same proportion and logs the
+limits in use for that flow. Dry replay reads an explicit recording and
 prints what it would send. Directory watches open before initial discovery so
 appends during startup stay queued.
 

@@ -6,7 +6,7 @@
 ;;
 ;; CriomOS-home declares one restartable user service per address.
 ;; Run: bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT]
-;;        [--margin TOKENS] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]
+;;        [--margin TOKENS] [--model-window TOKENS] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]
 ;; Herdr identifies the current flow; ROLLOUT is an explicit starting recording for replay.
 ;; The receipt file keeps admitted requests across restarts. Dry mode never sends.
 ;;
@@ -25,7 +25,7 @@
            (java.util.concurrent LinkedBlockingQueue)))
 
 (def default-homes ["/home/li/.codex-next" "/home/li/.codex-next-5ck97j38j3sb"])
-(def usage "usage: bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin TOKENS] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]")
+(def usage "usage: bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin TOKENS] [--model-window TOKENS] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]")
 
 (defn fail [message] (throw (ex-info (str message "\n" usage) {})))
 
@@ -40,7 +40,7 @@
                   (if-let [arg (first args)]
                     (cond
                       (= arg "--dry") (recur (rest args) (assoc result :dry true))
-                      (#{"--margin" "--home" "--inotifywait" "--receipt-file"} arg)
+                      (#{"--margin" "--model-window" "--home" "--inotifywait" "--receipt-file"} arg)
                       (let [value (second args)]
                         (when (or (nil? value) (str/starts-with? value "--"))
                           (fail (str "missing value for " arg)))
@@ -50,15 +50,19 @@
                       (str/starts-with? arg "--") (fail (str "unknown option: " arg))
                       :else (recur (rest args) (update result :positional conj arg)))
                     result))
-        {:keys [positional homes margin inotifywait receipt-file dry]} options
+        {:keys [positional homes margin model-window inotifywait receipt-file dry]} options
         [address size rollout] positional]
     (when-not (<= 2 (count positional) 3) (fail "expected ADDRESS SIZE [ROLLOUT]"))
     (when-not (re-matches #"\{ (Psyche|Mind|Field) \w+ \w+ \}" address)
       (fail (str "invalid address: " address)))
-    {:address address :size (parse-integer size "SIZE") :rollout rollout
-     :margin (parse-integer (or margin "25000") "--margin")
-     :homes (if (seq homes) homes default-homes)
-     :receipt-file receipt-file :inotifywait (or inotifywait "inotifywait") :dry (boolean dry)}))
+    (let [size (parse-integer size "SIZE")
+          margin (parse-integer (or margin "25000") "--margin")
+          model-window (when model-window (parse-integer model-window "--model-window"))]
+      (when (and model-window (<= model-window (+ size margin)))
+        (fail "The configured model window must exceed the escalation threshold."))
+      {:address address :size size :rollout rollout :margin margin :model-window model-window
+       :homes (if (seq homes) homes default-homes)
+       :receipt-file receipt-file :inotifywait (or inotifywait "inotifywait") :dry (boolean dry)})))
 
 (defn log [& parts]
   (binding [*out* *err*]
@@ -199,6 +203,15 @@
              "input tokens, flow exit" (:exit result) output (str/trim (:err result)))
         (some-> (admission output) (assoc :tokens tokens))))))
 
+(defn effective-policy
+  "Keep the declared fractions when Codex reports a smaller effective window."
+  [{:keys [model-window size margin] :as configuration} observed-window]
+  (if (and model-window (integer? observed-window) (pos? observed-window) (< observed-window model-window))
+    (let [first-threshold (quot (*' size observed-window) model-window)
+          second-threshold (quot (*' (+ size margin) observed-window) model-window)]
+      (assoc configuration :size first-threshold :margin (- second-threshold first-threshold)))
+    configuration))
+
 (defn thresholds [{:keys [size margin]}]
   [{:name :first :at size :priority "MiddleAbrupt" :text order-text}
    {:name :second :at (+ size margin) :priority "HardAbrupt" :text hard-order-text}])
@@ -262,20 +275,32 @@
                   (update-in [:files path :lines] (fnil inc 0)))
         state (select-rollout configuration state path identity)
         payload (:payload row)
-        tokens (when (= "token_count" (:type payload))
-                 (get-in payload [:info :last_token_usage :input_tokens]))]
+        info (when (= "token_count" (:type payload)) (:info payload))
+        tokens (get-in info [:last_token_usage :input_tokens])
+        observed-window (:model_context_window info)
+        state (if (and (integer? observed-window) (pos? observed-window))
+                (assoc-in state [:files path :model-window] observed-window)
+                state)]
     (if (and (= path (get-in state [:current :path])) (number? tokens))
-      (let [flow-id (:flow-id identity)]
+      (let [flow-id (:flow-id identity)
+            window (get-in state [:files path :model-window])]
         (when (:dry configuration)
           (println "DRY reading:" tokens "tokens, flow" flow-id "line" (get-in state [:files path :lines])))
-        (assoc state :reading [flow-id tokens]))
+        (assoc state :reading [flow-id tokens window]))
       state)))
 
 (defn apply-reading [configuration state]
-  (if-let [[flow-id tokens] (:reading state)]
-    (-> (update-in state [:fired flow-id]
-                   #(react (assoc configuration :flow-id flow-id) (or % #{}) tokens))
-        (dissoc :reading))
+  (if-let [[flow-id tokens window] (:reading state)]
+    (let [{:keys [size margin] :as policy} (effective-policy configuration window)
+          witness [flow-id window size margin]]
+      (when (and (:model-window configuration) (not= witness (:policy-reported state)))
+        (log (:address configuration) "flow" flow-id "reported window" (or window "unavailable")
+             "refresh threshold" size "escalation threshold" (+ size margin)
+             "latest input tokens" tokens))
+      (-> (update-in state [:fired flow-id]
+                     #(react (assoc policy :flow-id flow-id) (or % #{}) tokens))
+          (assoc :policy-reported witness)
+          (dissoc :reading)))
     state))
 
 (defn consume-path [configuration state path]

@@ -57,6 +57,27 @@
         (is (= "b-resumed" (get-in old-reopened [:current :path])))
         (is (= #{:first :second} (get-in old-reopened [:fired "aaaaaa"])))))))
 
+(deftest thresholds-follow-the-effective-codex-window
+  (let [configuration (watch/configuration [address "300000" "--margin" "50000" "--model-window" "475000" "--dry"])
+        limits (fn [window] (mapv :at (watch/thresholds (watch/effective-policy configuration window))))
+        sample (fn [tokens window]
+                 (row {:payload {:type "token_count" :info {:last_token_usage {:input_tokens tokens}
+                                                            :model_context_window window}}}))]
+    (is (= [300000 350000] (limits 475000)))
+    (is (= [300000 350000] (limits 872000)))
+    (is (= [300000 350000] (limits nil)))
+    (is (= [163200 190400] (limits 258400)))
+    (is (thrown? Exception (watch/configuration [address "300000" "--model-window" "258400"])))
+    (let [state (reduce #(watch/consume-line configuration "a" %1 %2) empty-state
+                        [(metadata address "2026-11-18T20:00:00Z") (flow-row "aaaaaa")
+                         (sample 163199 258400) (sample 163200 nil)])
+          result (atom nil)
+          output (with-out-str (reset! result (watch/apply-reading configuration state)))]
+      (is (= ["aaaaaa" 163200 258400] (:reading state)))
+      (is (= #{:first} (get-in @result [:fired "aaaaaa"])))
+      (is (str/includes? output "MiddleAbrupt.Order"))
+      (is (not (str/includes? output "HardAbrupt.Order"))))))
+
 (deftest flow-admission-is-not-a-delivery
   (is (nil? (watch/admission "SendRefused.Unknown.Address")))
   (is (= {:request "abcd" :cursor "200" :state "Queued"}
