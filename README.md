@@ -439,24 +439,20 @@ Defaults: `--min-used-percent 95`, `--expiry-window-minutes 90`. Without
 `--codex` the binary is `codex` on PATH, then the newest
 `/nix/store/*-codex-0.1*/bin/codex`.
 
-**codex-context-watch.clj** is a stopgap watcher for one Codex permaflow address.
-It discovers the current flow through `herdr agent list`, matches the address
-and flow id in rollout headers, and watches Codex session directories with
-`inotifywait` (inotify-tools). New rollout files move the watcher to the fresh
-flow of that address and rearm its two handover orders: MiddleAbrupt at SIZE,
-HardAbrupt at SIZE + margin, each at most once per flow during the watcher’s
-lifetime. Old rollout appends and reopened recordings preserve that accounting.
-There is no idle expiry or timer scan; stop it with SIGTERM.
+**codex-context-watch.clj** watches one Codex permaflow address. It finds the
+current flow through Herdr, matches its rollout header, and follows appends and
+refreshes through inotify. The latest input-token reading in each batch determines
+which handover orders are due. A Flow admission reserves that order while the
+watcher follows its request and cursor; only a Delivered or Read receipt counts
+as delivery. The optional receipt file preserves pending and completed requests
+across restarts. A terminal refusal is recorded separately from delivery.
 
-    bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin N] [--home DIR]... [--inotifywait COMMAND] [--dry]
+    bb codex-context-watch.clj ADDRESS SIZE [ROLLOUT] [--margin N] [--home DIR]... [--inotifywait COMMAND] [--receipt-file PATH] [--dry]
 
-Start one transient user unit per address, named
-`codex-context-watch-<Aspect>-<topic>-<Model>`, so every unit name holds the
-whole address. The complete start command is in the file
-header. SIZE and margin remain arguments (currently 300000 and 50000).
-`--home` is repeatable. ROLLOUT selects an initial recording for a `--dry`
-replay; dry mode prints readings and orders and sends nothing. Directory
-watches are installed before discovery, so appends during startup stay queued.
+CriomOS-home sets the addresses, Codex homes, input-token threshold and escalation
+margin in restartable user units. Dry replay reads an explicit recording and
+prints what it would send. Directory watches open before initial discovery so
+appends during startup stay queued.
 
 ## Tests
 

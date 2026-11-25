@@ -23,7 +23,7 @@
 (defn recording [address id time tokens]
   (str/join "\n" (concat [(metadata address time) (flow-row id)] (map tokens-row tokens) [""])))
 (defn consume [state path content]
-  (reduce #(watch/consume-line config path %1 %2) state (str/split-lines content)))
+  (reduce #(watch/apply-reading config (watch/consume-line config path %1 %2)) state (str/split-lines content)))
 
 (deftest arguments-and-readings
   (is (= 50000 (:margin config)))
@@ -45,7 +45,7 @@
 
 (deftest thresholds-follow-flows-and-preserve-once-accounting
   (let [sends (atom [])]
-    (with-redefs [watch/send! (fn [cfg priority _ tokens] (swap! sends conj [(:flow-id cfg) priority tokens]))]
+    (with-redefs [watch/send! (fn [cfg priority _ tokens] (swap! sends conj [(:flow-id cfg) priority tokens]) {:state "Delivered"})]
       (let [a (consume empty-state "a" (recording address "aaaaaa" "2026-11-18T20:00:00Z" [299999 300000 349999 350000 400000]))
             b (consume a "b" (recording address "bbbbbb" "2026-11-18T20:01:00Z" [350000 360000]))
             old (consume b "a" (tokens-row 450000))
@@ -56,6 +56,48 @@
                 ["bbbbbb" "MiddleAbrupt" 350000] ["bbbbbb" "HardAbrupt" 350000]] @sends))
         (is (= "b-resumed" (get-in old-reopened [:current :path])))
         (is (= #{:first :second} (get-in old-reopened [:fired "aaaaaa"])))))))
+
+(deftest flow-admission-is-not-a-delivery
+  (is (nil? (watch/admission "SendRefused.Unknown.Address")))
+  (is (= {:request "abcd" :cursor "200" :state "Queued"}
+         (watch/admission "SendAccepted.{ abcd 200 Queued }")))
+  (is (= {:request "abcd" :state "Uncertain"}
+         (watch/admission "Failed.Admitted.{ abcd ReceiptUncertain }")))
+  (is (= "Retryable.Kernel"
+         (watch/delivery-state "abcd"
+          "SendsObserved.{ store 203 [ { abcd 201 Sender.{ Mind core Sol } { Mind fixture Sol } Queued } { abcd 202 Sender.{ Mind core Sol } { Mind fixture Sol } Retryable.Kernel } { dcba 203 Sender.{ Mind core Sol } { Mind fixture Sol } Delivered } ] }")))
+  (is (nil? (watch/delivery-state "abcd"
+             "SendChanged.{ dcba 204 Sender.{ Mind core Sol } { Mind fixture Sol } Delivered }")))
+  (is (= "Read"
+         (watch/delivery-state "abcd"
+          "SendChanged.{ abcd 204 Sender.{ Mind core Sol } { Mind fixture Sol } Read }")))
+  (is (every? #(nil? (watch/terminal-state %)) ["Queued" "Attempting" "Uncertain" "Retryable.Kernel"]))
+  (is (= :delivered (watch/terminal-state "Read")))
+  (is (= :failed (watch/terminal-state "Failed.Taken"))))
+
+(deftest pending-reminders-are-durable-and-not-duplicated
+  (fs/with-temp-dir [directory {}]
+    (let [path (str (fs/path directory "receipts.edn"))
+          calls (atom [])
+          released (promise)
+          followed (promise)
+          entry ["aaaaaa" :first]
+          config (assoc config :dry false :flow-id (first entry) :receipt-file path
+                        :receipts (atom {}) :receipt-failure #(deliver followed %))]
+      (with-redefs [watch/current-flow (constantly "aaaaaa")
+                    watch/send! (fn [_ _ _ tokens]
+                                  (swap! calls conj tokens)
+                                  {:request "abcd" :cursor "1" :state "Queued" :tokens tokens})
+                    watch/observe-delivery! (fn [_] @released)
+                    watch/log (fn [& args] (when (= "Delivered" (last args)) (deliver followed :done)))]
+        (watch/react config #{} 300000)
+        (is (= "Queued" (get-in @(:receipts config) [entry :state])))
+        (let [restored (clojure.edn/read-string (slurp path))]
+          (watch/react (assoc config :receipts (atom restored)) #{} 300010))
+        (is (= [300000] @calls))
+        (deliver released "Delivered")
+        (is (= :done (deref followed 2000 :timeout)))
+        (is (= "Delivered" (get-in (clojure.edn/read-string (slurp path)) [entry :state])))))))
 
 (deftest complete-lines-and-partial-utf8
   (fs/with-temp-dir [directory {}]
