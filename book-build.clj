@@ -2633,7 +2633,8 @@
   (str/replace (slurp (str path) :encoding "UTF-8") #"\r\n?" "\n"))
 
 (defn- check-source! [src]
-  (let [errors (book-check/check-book src {:source-path *source-path*})]
+  (let [errors (book-check/check-book src {:source-path *source-path*
+                                           :allow-plain true})]
     (when (seq errors)
       (throw (ex-info (str "source check failed: " (pr-str errors))
                       {:kind :source-invalid :errors errors})))

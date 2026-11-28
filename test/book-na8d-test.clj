@@ -52,6 +52,16 @@
     (is (str/includes? html "A plain source paragraph."))
     (is (not (str/includes? html "class=\"figure\"")))))
 
+(deftest plain-source-is-an-explicit-publisher-mode
+  (let [source "# Plain\n\nAn ordinary page with no proposal wrapper.\n\n## A section\n\nMore prose.\n"]
+    (is (= [] (book-check/check-book source {:allow-plain true})))
+    ;; The authoring checker remains strict unless the publisher opts in.
+    (is (some #(= "missing-proposal" (:reason %))
+              (book-check/check-book source)))
+    ;; A real proposal marker is never reclassified as a plain page.
+    (is (seq (book-check/check-book "# Plain\n\n+ changed\n"
+                                    {:allow-plain true})))))
+
 (deftest composite-fixture-keeps-all-four-visible
   (let [source (str "# Composite\n\n"
                     "Plain source.\n\n"
