@@ -115,12 +115,18 @@ It reads `book-code.html` (page code), `book-grammars.json` and
 
     bb book-build.clj SOURCE.md OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]
 
+A Markdown file without a numbered legacy proposal heading or a module-view
+heading is rendered as a page, not as a change sheet. Its headings, tables,
+lists, front matter and code fences remain content. The builder writes the HTML
+before reporting source findings on stderr, including findings from the legacy
+proposal checker. Run `book-check SOURCE.md` separately for the strict check.
+
 Figures are numbered in source order, one counter for the whole page: the
 n-th figure is `fig-n.svg` in the `--figures` directory. Every Mermaid fence
 takes the next number, wherever it sits: a proposal, a move, or
 a module view's unchanged text. Added, removed and unchanged fences are drawn under their own margins. A Mermaid fence without its
-file, and a `fig-n.svg` numbered past the page's last figure, stop the build
-naming the file.
+file is shown as source with a warning. A `fig-n.svg` numbered past the
+last figure is reported; in an ordinary Markdown page it does not stop publication.
 
 A standalone Markdown image line, such as `![](heat-map.svg)`, embeds an SVG
 data figure from beside the source or from inside a proposal directory. Prefix

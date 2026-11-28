@@ -1,7 +1,8 @@
 (ns book-na8d-test
   (:require [clojure.test :refer [deftest is run-tests]]
             [babashka.fs :as fs]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.java.shell :as shell]))
 
 (def tools-dir (str (fs/parent (fs/parent (fs/absolutize *file*)))))
 (load-file (str (fs/path tools-dir "book-build.clj")))
@@ -52,15 +53,60 @@
     (is (str/includes? html "A plain source paragraph."))
     (is (not (str/includes? html "class=\"figure\"")))))
 
-(deftest plain-source-is-an-explicit-publisher-mode
-  (let [source "# Plain\n\nAn ordinary page with no proposal wrapper.\n\n## A section\n\nMore prose.\n"]
-    (is (= [] (book-check/check-book source {:allow-plain true})))
-    ;; The authoring checker remains strict unless the publisher opts in.
-    (is (some #(= "missing-proposal" (:reason %))
-              (book-check/check-book source)))
-    ;; A real proposal marker is never reclassified as a plain page.
-    (is (seq (book-check/check-book "# Plain\n\n+ changed\n"
-                                    {:allow-plain true})))))
+(defn- build-plain-file [source]
+  (let [dir (fs/create-temp-dir)
+        src (str (fs/path dir "source.md"))
+        out (str (fs/path dir "page.html"))]
+    (try
+      (spit src source)
+      (let [result (shell/sh "bb" (str (fs/path tools-dir "book-build.clj")) src out)]
+        (assoc result :html (when (fs/regular-file? out) (slurp out))))
+      (finally (fs/delete-tree dir)))))
+
+(deftest plain-source-renders-without-hiding-check-findings
+  ;; The reported proposal had exactly this combination: a bare front matter
+  ;; fence with a blank line, ordinary headings, a table and notes in bullets.
+  (let [source (str "# Thread management, as proposed\n\nAn ordinary page.\n\n---\n\n"
+                    "```\n---\ndescription: The starting of threads.\n\nvisibility: Listed\n---\n```\n\n"
+                    "## The kinds of thread\n\n*New.*\n\n"
+                    "| Kind of thread | Started with |\n|---|---|\n| Every thread | Skills |\n\n"
+                    "#### Beside the proposal\n\n- A note.\n+ Another note.\n")
+        {:keys [exit err html]} (build-plain-file source)]
+    (is (= 0 exit) err)
+    (doseq [finding ["missing-proposal" "text-outside-proposal-without-module"]]
+      (is (str/includes? err finding) finding)
+      (is (not (str/includes? html finding)) finding))
+    (doseq [rendered ["<h1 class=\"book-title\">Thread management, as proposed</h1>"
+                      "<h2>The kinds of thread</h2>" "<h4>Beside the proposal</h4>" "<hr>" "<em>New.</em>"
+                      "<pre><code class=\"language-text\">---\ndescription: The starting of threads.\n\nvisibility: Listed\n---</code></pre>"
+                      "<table><thead><tr><th>Kind of thread</th><th>Started with</th></tr>"
+                      "<tr><td>Every thread</td><td>Skills</td></tr>"
+                      "<ul><li>A note.</li><li>Another note.</li></ul>"]]
+      (is (str/includes? html rendered) rendered))
+    (is (not (str/includes? err "fig-1.svg")))))
+
+(deftest plain-source-preserves-leading-front-matter-and-fence-bodies
+  (let [source (str "---\ndescription: Draft <not markup>\n\nvisibility: Listed\n---\n"
+                    "# Plain\n\n"
+                    "````markdown\n```\n\n## Proposal 7: Example only\n::: shown\n```\n````\n\n"
+                    "Closing prose.\n")
+        {:keys [exit err html]} (build-plain-file source)]
+    (is (= 0 exit) err)
+    (is (str/includes? html "---\ndescription: Draft &lt;not markup&gt;\n\nvisibility: Listed\n---"))
+    (is (str/includes? html ">```\n\n## Proposal 7: Example only\n::: shown\n```</code>"))
+    (is (str/includes? html "<p>Closing prose.</p>"))))
+
+(deftest plain-account-keeps-its-presentation-and-signature
+  (let [source (str "Presentation.{ Notes.1 Account }\n\n"
+                    "# A draft title\n\nCreated by Sol. Drawn by Luna.\n\n"
+                    "## Proposal headings in an account\n\nA paragraph.\n")
+        {:keys [exit err html]} (build-plain-file source)]
+    (is (= 0 exit) err)
+    (is (str/includes? html "<title>Notes.1</title>"))
+    (is (str/includes? html "<meta name=\"book-kind\" content=\"account\">"))
+    (is (str/includes? html "<h1 class=\"book-title\">Notes.1</h1>"))
+    (is (str/includes? html "<p class=\"book-subtitle\">Created by Sol. Drawn by Luna.</p>"))
+    (is (str/includes? html "<h2>Proposal headings in an account</h2>"))))
 
 (deftest composite-fixture-keeps-all-four-visible
   (let [source (str "# Composite\n\n"
@@ -76,4 +122,5 @@
       (is (str/includes? html needle) needle))))
 
 (when (= *file* (System/getProperty "babashka.file"))
-  (System/exit (if (zero? (:fail (run-tests 'book-na8d-test))) 0 1)))
+  (let [{:keys [fail error]} (run-tests 'book-na8d-test)]
+    (System/exit (if (zero? (+ fail error)) 0 1))))

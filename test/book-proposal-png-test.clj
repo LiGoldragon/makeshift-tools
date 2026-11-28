@@ -35,7 +35,7 @@
                      :extra-env {"BOOK_NOTICE_CONFIGURATION"
                                  (str (fs/path tools "test/refusal-notice-off.datom"))}}))
 
-(deftest the-publication-gate-requires-the-drawing-model
+(deftest an-undrawn-manifest-is-reported-but-can-be-published
   (fs/with-temp-dir [directory {}]
     (write-proposal! directory "Proposal" :new "Opening.\n")
     (let [manifest (fs/path directory "manifest.datom")
@@ -44,10 +44,13 @@
       (write-text! manifest undrawn)
       (is (str/includes? (:out (cli "book-tools" "source" directory)) "Created by Sol.\n"))
       (is (= 0 (:exit (cli "book-tools" "figures" directory (fs/path directory "figures")))))
-      (doseq [result [(cli "book-check" directory) (cli "book-build" directory out)]]
-        (is (= 1 (:exit result)))
-        (is (str/includes? (:err result) "manifest-without-drawer")))
-      (is (not (fs/exists? out)))
+      (let [check (cli "book-check" directory)
+            build (cli "book-build" directory out)]
+        (is (= 1 (:exit check)))
+        (is (= 0 (:exit build)) (:err build))
+        (doseq [result [check build]]
+          (is (str/includes? (:err result) "manifest-without-drawer")))
+        (is (fs/exists? out)))
       (is (= 1 (:exit (cli "book-tools" "drawer" directory "Nobody"))))
       (is (= undrawn (slurp (str manifest))))
       (is (= 0 (:exit (cli "book-tools" "drawer" directory "Terra"))))

@@ -804,20 +804,6 @@
   [lines]
   (or (:kind (source-presentation lines)) "Proposal"))
 
-(declare module-views)
-
-(defn plain-source?
-  "Whether a source is an ordinary page rather than a proposal document.
-  Plain pages have no proposal/module protocol markers; ordinary Markdown
-  headings, prose and fences remain content."
-  [lines]
-  (and (nil? (source-presentation lines))
-       (empty? (module-views lines))
-       (not-any? #(or (re-find #"^\s*[+-]\s+" %)
-                      (re-find #"^\s*#{2,6}\s+Proposal\b" %)
-                      (re-find #"^:::\s+(?:proposal|proposed|comment|shown|description|move|dependencies)\b" %))
-                  lines)))
-
 (defn- kind-sign [kind] (if (= "Review" kind) :added :removed))
 
 (defn module-views
@@ -993,7 +979,7 @@
   Option :dependency-names is a zero-argument reader of the registry ID set.
   Option :source-path locates SVG data figures beside the source file or inside the proposal directory."
   ([source] (check-book source {}))
-  ([source {:keys [read-module dependency-names source-path allow-plain]
+  ([source {:keys [read-module dependency-names source-path]
             :or {read-module read-context-module dependency-names registry-dependency-names}}]
    (let [lines (vec (str/split (str/replace source "\r\n" "\n") #"\n" -1))
          st (atom {:errors [] :fence nil :section nil :in-comment false :container nil :plain nil
@@ -1647,18 +1633,7 @@
        (err! (:line c) (str "unclosed-" (name (:kind c)) "-container")))
      (when (and (zero? (:proposals @st)) (not= "Account" (:kind @st)) (not module-review?)) (err! 1 "missing-proposal"))
      (when-let [f (:fence @st)] (err! (:line f) "unclosed-code-fence"))
-     (let [errors (:errors @st)
-           ;; The command-line publisher also accepts a finished Markdown page.
-           ;; Keep the proposal checker strict by default; this mode only removes
-           ;; protocol errors from a source proven to contain no protocol markers.
-           plain? (and allow-plain (plain-source? lines))]
-       (vec (sort-by :line
-                     (if plain?
-                       (remove #(contains? #{"missing-proposal"
-                                             "text-outside-proposal-without-module"
-                                             "heading-outside-proposal-without-module"}
-                                             (:reason %)) errors)
-                       errors)))))))
+     (vec (sort-by :line (:errors @st))))))
 
 (defn- change-block-end
   "The end offset of a change div, code line or table row, including nested spans."

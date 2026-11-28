@@ -3,7 +3,8 @@
 ;;
 ;; usage: bb book-build.clj SOURCE.md|DIRECTORY OUT.html [--code book-code.html] [--figures DIR] [--ethos-zero REF] [--ethos-zero-real REF]
 ;;
-;; The source is a book in the to-the-living form: a title, a
+;; The CLI also publishes ordinary Markdown, preserving its own headings, tables,
+;; lists and code fences. The structured source is a book in the to-the-living form: a title, a
 ;; Crystallization heading, proposals (### Proposal N: title), File:
 ;; lines, fenced text as panels signed in the margin, fenced code highlighted by tree-sitter as code
 ;; blocks, and numbered rulings. An ASCII box-and-arrow diagram in an unlabelled
@@ -13,9 +14,9 @@
 ;; --figures directory, its colours replaced by the page theme's (ink the page
 ;; text colour, fills the page surface) and its ids made its own. Every Mermaid fence requires its ordered figure file,
 ;; wherever it sits (a module view's text among them); every Mermaid fence is drawn and
-;; takes its number. A missing or unreadable figure file stops the build and names that file, and so
-;; does a fig-N.svg numbered past the page's last figure, which no fence asks for. Other
-;; diagram forms keep their existing optional-figure behavior. A failure to
+;; takes its number. Missing or invalid Mermaid illustrations retain their source;
+;; legacy diagram forms keep their optional-figure behavior. Unused figure files
+;; are reported. A failure to
 ;; read or write a file is also an error (stderr line, exit 1). A paragraph opening with
 ;; **Destroy** or **Archive** wraps the deleted module that follows, shown
 ;; whole, in a record panel under the red margin with that mark. A ::: move
@@ -106,6 +107,7 @@
                        (str "<span class=\"move move-" *inline-moved-state* " move-placeholder move-inline\">Moved to "
                             "<a href=\"#" (module-anchor location) "\">" location "</a></span>")))
         (str/replace #"\*\*(?=\S)(.+?)(?<=\S)\*\*" "<strong>$1</strong>")
+        (str/replace #"(?<!\*)\*(?=\S)([^*]+?)(?<=\S)\*(?!\*)" "<em>$1</em>")
         (str/replace #"\[~moved from ([^:\]]+):\s*(.+?)~\]"
                      "<span class=\"moved\"><span class=\"moved-origin\">from $1:</span> $2</span>")
         (str/replace #"\[-(.+?)-\]" "<del>$1</del>")
@@ -726,65 +728,74 @@
 
 (def ^:private bullet-re #"^(?:[-*] |\d+\. )")
 
-(defn fence-open
-  "The language of a code fence opening line, or nil."
-  [l]
-  (some-> (re-find #"^(?:`{3,}|~{3,})(\w*(?: sketch)?)\s*$" l) second))
+(defn- markdown-fence [line]
+  (when-let [[_ marker language] (re-matches #"^ {0,3}(`{3,}|~{3,})[ \t]*([^ \t`~]*(?: sketch)?)(?:[ \t]+.*)?" line)]
+    {:marker marker :language language}))
 
-(defn fence-close?
-  "A line that closes a code fence of backticks or tildes."
-  [l]
-  (boolean (re-find #"^(?:`{3,}|~{3,})\s*$" l)))
+(defn- markdown-fence-close? [{:keys [marker]} line]
+  (boolean (re-matches (re-pattern (str "^ {0,3}" (first marker)
+                                        "{" (count marker) ",}[ \t]*$"))
+                       line)))
 
 (defn split-chunk
-  "A chunk's bodies, each [kind body]: :fm (front matter lines between two ---
-  rules, only at the chunk's head), :heading, :list (lines), :code (lang and
-  lines), :table, and :p (a paragraph)."
-  [content]
-  (let [content (vec content)
-        n (count content)
-        rule? #(= "---" (rstrip (content %)))
-        stop? (fn [j] (let [l (content j)]
-                        (or (str/starts-with? l "#") (fence-open l)
-                            (re-find bullet-re l) (table-at? content j))))]
-    (loop [i 0 bodies []]
-      (if (>= i n)
-        bodies
-        (let [l (content i)]
-          (cond
-            (and (zero? i) (rule? i)
-                 (some #(rule? %) (range 1 n)))
-            (let [j (first (filter #(rule? %) (range 1 n)))]
-              (recur (inc j) (conj bodies [:fm (subvec content (inc i) j)])))
+  "A chunk's Markdown blocks. Module chunks can open with a front matter card;
+  page chunks treat standalone --- as rules, after leading front matter has
+  been read separately."
+  ([content] (split-chunk content nil))
+  ([content mode]
+    (let [content (vec content)
+          n (count content)
+          rule? #(= "---" (rstrip (content %)))
+          page? (= :page mode)
+          separator? #(and page? (rule? %))
+          bullet? #(re-find (if page? #"^(?:[-*+] |\d+\. )" bullet-re) %)
+          stop? (fn [j] (let [l (content j)]
+                          (or (str/starts-with? l "#") (markdown-fence l)
+                              (bullet? l) (separator? j) (table-at? content j))))]
+      (loop [i 0 bodies []]
+        (if (>= i n)
+          bodies
+          (let [l (content i)]
+            (cond
+              (and (not page?) (zero? i) (rule? i)
+                   (some #(rule? %) (range 1 n)))
+              (let [j (first (filter #(rule? %) (range 1 n)))]
+                (recur (inc j) (conj bodies [:fm (subvec content (inc i) j)])))
 
-            (re-find #"^#{1,6} " l)
-            (recur (inc i) (conj bodies [:heading l]))
+              (re-find #"^#{1,6} " l)
+              (recur (inc i) (conj bodies [:heading l]))
 
-            (fence-open l)
-            (let [j (loop [j (inc i)] (if (and (< j n) (not (fence-close? (rstrip (content j))))) (recur (inc j)) j))]
-              (recur (inc j) (conj bodies [:code [(fence-open l) (subvec content (inc i) (min n j))]])))
+              (separator? i)
+              (recur (inc i) (conj bodies [:rule nil]))
 
-            (re-find bullet-re l)
-            (let [j (loop [j (inc i)]
-                      (if (and (< j n) (not (str/starts-with? (content j) "#"))
-                               (not (fence-open (content j))))
-                        (recur (inc j)) j))
-                  items (reduce (fn [items x]
-                                  (if (re-find bullet-re x)
-                                    (conj items [(second (re-find #"^([-*]|\d+\.) " x))
-                                                 (str/replace x bullet-re "")])
-                                    (update-in items [(dec (count items)) 1] str " " (strip x))))
-                                [] (subvec content i j))]
-              (recur j (conj bodies [:list items])))
+              (markdown-fence l)
+              (let [{:keys [language] :as fence} (markdown-fence l)
+                    j (loop [j (inc i)]
+                        (if (and (< j n) (not (markdown-fence-close? fence (content j))))
+                          (recur (inc j)) j))]
+                (recur (inc j) (conj bodies [:code [language (subvec content (inc i) j)]])))
 
-            (table-at? content i)
-            (let [j (table-end content i)]
-              (recur j (conj bodies [:table (subvec content i j)])))
+              (bullet? l)
+              (let [j (loop [j (inc i)]
+                        (if (and (< j n) (not (str/starts-with? (content j) "#"))
+                                 (not (markdown-fence (content j)))
+                                 (not (separator? j)) (not (table-at? content j)))
+                          (recur (inc j)) j))
+                    items (reduce (fn [items x]
+                                    (if-let [bullet (bullet? x)]
+                                      (conj items [(strip bullet) (subs x (count bullet))])
+                                      (update-in items [(dec (count items)) 1] str " " (strip x))))
+                                  [] (subvec content i j))]
+                (recur j (conj bodies [:list items])))
 
-            :else
-            (let [j (loop [j (inc i)]
-                      (if (and (< j n) (not (stop? j))) (recur (inc j)) j))]
-              (recur j (conj bodies [:p (join-lines (subvec content i j))])))))))))
+              (table-at? content i)
+              (let [j (table-end content i)]
+                (recur j (conj bodies [:table (subvec content i j)])))
+
+              :else
+              (let [j (loop [j (inc i)]
+                        (if (and (< j n) (not (stop? j))) (recur (inc j)) j))]
+                (recur j (conj bodies [:p (join-lines (subvec content i j))]))))))))))
 
 (defn tokens
   "Words (letters, digits, _ and -), single punctuation marks, whitespace
@@ -1030,7 +1041,7 @@
        "+" (check-signed-ethos! lang lines)
        (check-rendered-ethos! lang lines))
      (str "<pre" (case sign "+" " class=\"code-add\"" "-" " class=\"code-del\"" "")
-          "><code class=\"language-" (code-class lang) "\">"
+          "><code class=\"language-" (esc-attr (code-class lang)) "\">"
           (str/join "\n" (or (highlight-lines lang lines) (map esc lines)))
           "</code></pre>"))))
 
@@ -1122,7 +1133,7 @@
                      :del (recur more (inc o) n (conj out (str "<span class=\"ln ln-del\">" (old-h o) "\n</span>")))
                      :add (recur more o (inc n) (conj out (str "<span class=\"ln ln-add\">" (new-h n) "\n</span>")))
                      (recur more (inc o) (inc n) (conj out (str "<span class=\"ln\">" (new-h n) "\n</span>")))))]
-        (str "<pre class=\"code-diff\"><code class=\"language-" (code-class lang) "\">"
+        (str "<pre class=\"code-diff\"><code class=\"language-" (esc-attr (code-class lang)) "\">"
              (apply str rows) "</code></pre>")))))
 
 ;; Markdown is never shown in a code block: a fence labelled markdown or md, and
@@ -1134,33 +1145,30 @@
 
 (declare body-html)
 
+(defn- markdown-chunks [lines]
+  (loop [[line & more] lines chunk [] out [] fence nil]
+    (cond
+      (nil? line) (cond-> out (seq chunk) (conj chunk))
+      fence (recur more (conj chunk line) out
+                   (when-not (markdown-fence-close? fence line) fence))
+      (blank? line) (recur more [] (cond-> out (seq chunk) (conj chunk)) nil)
+      :else (recur more (conj chunk line) out (markdown-fence line)))))
+
 (defn markdown-html
-  "Markdown lines as rendered text: headings (one level below the sheet's),
-  paragraphs, lists and tables; a code fence inside it stays code, except a
-  markdown one, which is text again, and, in a module's text, a Mermaid one,
-  which is its figure."
+  "Markdown lines as rendered module text. Code fences stay code, except
+  Markdown fences render as text and Mermaid fences become figures."
   [lines]
-  (let [lines (vec lines)
-        chunks (loop [i 0 cur [] out [] fence false]
-                 (if (>= i (count lines))
-                   (cond-> out (seq cur) (conj cur))
-                   (let [l (lines i)
-                         fence' (if fence (not (fence-close? (rstrip l))) (boolean (fence-open l)))]
-                     (if (and (not fence) (not fence') (blank? l))
-                       (recur (inc i) [] (cond-> out (seq cur) (conj cur)) false)
-                       (recur (inc i) (conj cur l) out fence')))))]
-    (apply str
-           (for [chunk chunks
-                 [kind body :as b] (split-chunk chunk)]
-             (case kind
-               :heading (let [[_ hashes t] (re-find #"^(#{1,6}) (.*)$" body)
-                              lvl (min 6 (inc (count hashes)))]
-                          (str "<h" lvl ">" (inline t) "</h" lvl ">"))
-               :code (cond (markdown-languages (first body)) (markdown-html (second body))
-                           ;; a Mermaid fence in a module's text is its figure
-                           (and *figures* (= "mermaid" (first body))) ((:mermaid *figures*) (second body))
-                           :else (body-html b))
-               (body-html b))))))
+  (apply str
+         (for [chunk (markdown-chunks lines)
+               [kind body :as b] (split-chunk chunk)]
+           (case kind
+             :heading (let [[_ hashes t] (re-find #"^(#{1,6}) (.*)$" body)
+                            lvl (min 6 (inc (count hashes)))]
+                        (str "<h" lvl ">" (inline t) "</h" lvl ">"))
+             :code (cond (markdown-languages (first body)) (markdown-html (second body))
+                         (and *figures* (= "mermaid" (first body))) ((:mermaid *figures*) (second body))
+                         :else (body-html b))
+             (body-html b)))))
 
 (defn body-html
   "One body of a chunk as formatted HTML."
@@ -1288,12 +1296,13 @@
     (loop [i 0 out []]
       (if (>= i n)
         out
-        (let [lang (fence-open (content i))
-              j (when lang (first (filter #(= "```" (rstrip (content %))) (range (inc i) n))))]
+        (let [{:keys [language] :as fence} (markdown-fence (content i))
+              j (when fence (first (filter #(markdown-fence-close? fence (content %))
+                                            (range (inc i) n))))]
           (if j
             (recur (inc j)
                    (if (< 1 (count (set (map #(first (sign-content (lines %))) (range i (inc j))))))
-                     (conj out [:code lang (subvec lines (inc i) j)])
+                     (conj out [:code language (subvec lines (inc i) j)])
                      (into out (subvec lines i (inc j)))))
             (recur (inc i) (conj out (lines i)))))))))
 
@@ -1554,6 +1563,10 @@
         (let [l (lines i)
               data-figure (when (unfenced i)
                             (let [figure (book-check/data-figure-line l)]
+                              (when (and *source-path*
+                                         (book-check/png-figure? figure)
+                                         (not (fs/directory? *source-path*)))
+                                (throw (ex-info "proposal-image-directory-required" {:line (inc i)})))
                               (when-not (and (:sign figure) (book-check/png-figure? figure))
                                 figure)))
               before proposal
@@ -2139,6 +2152,121 @@
   as {:lines :mermaid?}, and none is read: the build checks everything but that the figures are present."
   nil)
 
+(defn- report-finding! [context finding]
+  (binding [*out* *err*]
+    (println (str "book-build: " context ": " finding))))
+
+(defn- figure-renderer [number]
+  (fn [lines form]
+    (let [n (vswap! number inc)
+          name (str "fig-" n ".svg")
+          file (when *figures-dir* (fs/path *figures-dir* name))
+          unavailable (fn [reason]
+                        (if (= :legacy form)
+                          (do (binding [*out* *err*]
+                                (println (str "book-build: figure " name
+                                              (if (= reason "SVG not found")
+                                                (str " not found; diagram " n " left out")
+                                                (str " left out: " reason)))))
+                              "")
+                          (do (report-finding! (str "figure " name " unavailable")
+                                               (str (if (= :mermaid form) "Mermaid" "Figure")
+                                                    " source retained (" reason ")"))
+                              (str "<pre class=\""
+                                   (if (= :mermaid form) "mermaid-fallback" "figure-fallback")
+                                   "\"><code>" (esc (str/join "\n" lines)) "</code></pre>"))))]
+      (if *figure-sink*
+        (do (swap! *figure-sink* assoc n {:lines (vec lines) :mermaid? (= :mermaid form)}) "")
+        (if (and file (fs/exists? file))
+          (try
+            (illustration-el (slurp (str file) :encoding "UTF-8") (str "f" n "-"))
+            (catch clojure.lang.ExceptionInfo e (unavailable (ex-message e)))
+            (catch java.io.IOException e (unavailable (ex-message e))))
+          (unavailable "SVG not found"))))))
+
+(defn- unused-figures [number]
+  (when (and *figures-dir* (not *shared-figure-counter*) (fs/directory? *figures-dir*))
+    (seq (sort (filter #(> % number)
+                       (keep #(some->> (re-matches #"fig-(\d+)\.svg" (str (fs/file-name %)))
+                                       second parse-long)
+                             (fs/list-dir *figures-dir*)))))))
+
+(defn- unused-figure-message [unused number]
+  (str "figure " (str/join ", " (map #(str "fig-" % ".svg") unused))
+       " has no figure in the page, which numbers " number " figures"))
+
+(defn- bare-front-matter-end [lines]
+  (when (= "---" (first lines))
+    (first (filter #(= "---" (rstrip (lines %))) (range 1 (count lines))))))
+
+(defn- file-rendering [lines]
+  (let [offset (if-let [end (bare-front-matter-end lines)] (inc end) 0)]
+    (if (some (fn [i]
+                (let [line (lines i)]
+                  (or (re-find proposal-heading line)
+                      (book-check/module-view-heading line))))
+              (book-check/unfenced-indices lines offset (count lines)))
+      :book
+      :markdown)))
+
+(defn- markdown-heading [line]
+  (let [[_ hashes text] (re-find #"^(#{1,6}) (.*)$" line)]
+    [(str "h" (count hashes)) text]))
+
+(defn- markdown-paragraph [text]
+  (if-let [figure (book-check/data-figure-line text)]
+    (try
+      (data-figure-html "image/svg+xml" (:alt-text figure)
+                        (book-check/read-data-figure *source-path* figure))
+      (catch clojure.lang.ExceptionInfo _ (body-html [:p text]))
+      (catch java.io.IOException _ (body-html [:p text])))
+    (body-html [:p text])))
+
+(defn- markdown-page [lines code]
+  (let [number (volatile! 0)
+        render-figure (figure-renderer number)
+        {:keys [title kind] :as presentation} (book-check/source-presentation lines)
+        content (if presentation
+                  (let [index (first (keep-indexed #(when (book-check/presentation-line %2) %1) lines))]
+                    (subvec lines (inc index)))
+                  lines)
+        front-matter-end (bare-front-matter-end content)
+        bodies (->> (if front-matter-end (subvec content (inc front-matter-end)) content)
+                    markdown-chunks
+                    (mapcat #(split-chunk % :page))
+                    vec)
+        title-index (first (keep-indexed (fn [i [kind line]]
+                                          (when (and (= :heading kind) (str/starts-with? line "# ")) i))
+                                        bodies))
+        page-title (or title (some->> title-index (get bodies) second markdown-heading second))
+        parts (concat
+               ["<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"]
+               (when page-title [(str "<title>" (esc page-title) "</title>")])
+               (when (and kind (not= "Proposal" kind))
+                 [(str "<meta name=\"book-kind\" content=\"" (str/lower-case kind) "\">")])
+               (when front-matter-end [(code-html "text" (subvec content 0 (inc front-matter-end)))])
+               (map-indexed
+                (fn [i [kind body :as block]]
+                  (case kind
+                    :heading (let [[tag text] (markdown-heading body)]
+                               (if (= i title-index)
+                                 (str "<h1 class=\"book-title\">" (inline (or title text)) "</h1>")
+                                 (str "<" tag ">" (inline text) "</" tag ">")))
+                    :rule "<hr>"
+                    :code (let [[language lines] body]
+                            (cond
+                              (= "mermaid" language) (render-figure lines :mermaid)
+                              (and (= "figure" language) (try (read-figure lines) (catch Exception _ nil)))
+                              (render-figure lines :markdown)
+                              :else (code-html (if (= "" language) "text" language) lines)))
+                    :p (if (and title-index (= i (inc title-index)) (str/starts-with? body "Created by"))
+                         (str "<p class=\"book-subtitle\">" (inline body) "</p>")
+                         (markdown-paragraph body))
+                    (body-html block)))
+                bodies))
+        html (str (str/join "\n" parts) "\n" code)]
+    {:html html :numbered-figures @number}))
+
 (defn build [src code]
   (let [images (volatile! *proposal-images*)
         nfig (or *shared-figure-counter* (volatile! 0))
@@ -2154,40 +2282,9 @@
         proposed-next? (fn [i] (= [:proposed] (get bs (inc i))))
         file-next? (fn [i] (let [[kind ls] (get bs (if (proposed-next? i) (+ i 2) (inc i)))]
                              (and (= :para kind) (str/starts-with? (first ls) "File: "))))
-        render-fig (fn [lines required?]
-                     (let [n (vswap! nfig inc)
-                           name (str "fig-" n ".svg")
-                           f (when *figures-dir* (fs/path *figures-dir* name))
-                           ;; Mermaid is source content as well as an optional
-                           ;; illustration.  If its qualified SVG is absent or
-                           ;; cannot be read, retain a legible escaped source
-                           ;; block rather than silently dropping the figure.
-                           fallback (fn [reason]
-                                      (binding [*out* *err*]
-                                        (println (str "book-build: figure " name
-                                                      " unavailable; Mermaid source retained (" reason ")")))
-                                      (str "<pre class=\"mermaid-fallback\"><code>"
-                                           (esc (str/join "\n" lines))
-                                           "</code></pre>"))]
-                       (cond
-                         *figure-sink* (do (swap! *figure-sink* assoc n {:lines (vec lines) :mermaid? required?}) "")
-                         :else
-                       (if (and f (fs/exists? f))
-                         (let [svg (slurp (str f) :encoding "UTF-8")]
-                           (try (illustration-el svg (str "f" n "-"))
-                                (catch clojure.lang.ExceptionInfo e
-                                  (if required?
-                                    (fallback (ex-message e))
-                                    (do (binding [*out* *err*]
-                                          (println (str "book-build: figure " name " left out: " (ex-message e))))
-                                        "")))))
-                         (if required?
-                           (fallback "SVG not found")
-                           (do (binding [*out* *err*]
-                                 (println (str "book-build: figure " name " not found; diagram " n " left out")))
-                               ""))))))
-        show-fig (fn [lines] (render-fig lines false))
-        show-mermaid (fn [lines] (render-fig lines true))
+        render-fig (figure-renderer nfig)
+        show-fig #(render-fig % :legacy)
+        show-mermaid #(render-fig % :mermaid)
         module-figures (fn [drawing] {:drawing drawing :mermaid show-mermaid})
         out (atom [])
         target (volatile! nil)
@@ -2619,18 +2716,9 @@
       (when (seq errors)
         (throw (ex-info (str "built page check failed: " (pr-str errors))
                         {:kind :built-page-invalid :errors errors})))
-      ;; a drawing numbered past the page's last figure is one no fence asks for: the
-      ;; numbering and the illustrator disagree, and every figure after the split is wrong
-      (when (and *figures-dir* (not *shared-figure-counter*) (fs/directory? *figures-dir*))
-        (let [unused (sort (filter #(> % @nfig)
-                                   (keep #(some->> (re-matches #"fig-(\d+)\.svg" (str (fs/file-name %)))
-                                                   second parse-long)
-                                         (fs/list-dir *figures-dir*))))]
-          (when (seq unused)
-            (throw (ex-info (str "figure " (str/join ", " (map #(str "fig-" % ".svg") unused))
-                                 " has no figure in the page, which numbers " @nfig
-                                 " figures")
-                            {:kind :figure-unused :figures unused})))))
+      (when-let [unused (unused-figures @nfig)]
+        (throw (ex-info (unused-figure-message unused @nfig)
+                        {:kind :figure-unused :figures unused})))
       page)))
 
 (defn- render-directory [directory {:keys [source images]} code]
@@ -2685,13 +2773,30 @@
   [path]
   (str/replace (slurp (str path) :encoding "UTF-8") #"\r\n?" "\n"))
 
-(defn- check-source! [src]
-  (let [errors (book-check/check-book src {:source-path *source-path*
-                                           :allow-plain true})]
-    (when (seq errors)
-      (binding [*out* *err*]
-        (println (str "book-build: source check warning: " (pr-str errors)))))
-    true))
+(defn- report-check! [context check]
+  (try
+    (when-let [findings (seq (check))]
+      (report-finding! (str context " warning") (pr-str (vec findings))))
+    (catch Exception e
+      (report-finding! (str context " could not finish") (ex-message e)))))
+
+(defn- publish-file! [src out-path code]
+  (let [lines (book-check/source-lines src)
+        rendering (file-rendering lines)
+        {:keys [html numbered-figures]}
+        (binding [*enforce-ethos* true]
+          (case rendering
+            :markdown (binding [*allow-unrendered-ethos* true] (markdown-page lines code))
+            :book {:html (build src code)}))]
+    (spit out-path html :encoding "UTF-8")
+    (report-check! "source check" #(book-check/check-book src {:source-path *source-path*}))
+    (when numbered-figures
+      (report-check! "built page check" #(book-check/check-built-page html))
+      (try
+        (when-let [unused (unused-figures numbered-figures)]
+          (report-finding! "unused figure warning" (unused-figure-message unused numbered-figures)))
+        (catch java.io.IOException e
+          (report-finding! "figure check could not finish" (ex-message e)))))))
 
 (defn- check-directory! [directory]
   (let [faults (book-proposal/check-directory directory book-proposal/repository-root)]
@@ -2722,16 +2827,12 @@
                    _ (when (and prior (not (fs/directory? src-path)))
                        (book-proposal/refuse "prior-proposal-requires-proposal-directory"))
                    code (read-text code-path)
-                   page (if (fs/directory? src-path)
-                          (do (check-directory! src-path)
-                              (build-directory src-path book-proposal/repository-root prior code))
-                          (let [src (read-text src-path)]
-                            (check-source! src)
-                            (binding [*enforce-ethos* true
-                                      *allow-unrendered-ethos* (book-check/plain-source?
-                                                                (book-check/source-lines src))]
-                              (build src code))))]
-               (spit out-path page :encoding "UTF-8"))
+                   directory? (fs/directory? src-path)]
+               (if directory?
+                 (do (check-directory! src-path)
+                     (spit out-path (build-directory src-path book-proposal/repository-root prior code)
+                           :encoding "UTF-8"))
+                 (publish-file! (read-text src-path) out-path code)))
              (catch clojure.lang.ExceptionInfo e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
                (book-check/notify-refusal! "book-build" src-path (ex-message e))
