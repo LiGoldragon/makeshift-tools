@@ -2128,7 +2128,18 @@
         render-fig (fn [lines required?]
                      (let [n (vswap! nfig inc)
                            name (str "fig-" n ".svg")
-                           f (when *figures-dir* (fs/path *figures-dir* name))]
+                           f (when *figures-dir* (fs/path *figures-dir* name))
+                           ;; Mermaid is source content as well as an optional
+                           ;; illustration.  If its qualified SVG is absent or
+                           ;; cannot be read, retain a legible escaped source
+                           ;; block rather than silently dropping the figure.
+                           fallback (fn [reason]
+                                      (binding [*out* *err*]
+                                        (println (str "book-build: figure " name
+                                                      " unavailable; Mermaid source retained (" reason ")")))
+                                      (str "<pre class=\"mermaid-fallback\"><code>"
+                                           (esc (str/join "\n" lines))
+                                           "</code></pre>"))]
                        (cond
                          *figure-sink* (do (swap! *figure-sink* assoc n {:lines (vec lines) :mermaid? required?}) "")
                          :else
@@ -2137,14 +2148,12 @@
                            (try (illustration-el svg (str "f" n "-"))
                                 (catch clojure.lang.ExceptionInfo e
                                   (if required?
-                                    (throw (ex-info (str "figure " name " unrendered: " (ex-message e))
-                                                    {:figure name} e))
+                                    (fallback (ex-message e))
                                     (do (binding [*out* *err*]
                                           (println (str "book-build: figure " name " left out: " (ex-message e))))
                                         "")))))
                          (if required?
-                           (throw (ex-info (str "figure " name " not found; Mermaid fence " n " unrendered")
-                                           {:figure name}))
+                           (fallback "SVG not found")
                            (do (binding [*out* *err*]
                                  (println (str "book-build: figure " name " not found; diagram " n " left out")))
                                ""))))))

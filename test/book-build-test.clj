@@ -945,14 +945,14 @@
     (is (not (str/includes? html "<title>Inner</title>")))
     (is (= 2 (count (re-seq #"class=\"figure\"" html))) "move and adjacent figure share numbering")))
 
-(deftest a-missing-move-mermaid-figure-refuses-the-build
+(deftest a-missing-move-mermaid-figure-keeps-source
   (let [src "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::"
-        message (refusal src)]
-    (is (= "figure fig-1.svg not found; Mermaid fence 1 unrendered" message)))
+        html (book-build/build src "")]
+    (is (str/includes? html "mermaid-fallback"))
+    (is (str/includes? html "A --&gt; B")))
   (with-figures {"fig-1.svg" "not svg"}
-    #(is (str/starts-with?
-           (refusal "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::")
-           "figure fig-1.svg unrendered:"))))
+    #(is (str/includes? (book-build/build "::: move landed\nfrom: a\nto: b\n\n```mermaid\nA --> B\n```\n:::" "")
+                         "mermaid-fallback"))))
 
 (deftest move-container-refusals-and-fenced-delimiter
   (doseq [op ["::: move" "::: move bogus"]]
@@ -1002,17 +1002,16 @@
     (is (not (str/includes? html "language-mermaid")))
     (is (not (str/includes? html "flowchart TB")))))
 
-(deftest an-unrendered-mermaid-names-the-ordered-figure
+(deftest an-unrendered-mermaid-keeps-the-ordered-source
   (with-figures {"fig-1.svg" (faithful 1 "plain")
                  "fig-2.svg" (faithful 1 "context")}
-    #(is (= "figure fig-3.svg not found; Mermaid fence 3 unrendered"
-            (refusal mermaid-margin-src))))
+    #(is (str/includes? (built mermaid-margin-src) "mermaid-fallback")))
   (with-figures {"fig-1.svg" (faithful 1 "plain")
                  "fig-2.svg" (faithful 1 "context")
                  "fig-3.svg" "not an svg"}
-    #(is (str/starts-with? (refusal mermaid-margin-src) "figure fig-3.svg unrendered:"))))
+    #(is (str/includes? (built mermaid-margin-src) "mermaid-fallback"))))
 
-(deftest cli-refuses-an-unrendered-mermaid-without-writing-the-page
+(deftest cli-keeps-an-unrendered-mermaid-source
   (let [dir (fs/create-temp-dir)
         src (str (fs/path dir "b.md"))
         out (str (fs/path dir "b.html"))]
@@ -1020,9 +1019,10 @@
       (spit src "### Proposal 1: x · repo › x.md\n\n+ Added.\n\n```mermaid\nflowchart TB\n    a --> b\n```\n")
       (let [r (clojure.java.shell/sh "bb" (str (fs/path tools-dir "book-build.clj")) src out
                                      "--figures" (str dir))]
-        (is (= 1 (:exit r)))
-        (is (= "book-build: figure fig-1.svg not found; Mermaid fence 1 unrendered\n" (:err r)))
-        (is (not (fs/exists? out))))
+        (is (= 0 (:exit r)))
+        (is (str/includes? (:err r) "Mermaid source retained"))
+        (is (fs/exists? out))
+        (is (str/includes? (slurp out) "mermaid-fallback")))
       (finally (fs/delete-tree dir)))))
 
 (deftest prose-fence-renders-as-text
@@ -1477,8 +1477,8 @@
         "the module view's figure is fig-4, after both changed figures")
     (is (str/includes? html "id=\"f4-DRAWN\"") "the context figure is the page's fourth"))
   (with-figures {"fig-1.svg" (faithful 1 "plain") "fig-2.svg" (faithful 1 "removed") "fig-3.svg" (faithful 1 "added")}
-    #(is (= "figure fig-4.svg not found; Mermaid fence 4 unrendered" (refusal context-figure-src))
-         "a context figure with no drawing refuses the build")))
+    #(is (str/includes? (built context-figure-src) "mermaid-fallback")
+         "a context figure with no drawing keeps its source")))
 
 (deftest a-drawing-no-figure-asks-for-refuses-the-build
   ;; an extra drawing after every fence has a figure is refused
@@ -1492,7 +1492,7 @@
   (let [src (str "# B\n\n## mind-belief › knowledge/x.md\n\n````markdown\nProse.\n\n"
                  "```mermaid\nflowchart LR\n    a --> b\n```\n````\n")]
     (with-figures {}
-      #(is (= "figure fig-1.svg not found; Mermaid fence 1 unrendered" (refusal src))))
+      #(is (str/includes? (built src) "mermaid-fallback")))
     (with-figures {"fig-1.svg" a-to-b}
       #(is (str/includes? (built src) "id=\"f1-DRAWN\"")))))
 
