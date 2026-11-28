@@ -2502,6 +2502,18 @@
               (emit (str "<div class=\"diff\">" (panel "-" [:fig (show-mermaid old)])
                          (panel "+" [:fig (show-mermaid new)]) "</div>")))
 
+            ;; A whole module replacement can pair an old Mermaid fence with
+            ;; newly added non-Mermaid text.  It is a textual replacement, not
+            ;; a changed figure: never number or validate the obsolete drawing.
+            (and (= raw-lang "mermaid")
+                 (some #(str/starts-with? % "- ") lines)
+                 (some #(str/starts-with? % "+ ") lines)
+                 (not-any? #(and (str/starts-with? % "+ ")
+                                 (re-find #"(?:flowchart|graph|sequenceDiagram|stateDiagram|classDiagram|erDiagram|journey|gantt|pie|gitGraph)\b"
+                                          (subs % 2)))
+                           lines))
+            (emit-panels (text-panels lines true))
+
             ;; a Mermaid flowchart is a diagram: shown as its fig-N.svg
             (and (= raw-lang "mermaid") (some signed-line? lines))
             (throw (ex-info (str "mixed Mermaid change: every line must carry the same + or - marker " (pr-str (take 3 lines)))
