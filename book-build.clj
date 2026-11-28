@@ -1846,6 +1846,11 @@
   "When true, Ethos Check is a publication gate."
   false)
 
+(def ^:dynamic *allow-unrendered-ethos*
+  "Plain finished pages may retain an Ethos fence when validation rejects it.
+  Proposal sources keep the strict authoring gate."
+  false)
+
 (defn- sh [& args]
   (let [p (.start (doto (ProcessBuilder. ^java.util.List (vec args))
                     (.redirectErrorStream true)))
@@ -2054,7 +2059,14 @@
   history and authenticated module views retain their explicit exemptions."
   [language lines]
   (when (and *enforce-ethos* *validate-rendered-ethos* (= language "ethos"))
-    (check-ethos! (or *rendered-ethos-reference* *ethos-zero*) (str/join "\n" lines))))
+    (try
+      (check-ethos! (or *rendered-ethos-reference* *ethos-zero*) (str/join "\n" lines))
+      (catch clojure.lang.ExceptionInfo error
+        (if *allow-unrendered-ethos*
+          (binding [*out* *err*]
+            (println (str "book-build: Ethos validation unavailable for rendered fence; source retained ("
+                          (ex-message error) ")")))
+          (throw error))))))
 
 (defn check-signed-ethos!
   "A signed excerpt is highlighted as authored. Only a root-headed document
@@ -2683,7 +2695,10 @@
                               (build-directory src-path book-proposal/repository-root prior code))
                           (let [src (read-text src-path)]
                             (check-source! src)
-                            (binding [*enforce-ethos* true] (build src code))))]
+                            (binding [*enforce-ethos* true
+                                      *allow-unrendered-ethos* (book-check/plain-source?
+                                                                (book-check/source-lines src))]
+                              (build src code))))]
                (spit out-path page :encoding "UTF-8"))
              (catch clojure.lang.ExceptionInfo e
                (binding [*out* *err*] (println (str "book-build: " (ex-message e))))
