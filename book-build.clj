@@ -1851,6 +1851,23 @@
   Proposal sources keep the strict authoring gate."
   false)
 
+(def ^:dynamic *whole-module-replacement*
+  "A proposal directory is replacing an existing module wholesale.  Removed
+  figures in that module are historical text, never current figure inputs."
+  false)
+
+(defn- whole-module-replacement-directory?
+  [directory]
+  (try
+    (some (fn [{:keys [state] :as entry}]
+            (and (= state :changed)
+                 (let [copy (book-proposal/copy-path directory entry)]
+                   (and (fs/regular-file? copy)
+                        (not (re-find #"(?m)^\s*```mermaid\s*$"
+                                      (slurp (str copy) :encoding "UTF-8")))))))
+          (:entries (book-proposal/read-directory-manifest directory)))
+    (catch Throwable _ false)))
+
 (defn- sh [& args]
   (let [p (.start (doto (ProcessBuilder. ^java.util.List (vec args))
                     (.redirectErrorStream true)))
@@ -2482,8 +2499,10 @@
           (cond
             ;; A removed Mermaid fence is drawn under its removal margin.
             (and (in-change?) (removed-mermaid lang lines))
-            (emit (str "<div class=\"diff\">"
-                       (panel "-" [:fig (show-mermaid (removed-mermaid lang lines))]) "</div>"))
+            (if *whole-module-replacement*
+              (emit-panels (text-panels (removed-mermaid lang lines) true))
+              (emit (str "<div class=\"diff\">"
+                         (panel "-" [:fig (show-mermaid (removed-mermaid lang lines))]) "</div>")))
 
             ;; a figure proposed for the module it will live in: all + is added, all - removed
             (and (or (in-change?) (= raw-lang "mermaid")) (signed-figure lang lines))
@@ -2618,7 +2637,8 @@
   (binding [*source-path* directory
             *proposal-images* (not-empty (group-by (juxt :module :sign :text) images))
             *enforce-ethos* true
-            *changed-ethos-is-fragment* true]
+            *changed-ethos-is-fragment* true
+            *whole-module-replacement* (whole-module-replacement-directory? directory)]
     (build source code)))
 
 (defn- build-directory [directory root prior code]
