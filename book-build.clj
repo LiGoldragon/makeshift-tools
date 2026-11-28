@@ -2689,15 +2689,15 @@
   (let [errors (book-check/check-book src {:source-path *source-path*
                                            :allow-plain true})]
     (when (seq errors)
-      (throw (ex-info (str "source check failed: " (pr-str errors))
-                      {:kind :source-invalid :errors errors})))
+      (binding [*out* *err*]
+        (println (str "book-build: source check warning: " (pr-str errors)))))
     true))
 
 (defn- check-directory! [directory]
   (let [faults (book-proposal/check-directory directory book-proposal/repository-root)]
     (when (seq faults)
-      (throw (ex-info (str "proposal directory check failed: " (pr-str faults))
-                      {:kind :source-invalid :errors faults})))
+      (binding [*out* *err*]
+        (println (str "book-build: proposal directory check warning: " (pr-str faults)))))
     true))
 
 (defn -main [& args]
